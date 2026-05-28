@@ -5,7 +5,7 @@ coreKtx = "1.13.1"
 lifecycleRuntimeKtx = "2.8.7"
 activityCompose = "1.9.3"
 composeBom = "2024.11.00"
-wearComposeBom = "2024.10.00"
+wearCompose = "1.4.1"
 playServicesWearable = "18.2.0"
 room = "2.6.1"
 navigationCompose = "2.8.4"
@@ -33,10 +33,9 @@ androidx-datastore-preferences = { group = "androidx.datastore", name = "datasto
 androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workRuntime" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 play-services-wearable = { group = "com.google.android.gms", name = "play-services-wearable", version.ref = "playServicesWearable" }
-wear-compose-bom = { group = "androidx.wear.compose", name = "compose-bom", version.ref = "wearComposeBom" }
-wear-compose-material = { group = "androidx.wear.compose", name = "compose-material" }
-wear-compose-foundation = { group = "androidx.wear.compose", name = "compose-foundation" }
-wear-compose-ui-tooling = { group = "androidx.wear.compose", name = "compose-ui-tooling" }
+wear-compose-material = { group = "androidx.wear.compose", name = "compose-material", version.ref = "wearCompose" }
+wear-compose-foundation = { group = "androidx.wear.compose", name = "compose-foundation", version.ref = "wearCompose" }
+wear-compose-ui-tooling = { group = "androidx.wear.compose", name = "compose-ui-tooling", version.ref = "wearCompose" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
