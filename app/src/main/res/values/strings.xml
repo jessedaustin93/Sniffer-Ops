@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SnifferOps</string>
+    <string name="dashboard">Dashboard</string>
+    <string name="wifi_scanner">WiFi Scanner</string>
+    <string name="bluetooth_scanner">Bluetooth Scanner</string>
+    <string name="nfc_scanner">NFC Scanner</string>
+    <string name="cellular_scanner">Cellular</string>
+    <string name="sdr_scanner">SDR Scanner</string>
+    <string name="settings">Settings</string>
+    <string name="scan_start">Start Scan</string>
+    <string name="scan_stop">Stop Scan</string>
+    <string name="no_devices">No devices detected</string>
+    <string name="rtl_sdr_connected">RTL-SDR Dongle Connected</string>
+    <string name="rtl_sdr_disconnected">RTL-SDR Not Connected</string>
+</resources>

@@ -1,0 +1,3 @@
+-keep class com.snifferops.** { *; }
+-keepattributes *Annotation*
+-keepattributes SourceFile,LineNumberTable

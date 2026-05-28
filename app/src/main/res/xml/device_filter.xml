@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- RTL2838 (RTL-SDR) -->
+    <usb-device vendor-id="0x0BDA" product-id="0x2838" />
+    <usb-device vendor-id="0x0BDA" product-id="0x2832" />
+    <!-- Rafael Micro R820T -->
+    <usb-device vendor-id="0x0BDA" product-id="0x2840" />
+    <!-- ezcap EzTV668 -->
+    <usb-device vendor-id="0x0BDA" product-id="0x2836" />
+    <!-- FUNcube Dongle Pro+ -->
+    <usb-device vendor-id="0x04D8" product-id="0xFB56" />
+</resources>
