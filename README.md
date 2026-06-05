@@ -1,6 +1,6 @@
 # SnifferOps
 
-SnifferOps is a passive signal scanner for Wi-fi, Bluetooth, NFC, and by using the Windows companion app it is able to use an RTL SDR Blog V4 for SDR scanning in the mobile app as well as the Windows companion app. The Android app is tailored toward Samsung devices, and inlcudes a Samsung Watch app that shows status when the Android app is on.
+SnifferOps is a passive signal scanner for Wi-Fi, Bluetooth, NFC, and SDR workflows. The Samsung-focused Android app can use an RTL-SDR Blog V4 through the polished Windows companion app, which also supports Windows-side SDR scanning with its own desktop UI, app icon, and RTL server controls. The Android branch includes the Samsung Watch status monitor companion.
 
 ## Choose A Version
 
