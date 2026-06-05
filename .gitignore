@@ -10,6 +10,7 @@
 .cxx
 local.properties
 *.png
+!windows/assets/snifferops-tile.png
 tools/
 *.log
 *.out.csv
