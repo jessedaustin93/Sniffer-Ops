@@ -56,6 +56,10 @@ powershell -ExecutionPolicy Bypass -File scripts\test-rtl-sdr.ps1
 - `REFRESH` updates local Wi-Fi, Bluetooth, SDR, and LAN endpoint status.
 - `OPEN LOGS` opens the latest `rtl_tcp` error log.
 
+## Icon
+
+The Windows app and desktop shortcut use `windows\assets\snifferops.ico`, generated from `windows\assets\snifferops-tile.png`.
+
 ## Notes
 
 Runtime captures, logs, generated ADS-B map output, screenshots, and downloaded RTL-SDR tools are intentionally ignored and should not be committed.

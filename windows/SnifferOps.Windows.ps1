@@ -483,6 +483,7 @@ $RtlFmPath = Join-Path $ToolRoot "rtl_fm.exe"
 $RtlAdsbPath = Join-Path $ToolRoot "rtl_adsb.exe"
 $RtlPowerPath = Join-Path $ToolRoot "rtl_power.exe"
 $StartRtlTcpScript = Join-Path $RepoRoot "scripts\start-rtl-tcp.ps1"
+$AppIconPath = Join-Path $PSScriptRoot "assets\snifferops.ico"
 $OutLog = Join-Path $RepoRoot "rtl_tcp.out.log"
 $ErrLog = Join-Path $RepoRoot "rtl_tcp.err.log"
 $AppLog = Join-Path $RepoRoot "snifferops-windows.log"
@@ -623,6 +624,17 @@ function Invoke-AppAction {
         ) | Out-Null
     }
 }
+
+function Set-SnifferOpsWindowIcon {
+    param([System.Windows.Window] $TargetWindow)
+
+    if ($TargetWindow -and (Test-Path -LiteralPath $AppIconPath)) {
+        $TargetWindow.Icon = [System.Windows.Media.Imaging.BitmapFrame]::Create(
+            [Uri]::new($AppIconPath, [UriKind]::Absolute)
+        )
+    }
+}
+
 $script:SdrScanFrequencies = @(
     88000000,
     108500000,
@@ -1272,6 +1284,7 @@ function Start-RadioTuner {
 
 function Show-RadioTunerWindow {
     $win = New-Object System.Windows.Window
+    Set-SnifferOpsWindowIcon -TargetWindow $win
     $win.Title = "SnifferOps - FM/AM Radio Tuner"
     $win.Width = 440
     $win.SizeToContent = "Height"
@@ -1493,6 +1506,7 @@ function Show-LensChooserWindow {
     )
 
     $chooser = New-Object System.Windows.Window
+    Set-SnifferOpsWindowIcon -TargetWindow $chooser
     $chooser.Title = "SnifferOps - Choose viewer"
     $chooser.Width = 420
     $chooser.SizeToContent = "Height"
@@ -1637,6 +1651,7 @@ function Show-ListenerWindow {
     )
 
     $listenWindow = New-Object System.Windows.Window
+    Set-SnifferOpsWindowIcon -TargetWindow $listenWindow
     $listenWindow.Title = "SnifferOps - Listening"
     $listenWindow.Width = 420
     $listenWindow.SizeToContent = "Height"
@@ -1748,6 +1763,7 @@ function Show-DetailWindow {
     }
 
     $detailWindow = New-Object System.Windows.Window
+    Set-SnifferOpsWindowIcon -TargetWindow $detailWindow
     $detailWindow.Title = "SnifferOps - $Title"
     $detailWindow.Width = 860
     $detailWindow.Height = 620
@@ -2297,6 +2313,7 @@ function Test-RtlSdrDongle {
 
 $reader = New-Object System.Xml.XmlNodeReader $xaml
 $Window = [Windows.Markup.XamlReader]::Load($reader)
+Set-SnifferOpsWindowIcon -TargetWindow $Window
 
 # Safety net: log any unhandled UI-thread exception and keep the app alive.
 $Window.Dispatcher.add_UnhandledException({
