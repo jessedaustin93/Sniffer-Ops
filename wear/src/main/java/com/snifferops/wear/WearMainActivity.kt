@@ -1,14 +1,17 @@
 package com.snifferops.wear
 
+import android.content.pm.ActivityInfo
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +28,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -55,9 +61,19 @@ private val WatchFont = FontFamily(Font(R.font.spyagency3ital))
 private val WatchCondensedFont = FontFamily(Font(R.font.spyagency3cond))
 private val WatchTitleFont = FontFamily(Font(R.font.spyagency3gradital))
 
+private enum class WatchPanel(val label: String) {
+    Dashboard("WATCH MONITOR"),
+    Wifi("WIFI"),
+    Bluetooth("BT"),
+    Cellular("CELL"),
+    Sdr("SDR"),
+    Alerts("ALERTS")
+}
+
 class WearMainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         setContent {
             MaterialTheme {
                 WearApp()
@@ -70,6 +86,11 @@ class WearMainActivity : ComponentActivity() {
 fun WearApp() {
     val context = androidx.compose.ui.platform.LocalContext.current
     val state by WearStateHolder.state.collectAsStateWithLifecycle()
+    var selectedPanel by remember { mutableStateOf(WatchPanel.Dashboard) }
+
+    BackHandler(enabled = selectedPanel != WatchPanel.Dashboard) {
+        selectedPanel = WatchPanel.Dashboard
+    }
 
     LaunchedEffect(Unit) {
         Wearable.getDataClient(context).dataItems.addOnSuccessListener { items ->
@@ -92,7 +113,12 @@ fun WearApp() {
                         sdr = dataMap.getInt("sdr", 0),
                         alerts = dataMap.getInt("alerts", 0),
                         scanning = dataMap.getBoolean("scanning", false),
-                        sdrConnected = dataMap.getBoolean("sdr_connected", false)
+                        sdrConnected = dataMap.getBoolean("sdr_connected", false),
+                        wifiItems = dataMap.readItems("wifi_items"),
+                        btItems = dataMap.readItems("bt_items"),
+                        cellItems = dataMap.readItems("cell_items"),
+                        sdrItems = dataMap.readItems("sdr_items"),
+                        alertItems = dataMap.readItems("alert_items")
                     )
                 }
             }
@@ -135,64 +161,84 @@ fun WearApp() {
                             letterSpacing = 1.5.sp
                         )
                         Text(
-                            "WATCH MONITOR",
+                            selectedPanel.label,
                             color = Color.Gray,
-                            fontSize = 8.sp,
+                            fontSize = 9.sp,
                             fontFamily = WatchCondensedFont
                         )
                     }
                 }
             }
 
-            item {
-                WatchRadar(active = state.scanning)
-            }
-
-            item {
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        WearStatChip("WiFi", state.wifiCount, WatchGreen, Modifier.weight(1f))
-                        WearStatChip("BT", state.btCount, WatchBlue, Modifier.weight(1f))
-                    }
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        WearStatChip("CELL", state.cellCount, WatchOrange, Modifier.weight(1f))
-                        WearStatChip("SDR", state.sdrCount, Color(0xFF8B5CF6), Modifier.weight(1f))
-                    }
-                }
-            }
-
-            if (state.alertCount > 0) {
+            if (selectedPanel == WatchPanel.Dashboard) {
                 item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 4.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(WatchRed.copy(alpha = 0.16f))
-                            .border(1.dp, WatchRed.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                    WatchRadar(active = state.scanning)
+                }
+
+                item {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Text(
-                            "! ${state.alertCount} ALERT${if (state.alertCount > 1) "S" else ""}",
-                            color = WatchRed,
-                            fontSize = 12.sp,
-                            fontFamily = WatchFont,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.align(Alignment.Center).padding(vertical = 6.dp)
-                        )
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            WearStatChip("WiFi", state.wifiCount, WatchGreen, Modifier.weight(1f)) {
+                                selectedPanel = WatchPanel.Wifi
+                            }
+                            WearStatChip("BT", state.btCount, WatchBlue, Modifier.weight(1f)) {
+                                selectedPanel = WatchPanel.Bluetooth
+                            }
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            WearStatChip("CELL", state.cellCount, WatchOrange, Modifier.weight(1f)) {
+                                selectedPanel = WatchPanel.Cellular
+                            }
+                            WearStatChip("SDR", state.sdrCount, Color(0xFF8B5CF6), Modifier.weight(1f)) {
+                                selectedPanel = WatchPanel.Sdr
+                            }
+                        }
                     }
                 }
-            }
 
-            item {
-                Text(
-                    if (state.sdrConnected) "SDR: CONNECTED" else "SDR: STANDBY",
-                    color = if (state.sdrConnected) WatchGreen else Color.Gray,
-                    fontSize = 10.sp,
-                    fontFamily = WatchCondensedFont
-                )
+                if (state.alertCount > 0) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 4.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(WatchRed.copy(alpha = 0.16f))
+                                .border(1.dp, WatchRed.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                                .clickable { selectedPanel = WatchPanel.Alerts }
+                        ) {
+                            Text(
+                                "! ${state.alertCount} ALERT${if (state.alertCount > 1) "S" else ""}",
+                                color = WatchRed,
+                                fontSize = 13.sp,
+                                fontFamily = WatchFont,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.align(Alignment.Center).padding(vertical = 6.dp)
+                            )
+                        }
+                    }
+                }
+
+                item {
+                    Text(
+                        if (state.sdrConnected) "SDR: CONNECTED" else "SDR: STANDBY",
+                        color = if (state.sdrConnected) WatchGreen else Color.Gray,
+                        fontSize = 11.sp,
+                        fontFamily = WatchCondensedFont
+                    )
+                }
+            } else {
+                item {
+                    WearSignalList(
+                        title = selectedPanel.label,
+                        items = state.itemsFor(selectedPanel),
+                        color = selectedPanel.color(),
+                        onBack = { selectedPanel = WatchPanel.Dashboard }
+                    )
+                }
             }
         }
     }
@@ -219,7 +265,7 @@ private fun WatchRadar(active: Boolean) {
         Text(
             if (active) "LIVE" else "IDLE",
             color = if (active) WatchGreen else Color.Gray,
-            fontSize = 10.sp,
+            fontSize = 11.sp,
             fontFamily = WatchFont,
             fontWeight = FontWeight.Bold
         )
@@ -227,12 +273,13 @@ private fun WatchRadar(active: Boolean) {
 }
 
 @Composable
-fun WearStatChip(label: String, count: Int, color: Color, modifier: Modifier = Modifier) {
+fun WearStatChip(label: String, count: Int, color: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
             .background(WatchSurface)
             .border(BorderStroke(1.dp, color.copy(alpha = 0.45f)), RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
@@ -241,16 +288,118 @@ fun WearStatChip(label: String, count: Int, color: Color, modifier: Modifier = M
             Text(
                 count.toString(),
                 color = color,
-                fontSize = 16.sp,
+                fontSize = 18.sp,
                 fontFamily = WatchCondensedFont,
                 fontWeight = FontWeight.Bold
             )
             Text(
                 label.uppercase(),
                 color = Color.Gray,
-                fontSize = 8.sp,
+                fontSize = 9.sp,
                 fontFamily = WatchCondensedFont
             )
         }
     }
+}
+
+@Composable
+private fun WearSignalList(
+    title: String,
+    items: List<WearSignalItem>,
+    color: Color,
+    onBack: () -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(color.copy(alpha = 0.14f))
+                .border(BorderStroke(1.dp, color.copy(alpha = 0.55f)), RoundedCornerShape(8.dp))
+                .clickable(onClick = onBack)
+        ) {
+            Text(
+                "< $title (${items.size})",
+                color = color,
+                fontSize = 12.sp,
+                fontFamily = WatchFont,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.align(Alignment.Center).padding(vertical = 7.dp)
+            )
+        }
+
+        if (items.isEmpty()) {
+            WearSignalRow(
+                item = WearSignalItem("NO SIGNALS", "Waiting for phone scan data", "--"),
+                color = Color.Gray
+            )
+        } else {
+            items.forEach { item ->
+                WearSignalRow(item = item, color = color)
+            }
+        }
+    }
+}
+
+@Composable
+private fun WearSignalRow(item: WearSignalItem, color: Color) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(WatchSurface)
+            .border(BorderStroke(1.dp, color.copy(alpha = 0.35f)), RoundedCornerShape(8.dp))
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text(
+                    item.title,
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontFamily = WatchCondensedFont,
+                    maxLines = 1
+                )
+                Text(
+                    item.detail,
+                    color = Color.Gray,
+                    fontSize = 9.sp,
+                    fontFamily = WatchCondensedFont,
+                    maxLines = 1
+                )
+            }
+            Text(
+                item.value,
+                color = color,
+                fontSize = 13.sp,
+                fontFamily = WatchCondensedFont,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+private fun WearState.itemsFor(panel: WatchPanel): List<WearSignalItem> = when (panel) {
+    WatchPanel.Dashboard -> emptyList()
+    WatchPanel.Wifi -> wifiItems
+    WatchPanel.Bluetooth -> btItems
+    WatchPanel.Cellular -> cellItems
+    WatchPanel.Sdr -> sdrItems
+    WatchPanel.Alerts -> alertItems
+}
+
+private fun WatchPanel.color(): Color = when (this) {
+    WatchPanel.Dashboard -> WatchGreen
+    WatchPanel.Wifi -> WatchGreen
+    WatchPanel.Bluetooth -> WatchBlue
+    WatchPanel.Cellular -> WatchOrange
+    WatchPanel.Sdr -> Color(0xFF8B5CF6)
+    WatchPanel.Alerts -> WatchRed
 }

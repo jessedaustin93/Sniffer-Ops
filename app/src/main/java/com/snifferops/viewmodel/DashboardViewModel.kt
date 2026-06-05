@@ -338,6 +338,41 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             dataMap.putBoolean("scanning", summary.scanActive)
             dataMap.putBoolean("sdr_connected", summary.sdrConnected)
             dataMap.putLong("updated_at", System.currentTimeMillis())
+            dataMap.putStringArrayList("wifi_items", appState.wifiDevices.toWearRows(8) { device ->
+                wearRow(
+                    title = device.name.ifBlank { "Hidden WiFi" },
+                    detail = "${device.address}  Ch ${device.channel}",
+                    value = "${device.signalStrength}"
+                )
+            })
+            dataMap.putStringArrayList("bt_items", (appState.bluetoothDevices + appState.bleDevices).toWearRows(8) { device ->
+                wearRow(
+                    title = device.name.ifBlank { "Bluetooth" },
+                    detail = device.address,
+                    value = "${device.signalStrength}"
+                )
+            })
+            dataMap.putStringArrayList("cell_items", appState.cellTowers.toWearRows(8) { tower ->
+                wearRow(
+                    title = tower.carrier.ifBlank { tower.technology },
+                    detail = "CID ${tower.cid}  ${tower.technology}",
+                    value = "${tower.signalStrength}"
+                )
+            })
+            dataMap.putStringArrayList("sdr_items", appState.sdrSignals.toWearRows(8) { signal ->
+                wearRow(
+                    title = signal.label.ifBlank { "RF SIGNAL" },
+                    detail = signal.modulation,
+                    value = formatWearFrequency(signal.frequency)
+                )
+            })
+            dataMap.putStringArrayList("alert_items", appState.alertWearDevices().toWearRows(8) { device ->
+                wearRow(
+                    title = device.name.ifBlank { device.signalType.name },
+                    detail = "${device.signalType.name}  ${device.threatLevel.name}",
+                    value = "${device.signalStrength}"
+                )
+            })
         }.asPutDataRequest().setUrgent()
 
         wearDataClient.putDataItem(request)
@@ -352,6 +387,27 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             .addOnFailureListener { error ->
                 Log.w(TAG, "Failed to publish summary", error)
             }
+    }
+
+    private fun AppState.alertWearDevices(): List<SignalDevice> =
+        (wifiDevices + bluetoothDevices + bleDevices)
+            .filter { it.threatLevel == ThreatLevel.ALERT || it.threatLevel == ThreatLevel.SUSPICIOUS }
+            .sortedByDescending { it.threatLevel.ordinal }
+
+    private fun <T> List<T>.toWearRows(limit: Int, mapper: (T) -> String): ArrayList<String> =
+        take(limit).mapTo(ArrayList(), mapper)
+
+    private fun wearRow(title: String, detail: String, value: String): String =
+        listOf(title, detail, value).joinToString("|") { it.cleanWearText() }
+
+    private fun String.cleanWearText(): String =
+        replace("|", "/").replace(Regex("\\s+"), " ").trim().take(32)
+
+    private fun formatWearFrequency(hz: Long): String = when {
+        hz >= 1_000_000_000L -> "${"%.2f".format(hz / 1_000_000_000.0)}G"
+        hz >= 1_000_000L -> "${"%.1f".format(hz / 1_000_000.0)}M"
+        hz >= 1_000L -> "${"%.0f".format(hz / 1_000.0)}K"
+        else -> "$hz"
     }
 
     override fun onCleared() {

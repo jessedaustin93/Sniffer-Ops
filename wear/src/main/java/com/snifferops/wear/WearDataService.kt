@@ -1,6 +1,7 @@
 package com.snifferops.wear
 
 import android.util.Log
+import com.google.android.gms.wearable.DataMap
 import com.google.android.gms.wearable.DataEventBuffer
 import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.WearableListenerService
@@ -31,7 +32,12 @@ class WearDataService : WearableListenerService() {
                         sdr = dataMap.getInt("sdr", 0),
                         alerts = dataMap.getInt("alerts", 0),
                         scanning = dataMap.getBoolean("scanning", false),
-                        sdrConnected = dataMap.getBoolean("sdr_connected", false)
+                        sdrConnected = dataMap.getBoolean("sdr_connected", false),
+                        wifiItems = dataMap.readItems("wifi_items"),
+                        btItems = dataMap.readItems("bt_items"),
+                        cellItems = dataMap.readItems("cell_items"),
+                        sdrItems = dataMap.readItems("sdr_items"),
+                        alertItems = dataMap.readItems("alert_items")
                     )
                 }
             }
@@ -42,3 +48,9 @@ class WearDataService : WearableListenerService() {
         // Handle control messages from watch tile
     }
 }
+
+fun DataMap.readItems(key: String): List<WearSignalItem> =
+    getStringArrayList(key).orEmpty().mapNotNull { encoded ->
+        val parts = encoded.split("|", limit = 3)
+        if (parts.size == 3) WearSignalItem(parts[0], parts[1], parts[2]) else null
+    }
