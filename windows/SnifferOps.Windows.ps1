@@ -468,6 +468,23 @@ public sealed class RtlTcpWaveStreamer : IDisposable
 }
 "@
 
+Add-Type -Language CSharp -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+
+public static class TaskbarIdentity
+{
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern int SetCurrentProcessExplicitAppUserModelID(string appID);
+
+    public static void Set(string appID)
+    {
+        SetCurrentProcessExplicitAppUserModelID(appID);
+    }
+}
+"@
+[TaskbarIdentity]::Set("SnifferOps.Windows")
+
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSCommandPath)
 # Tool bitness varies by install; prefer x64 but fall back to x86 (the only one
 # actually shipped in this repo) or the rtl-sdr-blog root.
