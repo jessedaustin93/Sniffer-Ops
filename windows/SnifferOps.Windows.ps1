@@ -486,6 +486,8 @@ $StartRtlTcpScript = Join-Path $RepoRoot "scripts\start-rtl-tcp.ps1"
 $AppIconPath = Join-Path $PSScriptRoot "assets\snifferops.ico"
 $AppIconImagePath = Join-Path $PSScriptRoot "assets\snifferops-tile.png"
 $AppFontPath = Join-Path $PSScriptRoot "assets\fonts\spyagency3ital.ttf"
+$AppCondensedFontPath = Join-Path $PSScriptRoot "assets\fonts\spyagency3cond.ttf"
+$AppGradientFontPath = Join-Path $PSScriptRoot "assets\fonts\spyagency3gradital.ttf"
 $OutLog = Join-Path $RepoRoot "rtl_tcp.out.log"
 $ErrLog = Join-Path $RepoRoot "rtl_tcp.err.log"
 $AppLog = Join-Path $RepoRoot "snifferops-windows.log"
@@ -500,6 +502,16 @@ $script:AppFontFamily = $null
 if (Test-Path -LiteralPath $AppFontPath) {
     $fontUri = [Uri]::new($AppFontPath).AbsoluteUri
     $script:AppFontFamily = New-Object System.Windows.Media.FontFamily("${fontUri}#Spy Agency Italic")
+}
+$script:CondensedFontFamily = $null
+if (Test-Path -LiteralPath $AppCondensedFontPath) {
+    $fontUri = [Uri]::new($AppCondensedFontPath).AbsoluteUri
+    $script:CondensedFontFamily = New-Object System.Windows.Media.FontFamily("${fontUri}#Spy Agency Condensed")
+}
+$script:GradientFontFamily = $null
+if (Test-Path -LiteralPath $AppGradientFontPath) {
+    $fontUri = [Uri]::new($AppGradientFontPath).AbsoluteUri
+    $script:GradientFontFamily = New-Object System.Windows.Media.FontFamily("${fontUri}#Spy Agency Gradient Italic")
 }
 $script:SdrSignals = @()
 $script:AudioStreamer = $null
@@ -666,6 +678,30 @@ function Apply-SnifferOpsFont {
     $count = [System.Windows.Media.VisualTreeHelper]::GetChildrenCount($Root)
     for ($i = 0; $i -lt $count; $i++) {
         Apply-SnifferOpsFont -Root ([System.Windows.Media.VisualTreeHelper]::GetChild($Root, $i))
+    }
+}
+
+function Apply-SnifferOpsSpecialFonts {
+    param([System.Windows.DependencyObject] $Root)
+
+    if (-not $Root) { return }
+
+    if ($Root -is [System.Windows.FrameworkElement]) {
+        if ($script:CondensedFontFamily -and $Root.Tag -eq "Condensed") {
+            if ($Root -is [System.Windows.Controls.Control]) {
+                $Root.FontFamily = $script:CondensedFontFamily
+            } elseif ($Root -is [System.Windows.Controls.TextBlock]) {
+                $Root.FontFamily = $script:CondensedFontFamily
+            }
+        }
+        if ($script:GradientFontFamily -and $Root.Tag -eq "GradientTitle" -and $Root -is [System.Windows.Controls.TextBlock]) {
+            $Root.FontFamily = $script:GradientFontFamily
+        }
+    }
+
+    $count = [System.Windows.Media.VisualTreeHelper]::GetChildrenCount($Root)
+    for ($i = 0; $i -lt $count; $i++) {
+        Apply-SnifferOpsSpecialFonts -Root ([System.Windows.Media.VisualTreeHelper]::GetChild($Root, $i))
     }
 }
 
@@ -1470,6 +1506,7 @@ function Show-RadioTunerWindow {
 
     $win.Content = $stack
     Apply-SnifferOpsFont -Root $win
+    Apply-SnifferOpsSpecialFonts -Root $win
     [void]$win.ShowDialog()
 }
 # ---------------------------------------------------------------------------
@@ -1592,6 +1629,7 @@ function Show-LensChooserWindow {
 
     $chooser.Content = $stack
     Apply-SnifferOpsFont -Root $chooser
+    Apply-SnifferOpsSpecialFonts -Root $chooser
     [void]$chooser.ShowDialog()
 }
 
@@ -1779,6 +1817,7 @@ function Show-ListenerWindow {
 
     $listenWindow.Content = $stack
     Apply-SnifferOpsFont -Root $listenWindow
+    Apply-SnifferOpsSpecialFonts -Root $listenWindow
     [void]$listenWindow.ShowDialog()
 }
 
@@ -1911,6 +1950,7 @@ function Show-DetailWindow {
 
     $detailWindow.Content = $root
     Apply-SnifferOpsFont -Root $detailWindow
+    Apply-SnifferOpsSpecialFonts -Root $detailWindow
     [void]$detailWindow.ShowDialog()
 }
 
@@ -2203,14 +2243,15 @@ function Test-RtlSdrDongle {
             <Border Margin="8" BorderBrush="#0B6B57" BorderThickness="1" CornerRadius="7" Padding="22" Background="#D9020610">
             <StackPanel>
                 <DockPanel LastChildFill="False" Margin="0,0,0,8">
-                    <StackPanel DockPanel.Dock="Left">
-                        <TextBlock Text="SNIFFER OPS" Foreground="#21F982"
-                                   FontFamily="Consolas" FontSize="26" FontWeight="Bold"/>
-                        <TextBlock Text="WINDOWS COMPANION" Foreground="#637082"
-                                   FontFamily="Consolas" FontSize="14" Margin="1,-2,0,0"/>
+                    <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
+                        <Image x:Name="HeaderIconImage" Width="58" Height="58" Margin="0,0,12,0"/>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock Tag="GradientTitle" Text="SNIFFER OPS" Foreground="#21F982"
+                                       FontFamily="Consolas" FontSize="28" FontWeight="Bold"/>
+                            <TextBlock Text="WINDOWS COMPANION" Foreground="#637082"
+                                       FontFamily="Consolas" FontSize="14" Margin="1,-2,0,0"/>
+                        </StackPanel>
                     </StackPanel>
-                    <Image x:Name="HeaderIconImage" DockPanel.Dock="Right" Width="58" Height="58"
-                           Margin="18,0,0,0"/>
                     <Button x:Name="RefreshButton" DockPanel.Dock="Right" Content="REFRESH"
                             Background="#0B1120" Foreground="#E5E7EB" BorderBrush="#21F982"
                             FontFamily="Consolas" FontWeight="Bold" Padding="18,10" Margin="0,2,0,0"/>
@@ -2306,7 +2347,8 @@ function Test-RtlSdrDongle {
                     </StackPanel>
                     <Grid Grid.Column="2" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Margin="24,0,0,0" Opacity="0.55">
                         <TextBlock Text="SIGNAL MAP" Foreground="#0C5B4B" FontFamily="Consolas"
-                                   FontSize="72" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                   FontSize="36" HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                                   Margin="0,0,0,54"/>
                         <Rectangle Height="46" VerticalAlignment="Bottom" Fill="#1321F982" Margin="24,0,24,0"/>
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,36,6">
                             <Rectangle Width="8" Height="30" Fill="#21F982" Margin="3,0"/>
@@ -2372,56 +2414,56 @@ function Test-RtlSdrDongle {
                         <StackPanel>
                             <TextBlock x:Name="WifiTileCount" Text="0" Foreground="#39FF14" FontFamily="Consolas" FontSize="28" FontWeight="Bold"/>
                             <TextBlock Text="WIFI" Foreground="#9CA3AF" FontFamily="Consolas" FontSize="12"/>
-                            <TextBlock Text="Windows WLAN scan" Foreground="#6B7280" FontSize="11"/>
+                            <TextBlock Tag="Condensed" Text="Windows WLAN scan" Foreground="#6B7280" FontSize="12"/>
                         </StackPanel>
                     </Border>
                     <Border x:Name="BluetoothTile" Cursor="Hand" Background="{StaticResource PanelBrush}" BorderBrush="#255866" BorderThickness="1" CornerRadius="6" Padding="12" Margin="6,0,0,6">
                         <StackPanel>
                             <TextBlock x:Name="BluetoothTileCount" Text="0" Foreground="#00BFFF" FontFamily="Consolas" FontSize="28" FontWeight="Bold"/>
                             <TextBlock Text="BLUETOOTH" Foreground="#9CA3AF" FontFamily="Consolas" FontSize="12"/>
-                            <TextBlock Text="Paired/adapter devices" Foreground="#6B7280" FontSize="11"/>
+                            <TextBlock Tag="Condensed" Text="Paired/adapter devices" Foreground="#6B7280" FontSize="12"/>
                         </StackPanel>
                     </Border>
                     <Border x:Name="NfcTile" Cursor="Hand" Background="{StaticResource PanelBrush}" BorderBrush="#255866" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,6,6,6">
                         <StackPanel>
                             <TextBlock x:Name="NfcTileCount" Text="0" Foreground="#EC4899" FontFamily="Consolas" FontSize="28" FontWeight="Bold"/>
                             <TextBlock Text="NFC" Foreground="#9CA3AF" FontFamily="Consolas" FontSize="12"/>
-                            <TextBlock Text="Unavailable on this PC" Foreground="#6B7280" FontSize="11"/>
+                            <TextBlock Tag="Condensed" Text="Unavailable on this PC" Foreground="#6B7280" FontSize="12"/>
                         </StackPanel>
                     </Border>
                     <Border x:Name="CellTile" Cursor="Hand" Background="{StaticResource PanelBrush}" BorderBrush="#255866" BorderThickness="1" CornerRadius="6" Padding="12" Margin="6,6,0,6">
                         <StackPanel>
                             <TextBlock x:Name="CellTileCount" Text="0" Foreground="#F59E0B" FontFamily="Consolas" FontSize="28" FontWeight="Bold"/>
                             <TextBlock Text="CELLULAR" Foreground="#9CA3AF" FontFamily="Consolas" FontSize="12"/>
-                            <TextBlock Text="Phone-only scanner" Foreground="#6B7280" FontSize="11"/>
+                            <TextBlock Tag="Condensed" Text="Phone-only scanner" Foreground="#6B7280" FontSize="12"/>
                         </StackPanel>
                     </Border>
                     <Border x:Name="SdrTile" Cursor="Hand" Background="{StaticResource PanelBrush}" BorderBrush="#255866" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,6,6,0">
                         <StackPanel>
                             <TextBlock x:Name="SdrTileCount" Text="0" Foreground="#8B5CF6" FontFamily="Consolas" FontSize="28" FontWeight="Bold"/>
                             <TextBlock Text="SDR RADIO" Foreground="#9CA3AF" FontFamily="Consolas" FontSize="12"/>
-                            <TextBlock x:Name="LocalIpText" Text="127.0.0.1:1234" Foreground="#6B7280" FontFamily="Consolas" FontSize="11"/>
+                            <TextBlock Tag="Condensed" x:Name="LocalIpText" Text="127.0.0.1:1234" Foreground="#6B7280" FontFamily="Consolas" FontSize="12"/>
                         </StackPanel>
                     </Border>
                     <Border x:Name="AlertTile" Cursor="Hand" Background="{StaticResource PanelBrush}" BorderBrush="#255866" BorderThickness="1" CornerRadius="6" Padding="12" Margin="6,6,0,0">
                         <StackPanel>
                             <TextBlock x:Name="AlertTileCount" Text="0" Foreground="#EF4444" FontFamily="Consolas" FontSize="28" FontWeight="Bold"/>
                             <TextBlock Text="ALERTS" Foreground="#9CA3AF" FontFamily="Consolas" FontSize="12"/>
-                            <TextBlock Text="Local app status only" Foreground="#6B7280" FontSize="11"/>
+                            <TextBlock Tag="Condensed" Text="Local app status only" Foreground="#6B7280" FontSize="12"/>
                         </StackPanel>
                     </Border>
                 </UniformGrid>
 
                 <TextBlock Text="DETECTED SIGNALS" Foreground="#9CA3AF" FontFamily="Consolas"
                            FontSize="12" Margin="0,0,0,10"/>
-                <DataGrid x:Name="MainSignalGrid" MinHeight="180" MaxHeight="260" Margin="0,0,0,16"
+                <DataGrid Tag="Condensed" x:Name="MainSignalGrid" MinHeight="180" MaxHeight="260" Margin="0,0,0,16"
                           AutoGenerateColumns="True" IsReadOnly="True" CanUserAddRows="False"
                           CanUserDeleteRows="False" GridLinesVisibility="Horizontal"
                           Background="#0B1120" Foreground="#E5E7EB"
                           RowBackground="#111827" AlternatingRowBackground="#0F172A"
                           BorderBrush="#374151" FontFamily="Consolas" FontSize="12"/>
 
-                <TextBox x:Name="LogBox" MinHeight="160" Background="#0B1120" Foreground="#D1D5DB"
+                <TextBox Tag="Condensed" x:Name="LogBox" MinHeight="160" Background="#0B1120" Foreground="#D1D5DB"
                          BorderBrush="#374151" FontFamily="Consolas" FontSize="12"
                          TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" IsReadOnly="True"/>
             </StackPanel>
@@ -2441,7 +2483,10 @@ $Window.Dispatcher.add_UnhandledException({
     Write-CrashLog -Context "WPF dispatcher" -ErrorObject $eventArgs.Exception
     $eventArgs.Handled = $true
 })
-$Window.Add_Loaded({ Apply-SnifferOpsFont -Root $Window })
+$Window.Add_Loaded({
+    Apply-SnifferOpsFont -Root $Window
+    Apply-SnifferOpsSpecialFonts -Root $Window
+})
 
 $ConnectButton = $Window.FindName("ConnectButton")
 $StartRemoteServerButton = $Window.FindName("StartRemoteServerButton")
@@ -2479,6 +2524,7 @@ $SweepRotate = $Window.FindName("SweepRotate")
 Set-SnifferOpsImageSource -TargetImage $HeaderIconImage
 Set-SnifferOpsImageSource -TargetImage $StatusIconImage
 Apply-SnifferOpsFont -Root $Window
+Apply-SnifferOpsSpecialFonts -Root $Window
 
 $ConnectButton.Add_Click({
     Invoke-AppAction -Context "Toggle rtl_tcp" -Action {

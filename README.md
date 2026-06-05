@@ -62,7 +62,7 @@ The Windows app and desktop shortcut use `windows\assets\snifferops.ico`, genera
 
 ## Font
 
-The Windows UI ships with `windows\assets\fonts\spyagency3ital.ttf` and loads it at runtime, so the companion keeps its display styling without requiring a system font install.
+The Windows UI ships Spy Agency font assets under `windows\assets\fonts\` and loads them at runtime, so the companion keeps its display styling without requiring a system font install.
 
 ## Notes
 
