@@ -60,6 +60,10 @@ powershell -ExecutionPolicy Bypass -File scripts\test-rtl-sdr.ps1
 
 The Windows app and desktop shortcut use `windows\assets\snifferops.ico`, generated from `windows\assets\snifferops-tile.png`.
 
+## Font
+
+The Windows UI ships with `windows\assets\fonts\spyagency3ital.ttf` and loads it at runtime, so the companion keeps its display styling without requiring a system font install.
+
 ## Notes
 
 Runtime captures, logs, generated ADS-B map output, screenshots, and downloaded RTL-SDR tools are intentionally ignored and should not be committed.
