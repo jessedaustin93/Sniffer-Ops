@@ -86,6 +86,12 @@ fun SnifferOpsNavHost(
                 networkConnected = state.networkSdrConnected,
                 networkHost = state.networkSdrHost,
                 networkPort = state.networkSdrPort,
+                awarenessSyncHost = state.awarenessSyncHost,
+                awarenessSyncPort = state.awarenessSyncPort,
+                awarenessSyncEnabled = state.awarenessSyncEnabled,
+                awarenessSyncConnected = state.awarenessSyncConnected,
+                awarenessSyncStatus = state.awarenessSyncStatus,
+                awarenessSignalCount = state.awarenessSignalCount,
                 deviceName = state.sdrDeviceName,
                 scanning = state.sdrScanActive,
                 onStartScan = { viewModel.startSdrScan() },
@@ -93,13 +99,15 @@ fun SnifferOpsNavHost(
                 onNetworkEndpointChange = { host, port -> viewModel.setNetworkSdrEndpoint(host, port) },
                 onConnectNetwork = { viewModel.connectNetworkSdr() },
                 onDisconnectNetwork = { viewModel.disconnectNetworkSdr() },
+                onAwarenessEndpointChange = { host, port -> viewModel.setAwarenessSyncEndpoint(host, port) },
+                onAwarenessSyncEnabledChange = { viewModel.setAwarenessSyncEnabled(it) },
                 onBack = { navController.popBackStack() }
             )
         }
         composable(Screen.Alerts.route) {
             AlertsScreen(
                 wifiAlerts = state.wifiDevices.filter { it.threatLevel != ThreatLevel.SAFE },
-                btAlerts = (state.bluetoothDevices + state.bleDevices).filter { it.threatLevel != ThreatLevel.SAFE },
+                btAlerts = (state.bluetoothDevices + state.bleDevices + state.awarenessDevices).filter { it.threatLevel != ThreatLevel.SAFE },
                 onBack = { navController.popBackStack() }
             )
         }

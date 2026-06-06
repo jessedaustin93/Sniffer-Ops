@@ -29,6 +29,12 @@ fun SdrScreen(
     networkConnected: Boolean,
     networkHost: String,
     networkPort: String,
+    awarenessSyncHost: String,
+    awarenessSyncPort: String,
+    awarenessSyncEnabled: Boolean,
+    awarenessSyncConnected: Boolean,
+    awarenessSyncStatus: String,
+    awarenessSignalCount: Int,
     deviceName: String,
     scanning: Boolean,
     onStartScan: () -> Unit,
@@ -36,6 +42,8 @@ fun SdrScreen(
     onNetworkEndpointChange: (String, String) -> Unit,
     onConnectNetwork: () -> Unit,
     onDisconnectNetwork: () -> Unit,
+    onAwarenessEndpointChange: (String, String) -> Unit,
+    onAwarenessSyncEnabledChange: (Boolean) -> Unit,
     onBack: () -> Unit
 ) {
     val sdrColor = Color(0xFF8B5CF6)
@@ -109,6 +117,17 @@ fun SdrScreen(
                 onDisconnect = onDisconnectNetwork
             )
 
+            AwarenessSyncPanel(
+                host = awarenessSyncHost.ifBlank { networkHost },
+                port = awarenessSyncPort,
+                enabled = awarenessSyncEnabled,
+                connected = awarenessSyncConnected,
+                status = awarenessSyncStatus,
+                knownCount = awarenessSignalCount,
+                onEndpointChange = onAwarenessEndpointChange,
+                onEnabledChange = onAwarenessSyncEnabledChange
+            )
+
             if (networkConnected || connected && hasPermission) {
                 ScanControlBar(
                     scanning = scanning, count = signals.size,
@@ -170,6 +189,89 @@ fun SdrScreen(
             rows = signal.detailRows(),
             onDismiss = { selectedSignal = null }
         )
+    }
+}
+
+@Composable
+private fun AwarenessSyncPanel(
+    host: String,
+    port: String,
+    enabled: Boolean,
+    connected: Boolean,
+    status: String,
+    knownCount: Int,
+    onEndpointChange: (String, String) -> Unit,
+    onEnabledChange: (Boolean) -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        shape = RoundedCornerShape(8.dp),
+        color = SurfaceDark
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        "WINDOWS AWARENESS SYNC",
+                        color = if (connected) RadarGreen else Color(0xFF22D3EE),
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+                    Text(
+                        "$status  |  $knownCount known",
+                        color = OnSurfaceMuted,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+                Switch(checked = enabled, onCheckedChange = onEnabledChange)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = host,
+                    onValueChange = { onEndpointChange(it, port) },
+                    modifier = Modifier.weight(1f),
+                    enabled = !enabled,
+                    singleLine = true,
+                    label = { Text("Windows IP") },
+                    textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 12.sp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = OnSurface,
+                        unfocusedTextColor = OnSurface,
+                        focusedBorderColor = Color(0xFF22D3EE),
+                        unfocusedBorderColor = OnSurfaceMuted,
+                        focusedLabelColor = Color(0xFF22D3EE),
+                        unfocusedLabelColor = OnSurfaceMuted
+                    )
+                )
+                OutlinedTextField(
+                    value = port,
+                    onValueChange = { onEndpointChange(host, it.filter(Char::isDigit).take(5)) },
+                    modifier = Modifier.width(96.dp),
+                    enabled = !enabled,
+                    singleLine = true,
+                    label = { Text("Port") },
+                    textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 12.sp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = OnSurface,
+                        unfocusedTextColor = OnSurface,
+                        focusedBorderColor = Color(0xFF22D3EE),
+                        unfocusedBorderColor = OnSurfaceMuted,
+                        focusedLabelColor = Color(0xFF22D3EE),
+                        unfocusedLabelColor = OnSurfaceMuted
+                    )
+                )
+            }
+        }
     }
 }
 

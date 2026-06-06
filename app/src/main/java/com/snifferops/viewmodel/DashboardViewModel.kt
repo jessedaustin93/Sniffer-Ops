@@ -12,6 +12,7 @@ import com.google.android.gms.wearable.Wearable
 import com.snifferops.data.AppDatabase
 import com.snifferops.model.*
 import com.snifferops.scanner.*
+import com.snifferops.sync.AwarenessSyncClient
 import com.snifferops.util.groupSignalDevices
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -29,6 +30,13 @@ data class AppState(
     val networkSdrHost: String = "",
     val networkSdrPort: String = "1234",
     val networkSdrConnected: Boolean = false,
+    val awarenessSyncHost: String = "",
+    val awarenessSyncPort: String = "8765",
+    val awarenessSyncEnabled: Boolean = false,
+    val awarenessSyncConnected: Boolean = false,
+    val awarenessSyncStatus: String = "Sync off",
+    val awarenessSignalCount: Int = 0,
+    val awarenessDevices: List<SignalDevice> = emptyList(),
     val scanActive: Boolean = false,
     val wifiScanActive: Boolean = false,
     val btScanActive: Boolean = false,
@@ -72,6 +80,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private val cellularScanner = CellularScanner(application)
     val sdrScanner = RtlSdrScanner(application)
     private val networkSdrScanner = NetworkRtlSdrScanner()
+    private val awarenessSyncClient = AwarenessSyncClient(application)
 
     private val _state = MutableStateFlow(AppState())
     val state: StateFlow<AppState> = _state.asStateFlow()
@@ -82,11 +91,13 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private var cellJob: Job? = null
     private var sdrJob: Job? = null
     private var sdrCheckJob: Job? = null
+    private var awarenessSyncJob: Job? = null
 
     init {
         checkSdrConnection()
         startSdrConnectionMonitor()
         startWearSync()
+        startAwarenessSyncLoop()
     }
 
     fun startAllScans() {
@@ -278,6 +289,23 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         _state.update { it.copy(networkSdrHost = host, networkSdrPort = port) }
     }
 
+    fun setAwarenessSyncEndpoint(host: String, port: String) {
+        _state.update { it.copy(awarenessSyncHost = host, awarenessSyncPort = port) }
+    }
+
+    fun setAwarenessSyncEnabled(enabled: Boolean) {
+        _state.update {
+            it.copy(
+                awarenessSyncEnabled = enabled,
+                awarenessSyncConnected = false,
+                awarenessSyncStatus = if (enabled) "Sync waiting" else "Sync off"
+            )
+        }
+        if (enabled) {
+            triggerAwarenessSync()
+        }
+    }
+
     fun connectNetworkSdr() {
         val current = _state.value
         val port = current.networkSdrPort.toIntOrNull() ?: 1234
@@ -329,6 +357,51 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 .debounce(300)
                 .distinctUntilChanged()
                 .collect { syncWearState(it) }
+        }
+    }
+
+    private fun startAwarenessSyncLoop() {
+        awarenessSyncJob?.cancel()
+        awarenessSyncJob = viewModelScope.launch {
+            while (isActive) {
+                delay(15_000)
+                triggerAwarenessSync()
+            }
+        }
+    }
+
+    private fun triggerAwarenessSync() {
+        val current = _state.value
+        if (!current.awarenessSyncEnabled) return
+        val host = current.awarenessSyncHost.ifBlank { current.networkSdrHost }
+        val port = current.awarenessSyncPort.toIntOrNull() ?: 8765
+        if (host.isBlank()) {
+            _state.update { it.copy(awarenessSyncConnected = false, awarenessSyncStatus = "Enter Windows IP") }
+            return
+        }
+
+        viewModelScope.launch {
+            val outbound = (_state.value.wifiDevices + _state.value.bluetoothDevices + _state.value.bleDevices)
+            runCatching {
+                awarenessSyncClient.sync(host, port, outbound)
+            }.onSuccess { result ->
+                db.signalDeviceDao().insertAll(result.updatedDevices)
+                _state.update {
+                    it.copy(
+                        awarenessDevices = result.updatedDevices,
+                        awarenessSignalCount = result.totalSignals,
+                        awarenessSyncConnected = true,
+                        awarenessSyncStatus = "Synced ${result.merged} scan signal(s), ${result.totalSignals} known"
+                    )
+                }
+            }.onFailure { error ->
+                _state.update {
+                    it.copy(
+                        awarenessSyncConnected = false,
+                        awarenessSyncStatus = "Sync offline: ${error.message ?: "connection failed"}"
+                    )
+                }
+            }
         }
     }
 
@@ -438,5 +511,6 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         super.onCleared()
         stopAllScans()
         sdrCheckJob?.cancel()
+        awarenessSyncJob?.cancel()
     }
 }

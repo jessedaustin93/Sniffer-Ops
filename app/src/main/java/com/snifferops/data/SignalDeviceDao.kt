@@ -13,7 +13,7 @@ interface SignalDeviceDao {
     @Query("SELECT * FROM signal_devices WHERE signalType = :type ORDER BY lastSeen DESC")
     fun getDevicesByType(type: SignalType): Flow<List<SignalDevice>>
 
-    @Query("SELECT * FROM signal_devices WHERE threatLevel IN ('SUSPICIOUS','ALERT') ORDER BY lastSeen DESC")
+    @Query("SELECT * FROM signal_devices WHERE threatLevel IN ('UNKNOWN','SUSPICIOUS','ALERT') ORDER BY lastSeen DESC")
     fun getAlerts(): Flow<List<SignalDevice>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
