@@ -1,6 +1,7 @@
 package com.snifferops.ui.screen
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -8,7 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
@@ -26,6 +27,7 @@ fun AlertsScreen(
     onBack: () -> Unit
 ) {
     val allAlerts = (wifiAlerts + btAlerts).sortedByDescending { it.threatLevel.ordinal }
+    var selectedDevice by remember { mutableStateOf<SignalDevice?>(null) }
 
     Scaffold(
         containerColor = BackgroundDark,
@@ -67,19 +69,30 @@ fun AlertsScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(allAlerts, key = { it.id }) { device ->
-                    AlertDeviceCard(device)
+                    AlertDeviceCard(device, onClick = { selectedDevice = device })
                 }
             }
         }
     }
+
+    selectedDevice?.let { device ->
+        SignalDetailDialog(
+            title = device.name.ifBlank { "Alert" },
+            subtitle = device.deviceClass,
+            rows = device.detailRows(),
+            onDismiss = { selectedDevice = null }
+        )
+    }
 }
 
 @Composable
-private fun AlertDeviceCard(device: SignalDevice) {
+private fun AlertDeviceCard(device: SignalDevice, onClick: () -> Unit) {
     Surface(
         shape = RoundedCornerShape(10.dp),
         color = SurfaceDark,
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
     ) {
         Row(
             modifier = Modifier.padding(12.dp),
@@ -103,7 +116,7 @@ private fun AlertDeviceCard(device: SignalDevice) {
                 if (device.manufacturer.isNotEmpty() && device.manufacturer != "Unknown") {
                     Text("Mfr: ${device.manufacturer}", color = OnSurfaceMuted, fontSize = 11.sp)
                 }
-                Text("${device.signalStrength} dBm  •  ${device.signalType.name}",
+                Text("${device.signalStrength} dBm  |  ${device.signalType.name}",
                     color = OnSurfaceMuted, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
             }
         }

@@ -341,35 +341,35 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             dataMap.putStringArrayList("wifi_items", appState.wifiDevices.toWearRows(8) { device ->
                 wearRow(
                     title = device.name.ifBlank { "Hidden WiFi" },
-                    detail = "${device.address}  Ch ${device.channel}",
+                    detail = wearDetail(wearEstimatedType(device.deviceClass), device.address, "Ch ${device.channel}"),
                     value = "${device.signalStrength}"
                 )
             })
             dataMap.putStringArrayList("bt_items", (appState.bluetoothDevices + appState.bleDevices).toWearRows(8) { device ->
                 wearRow(
                     title = device.name.ifBlank { "Bluetooth" },
-                    detail = device.address,
+                    detail = wearDetail(wearEstimatedType(device.deviceClass), device.address),
                     value = "${device.signalStrength}"
                 )
             })
             dataMap.putStringArrayList("cell_items", appState.cellTowers.toWearRows(8) { tower ->
                 wearRow(
                     title = tower.carrier.ifBlank { tower.technology },
-                    detail = "CID ${tower.cid}  ${tower.technology}",
+                    detail = wearDetail(wearEstimatedType("${tower.technology} cell tower"), "CID ${tower.cid}"),
                     value = "${tower.signalStrength}"
                 )
             })
             dataMap.putStringArrayList("sdr_items", appState.sdrSignals.toWearRows(8) { signal ->
                 wearRow(
                     title = signal.label.ifBlank { "RF SIGNAL" },
-                    detail = signal.modulation,
+                    detail = wearDetail(wearEstimatedType(signal.label.ifBlank { "RF signal" }), signal.modulation),
                     value = formatWearFrequency(signal.frequency)
                 )
             })
             dataMap.putStringArrayList("alert_items", appState.alertWearDevices().toWearRows(8) { device ->
                 wearRow(
                     title = device.name.ifBlank { device.signalType.name },
-                    detail = "${device.signalType.name}  ${device.threatLevel.name}",
+                    detail = wearDetail(wearEstimatedType(device.deviceClass), device.threatLevel.name),
                     value = "${device.signalStrength}"
                 )
             })
@@ -399,6 +399,13 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
     private fun wearRow(title: String, detail: String, value: String): String =
         listOf(title, detail, value).joinToString("|") { it.cleanWearText() }
+
+    private fun wearDetail(vararg parts: String): String =
+        parts.filter { it.isNotBlank() && it != "Ch 0" }
+            .joinToString("  ")
+
+    private fun wearEstimatedType(type: String): String =
+        type.takeIf { it.isNotBlank() }?.let { "$it*" } ?: ""
 
     private fun String.cleanWearText(): String =
         replace("|", "/").replace(Regex("\\s+"), " ").trim().take(32)

@@ -109,6 +109,7 @@ class WifiScanner(private val context: Context) {
         val info = wifiManager.connectionInfo ?: return null
         val ssid = info.ssid?.trim('"')?.takeIf { it.isNotBlank() && it != "<unknown ssid>" } ?: return null
         val bssid = info.bssid?.takeIf { it.isNotBlank() && it != "02:00:00:00:00:00" } ?: "connected"
+        val (manufacturer, deviceClass, threat) = DeviceClassifier.classifyWifi(ssid, bssid, "Current WiFi connection")
         SignalDevice(
             id = "wifi_$bssid",
             name = ssid,
@@ -116,9 +117,11 @@ class WifiScanner(private val context: Context) {
             signalType = SignalType.WIFI,
             signalStrength = info.rssi,
             frequency = info.frequency.toLong() * 1000,
+            manufacturer = manufacturer,
+            deviceClass = deviceClass,
             isEncrypted = true,
             channel = frequencyToChannel(info.frequency),
-            threatLevel = ThreatLevel.UNKNOWN,
+            threatLevel = threat,
             notes = "Current WiFi connection"
         )
     } catch (error: SecurityException) {

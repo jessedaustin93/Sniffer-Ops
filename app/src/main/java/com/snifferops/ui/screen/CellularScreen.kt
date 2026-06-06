@@ -1,6 +1,7 @@
 package com.snifferops.ui.screen
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -8,7 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -28,6 +29,8 @@ fun CellularScreen(
     onStopScan: () -> Unit,
     onBack: () -> Unit
 ) {
+    var selectedTower by remember { mutableStateOf<CellTower?>(null) }
+
     Scaffold(
         containerColor = BackgroundDark,
         topBar = {
@@ -68,25 +71,37 @@ fun CellularScreen(
                 EmptyState("No cell towers detected", "Scan to detect nearby cellular towers")
             } else {
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.weight(1f),
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(towers) { tower ->
-                        CellTowerCard(tower)
+                        CellTowerCard(tower, onClick = { selectedTower = tower })
                     }
                 }
+                EstimatedInfoFooter()
             }
         }
+    }
+
+    selectedTower?.let { tower ->
+        SignalDetailDialog(
+            title = tower.carrier.ifBlank { "${tower.technology} tower" },
+            subtitle = "${tower.technology} cell tower",
+            rows = tower.detailRows(),
+            onDismiss = { selectedTower = null }
+        )
     }
 }
 
 @Composable
-private fun CellTowerCard(tower: CellTower) {
+private fun CellTowerCard(tower: CellTower, onClick: () -> Unit) {
     Surface(
         shape = RoundedCornerShape(10.dp),
         color = SurfaceDark,
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
     ) {
         Row(
             modifier = Modifier.padding(12.dp),
@@ -121,6 +136,10 @@ private fun CellTowerCard(tower: CellTower) {
                         Text(tower.carrier, color = OnSurface, fontSize = 14.sp)
                     }
                 }
+                Text(
+                    "Type*: ${tower.technology} cell tower",
+                    color = WarningOrange, fontSize = 11.sp, fontFamily = FontFamily.Monospace
+                )
                 Text(
                     "CID: ${tower.cid}   LAC/TAC: ${tower.lac}",
                     color = OnSurfaceMuted, fontSize = 11.sp, fontFamily = FontFamily.Monospace

@@ -1,6 +1,7 @@
 package com.snifferops.ui.screen
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -32,6 +33,7 @@ fun BluetoothScreen(
     onBack: () -> Unit
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
+    var selectedDevice by remember { mutableStateOf<SignalDevice?>(null) }
     val tabs = listOf("Classic BT (${classicDevices.size})", "BLE (${bleDevices.size})")
 
     Scaffold(
@@ -74,43 +76,61 @@ fun BluetoothScreen(
                         scanning = scanningClassic, count = classicDevices.size,
                         color = TacticalBlue, onStart = onStartClassic, onStop = onStopClassic
                     )
-                    BtDeviceList(devices = classicDevices.sortedByDescending { it.signalStrength })
+                    BtDeviceList(
+                        devices = classicDevices.sortedByDescending { it.signalStrength },
+                        onSelect = { selectedDevice = it }
+                    )
                 }
                 1 -> {
                     ScanControlBar(
                         scanning = scanningBle, count = bleDevices.size,
                         color = TacticalBlue, onStart = onStartBle, onStop = onStopBle
                     )
-                    BtDeviceList(devices = bleDevices.sortedByDescending { it.signalStrength })
+                    BtDeviceList(
+                        devices = bleDevices.sortedByDescending { it.signalStrength },
+                        onSelect = { selectedDevice = it }
+                    )
                 }
             }
         }
     }
+
+    selectedDevice?.let { device ->
+        SignalDetailDialog(
+            title = device.name.ifBlank { "Bluetooth device" },
+            subtitle = device.deviceClass,
+            rows = device.detailRows(),
+            onDismiss = { selectedDevice = null }
+        )
+    }
 }
 
 @Composable
-private fun BtDeviceList(devices: List<SignalDevice>) {
+private fun ColumnScope.BtDeviceList(devices: List<SignalDevice>, onSelect: (SignalDevice) -> Unit) {
     if (devices.isEmpty()) {
         EmptyState("No Bluetooth devices found", "Tap scan to search for nearby devices")
         return
     }
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.weight(1f),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         items(devices, key = { it.id }) { device ->
-            BtDeviceCard(device)
+            BtDeviceCard(device, onClick = { onSelect(device) })
         }
     }
+    EstimatedInfoFooter()
 }
 
 @Composable
-private fun BtDeviceCard(device: SignalDevice) {
+private fun BtDeviceCard(device: SignalDevice, onClick: () -> Unit) {
     Surface(
         shape = RoundedCornerShape(10.dp),
         color = SurfaceDark,
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
     ) {
         Row(
             modifier = Modifier.padding(12.dp),
@@ -133,7 +153,7 @@ private fun BtDeviceCard(device: SignalDevice) {
                 Text(device.address, color = OnSurfaceMuted, fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace)
                 if (device.deviceClass.isNotEmpty()) {
-                    Text(device.deviceClass, color = TacticalBlue, fontSize = 11.sp)
+                    Text("Type*: ${device.deviceClass}", color = TacticalBlue, fontSize = 11.sp)
                 }
                 Text("${device.signalStrength} dBm", color = OnSurfaceMuted,
                     fontSize = 11.sp, fontFamily = FontFamily.Monospace)

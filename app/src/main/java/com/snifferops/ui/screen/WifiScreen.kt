@@ -1,6 +1,7 @@
 package com.snifferops.ui.screen
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -8,10 +9,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -29,6 +29,8 @@ fun WifiScreen(
     onTriggerScan: () -> Unit,
     onBack: () -> Unit
 ) {
+    var selectedDevice by remember { mutableStateOf<SignalDevice?>(null) }
+
     Scaffold(
         containerColor = BackgroundDark,
         topBar = {
@@ -68,25 +70,37 @@ fun WifiScreen(
             } else {
                 val sorted = devices.sortedByDescending { it.signalStrength }
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.weight(1f),
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(sorted, key = { it.id }) { device ->
-                        WifiDeviceCard(device = device)
+                        WifiDeviceCard(device = device, onClick = { selectedDevice = device })
                     }
                 }
+                EstimatedInfoFooter()
             }
         }
+    }
+
+    selectedDevice?.let { device ->
+        SignalDetailDialog(
+            title = device.name.ifBlank { "WiFi device" },
+            subtitle = device.deviceClass,
+            rows = device.detailRows(),
+            onDismiss = { selectedDevice = null }
+        )
     }
 }
 
 @Composable
-private fun WifiDeviceCard(device: SignalDevice) {
+private fun WifiDeviceCard(device: SignalDevice, onClick: () -> Unit) {
     Surface(
         shape = RoundedCornerShape(10.dp),
         color = SurfaceDark,
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
     ) {
         Row(
             modifier = Modifier.padding(12.dp),
@@ -112,9 +126,6 @@ private fun WifiDeviceCard(device: SignalDevice) {
                 }
                 Text(device.address, color = OnSurfaceMuted, fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace)
-                if (device.manufacturer.isNotEmpty() && device.manufacturer != "Unknown") {
-                    Text(device.manufacturer, color = TacticalBlue, fontSize = 11.sp)
-                }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("${device.signalStrength} dBm", color = OnSurfaceMuted, fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace)
@@ -130,7 +141,7 @@ private fun WifiDeviceCard(device: SignalDevice) {
                     )
                 }
                 if (device.deviceClass.isNotEmpty()) {
-                    Text(device.deviceClass, color = WarningOrange, fontSize = 10.sp)
+                    Text("Type*: ${device.deviceClass}", color = WarningOrange, fontSize = 10.sp)
                 }
             }
         }

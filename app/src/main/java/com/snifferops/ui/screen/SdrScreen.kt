@@ -1,6 +1,7 @@
 package com.snifferops.ui.screen
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -8,7 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -38,6 +39,7 @@ fun SdrScreen(
     onBack: () -> Unit
 ) {
     val sdrColor = Color(0xFF8B5CF6)
+    var selectedSignal by remember { mutableStateOf<SdrSignal?>(null) }
 
     Scaffold(
         containerColor = BackgroundDark,
@@ -148,16 +150,26 @@ fun SdrScreen(
                 EmptyState("No signals detected yet", "Tap Scan to begin sweeping frequencies")
             } else {
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.weight(1f),
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(signals.sortedByDescending { it.power }) { signal ->
-                        SdrSignalCard(signal)
+                        SdrSignalCard(signal, onClick = { selectedSignal = signal })
                     }
                 }
+                EstimatedInfoFooter()
             }
         }
+    }
+
+    selectedSignal?.let { signal ->
+        SignalDetailDialog(
+            title = signal.label.ifBlank { "RF signal" },
+            subtitle = formatSignalFrequency(signal.frequency),
+            rows = signal.detailRows(),
+            onDismiss = { selectedSignal = null }
+        )
     }
 }
 
@@ -242,12 +254,14 @@ private fun NetworkSdrPanel(
 }
 
 @Composable
-private fun SdrSignalCard(signal: SdrSignal) {
+private fun SdrSignalCard(signal: SdrSignal, onClick: () -> Unit) {
     val sdrColor = Color(0xFF8B5CF6)
     Surface(
         shape = RoundedCornerShape(10.dp),
         color = SurfaceDark,
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
     ) {
         Row(
             modifier = Modifier.padding(12.dp),
@@ -256,9 +270,9 @@ private fun SdrSignalCard(signal: SdrSignal) {
         ) {
             Icon(Icons.Default.Radio, "SDR", tint = sdrColor, modifier = Modifier.size(28.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(signal.label, color = OnSurface, fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                Text("Type*: ${signal.label}", color = OnSurface, fontWeight = FontWeight.Medium, fontSize = 14.sp)
                 Text(
-                    formatFrequency(signal.frequency),
+                    formatSignalFrequency(signal.frequency),
                     color = sdrColor, fontSize = 13.sp,
                     fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold
                 )
@@ -273,13 +287,6 @@ private fun SdrSignalCard(signal: SdrSignal) {
             }
         }
     }
-}
-
-private fun formatFrequency(hz: Long): String = when {
-    hz >= 1_000_000_000L -> "${"%.3f".format(hz / 1_000_000_000.0)} GHz"
-    hz >= 1_000_000L -> "${"%.3f".format(hz / 1_000_000.0)} MHz"
-    hz >= 1_000L -> "${"%.1f".format(hz / 1_000.0)} kHz"
-    else -> "$hz Hz"
 }
 
 private fun powerColor(power: Float) = when {
