@@ -1233,6 +1233,214 @@ function Get-AwarenessDetails {
     })
 }
 
+function Get-AwarenessProfiles {
+    try {
+        $state = Read-AwarenessState
+        return @($state.Signals.GetEnumerator() | ForEach-Object {
+            $profile = $_.Value
+            $timeline = @($profile.Timeline)
+            $sightings = @($profile.Sightings)
+            $lastEvent = if ($timeline.Count -gt 0) { $timeline[-1].Summary } else { "" }
+            $isNormal = ([int]$profile.SeenCount -ge 3 -and @($profile.NodeIds).Count -le 2 -and
+                ([string]$profile.ThreatLevel -in @("", "SAFE", "UNKNOWN") -and
+                [string]$profile.PresenceState -ne "not_seen" -and
+                -not ($timeline | Where-Object { $_.Kind -in @("alert_changed", "signal_jump", "reappeared", "new_node") })))
+            $isOneOff = ([int]$profile.SeenCount -le 1 -or [string]$profile.PresenceState -eq "not_seen")
+            $isWatch = ([string]$profile.ThreatLevel -in @("SUSPICIOUS", "ALERT") -or
+                ($timeline | Where-Object { $_.Kind -in @("alert_changed", "signal_jump", "reappeared", "new_node", "location_changed") }))
+            $lastSighting = if ($sightings.Count -gt 0) { $sightings[-1] } else { $null }
+            [pscustomobject][ordered]@{
+                Key = $_.Key
+                Name = if ($profile.Name) { $profile.Name } else { $profile.Key }
+                Type = $profile.Type
+                SpecificType = $profile.SpecificType
+                Address = $profile.Address
+                FrequencyHz = $profile.FrequencyHz
+                SeenCount = [int]$profile.SeenCount
+                NodeCount = @($profile.NodeIds).Count
+                LastSignal = $profile.LastSignal
+                StrongestSignal = $profile.StrongestSignal
+                ThreatLevel = $profile.ThreatLevel
+                PresenceState = if ($profile.PresenceState) { $profile.PresenceState } else { "seen" }
+                LastSeen = $profile.LastSeen
+                EstimatedLatitude = $profile.EstimatedLatitude
+                EstimatedLongitude = $profile.EstimatedLongitude
+                LastLatitude = if ($lastSighting) { $lastSighting.Latitude } else { $profile.EstimatedLatitude }
+                LastLongitude = if ($lastSighting) { $lastSighting.Longitude } else { $profile.EstimatedLongitude }
+                TimelineCount = $timeline.Count
+                LastEvent = $lastEvent
+                Class = if ($isWatch) { "Watch" } elseif ($isOneOff) { "One-off" } elseif ($isNormal) { "Normal" } else { "Learning" }
+                Details = "Seen $($profile.SeenCount)x from $(@($profile.NodeIds).Count) node(s); $lastEvent"
+                Timeline = $timeline
+                Sightings = $sightings
+            }
+        } | Sort-Object -Property @{ Expression = "Class"; Descending = $false }, @{ Expression = "SeenCount"; Descending = $true })
+    } catch {
+        Write-AppError -Context "Read awareness profiles" -ErrorObject $_
+        return @()
+    }
+}
+
+function Get-AwarenessScanLocations {
+    $profiles = @(Get-AwarenessProfiles)
+    $points = @()
+    foreach ($profile in $profiles) {
+        foreach ($sighting in @($profile.Sightings)) {
+            $lat = ConvertTo-AwarenessNumber $sighting.Latitude
+            $lon = ConvertTo-AwarenessNumber $sighting.Longitude
+            if ($null -eq $lat -or $null -eq $lon) { continue }
+            $key = "{0:N4},{1:N4}" -f $lat, $lon
+            $existing = @($points | Where-Object { $_.Key -eq $key } | Select-Object -First 1)
+            if ($existing.Count -gt 0) {
+                $existing[0].SignalCount++
+                if ($profile.Class -ne "Normal") { $existing[0].InterestingCount++ }
+            } else {
+                $points += [pscustomobject][ordered]@{
+                    Key = $key
+                    Latitude = $lat
+                    Longitude = $lon
+                    SignalCount = 1
+                    InterestingCount = if ($profile.Class -ne "Normal") { 1 } else { 0 }
+                }
+            }
+        }
+    }
+    return $points
+}
+
+function Update-AwarenessMapPanel {
+    if (-not $AwarenessMapCanvas) { return }
+
+    $profiles = @(Get-AwarenessProfiles)
+    $locations = @(Get-AwarenessScanLocations)
+    $normal = @($profiles | Where-Object { $_.Class -eq "Normal" }).Count
+    $oneOff = @($profiles | Where-Object { $_.Class -in @("One-off", "Watch") }).Count
+    $changes = @($profiles | Where-Object { $_.TimelineCount -gt 1 }).Count
+
+    $AwarenessMapSummary.Text = "$($profiles.Count) known  /  $($locations.Count) scan spots"
+    $AwarenessMapNormal.Text = "Normal: $normal"
+    $AwarenessMapOdd.Text = "One-offs / changes: $oneOff / $changes"
+    $latest = @($profiles | Sort-Object LastSeen -Descending | Select-Object -First 1)
+    $AwarenessMapLast.Text = if ($latest.Count -gt 0) { "Latest: $($latest[0].Name) - $($latest[0].Class)" } else { "Click for timeline" }
+
+    $AwarenessMapCanvas.Children.Clear()
+    Draw-AwarenessMapGrid
+    if ($locations.Count -eq 0) {
+        Add-AwarenessMapText -Text "No GPS scan dots yet" -X 18 -Y 42 -Color "#637082" -Size 13
+        Add-AwarenessMapText -Text "Sync phone GPS to populate" -X 18 -Y 62 -Color "#637082" -Size 11
+        return
+    }
+
+    $minLat = ($locations | Measure-Object Latitude -Minimum).Minimum
+    $maxLat = ($locations | Measure-Object Latitude -Maximum).Maximum
+    $minLon = ($locations | Measure-Object Longitude -Minimum).Minimum
+    $maxLon = ($locations | Measure-Object Longitude -Maximum).Maximum
+    if ($maxLat -eq $minLat) { $maxLat += 0.001; $minLat -= 0.001 }
+    if ($maxLon -eq $minLon) { $maxLon += 0.001; $minLon -= 0.001 }
+    $width = [Math]::Max(220.0, $AwarenessMapCanvas.ActualWidth)
+    $height = [Math]::Max(110.0, $AwarenessMapCanvas.ActualHeight)
+
+    foreach ($loc in $locations) {
+        $x = 16 + (($loc.Longitude - $minLon) / ($maxLon - $minLon)) * ($width - 32)
+        $y = 16 + (($maxLat - $loc.Latitude) / ($maxLat - $minLat)) * ($height - 32)
+        $radius = [Math]::Min(14, 5 + [Math]::Sqrt($loc.SignalCount))
+        $dot = New-Object System.Windows.Shapes.Ellipse
+        $dot.Width = $radius * 2
+        $dot.Height = $radius * 2
+        $dot.Fill = $script:BrushConverter.ConvertFromString($(if ($loc.InterestingCount -gt 0) { "#F59E0B" } else { "#21F982" }))
+        $dot.Stroke = $script:BrushConverter.ConvertFromString("#E5E7EB")
+        $dot.StrokeThickness = 1
+        $dot.ToolTip = "$($loc.SignalCount) signal(s), $($loc.InterestingCount) one-off/change at $($loc.Key)"
+        $dot.Tag = $loc.Key
+        $dot.Add_MouseLeftButtonUp({
+            param($sender, $eventArgs)
+            Show-AwarenessTimelineWindow -LocationKey ([string]$sender.Tag)
+            $eventArgs.Handled = $true
+        })
+        [System.Windows.Controls.Canvas]::SetLeft($dot, $x - $radius)
+        [System.Windows.Controls.Canvas]::SetTop($dot, $y - $radius)
+        [void]$AwarenessMapCanvas.Children.Add($dot)
+    }
+}
+
+function Draw-AwarenessMapGrid {
+    $width = [Math]::Max(220.0, $AwarenessMapCanvas.ActualWidth)
+    $height = [Math]::Max(110.0, $AwarenessMapCanvas.ActualHeight)
+    for ($i = 1; $i -le 3; $i++) {
+        $x = ($width / 4) * $i
+        $line = New-Object System.Windows.Shapes.Line
+        $line.X1 = $x; $line.X2 = $x; $line.Y1 = 0; $line.Y2 = $height
+        $line.Stroke = $script:BrushConverter.ConvertFromString("#143B46")
+        $line.StrokeThickness = 1
+        [void]$AwarenessMapCanvas.Children.Add($line)
+    }
+    for ($i = 1; $i -le 2; $i++) {
+        $y = ($height / 3) * $i
+        $line = New-Object System.Windows.Shapes.Line
+        $line.X1 = 0; $line.X2 = $width; $line.Y1 = $y; $line.Y2 = $y
+        $line.Stroke = $script:BrushConverter.ConvertFromString("#143B46")
+        $line.StrokeThickness = 1
+        [void]$AwarenessMapCanvas.Children.Add($line)
+    }
+}
+
+function Add-AwarenessMapText {
+    param([string] $Text, [double] $X, [double] $Y, [string] $Color, [double] $Size)
+
+    $tb = New-Object System.Windows.Controls.TextBlock
+    $tb.Text = $Text
+    $tb.Foreground = $script:BrushConverter.ConvertFromString($Color)
+    $tb.FontFamily = "Consolas"
+    $tb.FontSize = $Size
+    [System.Windows.Controls.Canvas]::SetLeft($tb, $X)
+    [System.Windows.Controls.Canvas]::SetTop($tb, $Y)
+    [void]$AwarenessMapCanvas.Children.Add($tb)
+}
+
+function Show-AwarenessTimelineWindow {
+    param([string] $LocationKey = "")
+
+    $profiles = @(Get-AwarenessProfiles)
+    if ($LocationKey) {
+        $profiles = @($profiles | Where-Object {
+            @($_.Sightings | Where-Object {
+                $lat = ConvertTo-AwarenessNumber $_.Latitude
+                $lon = ConvertTo-AwarenessNumber $_.Longitude
+                $key = if ($null -ne $lat -and $null -ne $lon) { "{0:N4},{1:N4}" -f $lat, $lon } else { "" }
+                $key -eq $LocationKey
+            }).Count -gt 0
+        })
+    }
+
+    $rows = @()
+    foreach ($profile in $profiles) {
+        $rows += [pscustomobject][ordered]@{
+            Class = $profile.Class
+            Signal = $profile.Name
+            Type = $profile.SpecificType
+            Seen = $profile.SeenCount
+            Nodes = $profile.NodeCount
+            Last = $profile.LastSeen
+            LastEvent = $profile.LastEvent
+            Strength = $profile.LastSignal
+        }
+    }
+    if ($rows.Count -eq 0) {
+        $rows = @([pscustomobject][ordered]@{
+            Class = "Empty"
+            Signal = "No awareness records for this view"
+            Type = ""
+            Seen = ""
+            Nodes = ""
+            Last = ""
+            LastEvent = ""
+            Strength = ""
+        })
+    }
+    $title = if ($LocationKey) { "Awareness Timeline - $LocationKey" } else { "Awareness Timeline" }
+    Show-DetailWindow -Title $title -Accent "#22D3EE" -Items $rows
+}
+
 function Sync-LocalAwarenessSnapshot {
     try {
         $signals = @()
@@ -2381,6 +2589,7 @@ function Refresh-ScannerCounts {
     if ($MainSignalGrid) {
         $MainSignalGrid.ItemsSource = @(Get-MainSignalRows)
     }
+    Update-AwarenessMapPanel
 
     if ($running) {
         $hitText = if ($sdr -gt 0) { " - $sdr measured RF peak(s)" } else { " - no measured peaks yet" }
@@ -2734,19 +2943,29 @@ function Test-RtlSdrDongle {
                             <TextBlock x:Name="AlertCount" Grid.Column="2" Text="0" Foreground="#EF4444" FontFamily="Consolas" FontSize="16" FontWeight="Bold"/>
                         </Grid>
                     </StackPanel>
-                    <Grid Grid.Column="2" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Margin="24,0,0,0" Opacity="0.55">
-                        <TextBlock Text="SIGNAL MAP" Foreground="#0C5B4B" FontFamily="Consolas"
-                                   FontSize="36" HorizontalAlignment="Center" VerticalAlignment="Bottom"
-                                   Margin="0,0,0,54"/>
-                        <Rectangle Height="46" VerticalAlignment="Bottom" Fill="#1321F982" Margin="24,0,24,0"/>
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,36,6">
-                            <Rectangle Width="8" Height="30" Fill="#21F982" Margin="3,0"/>
-                            <Rectangle Width="8" Height="52" Fill="#21F982" Margin="3,0"/>
-                            <Rectangle Width="8" Height="38" Fill="#21F982" Margin="3,0"/>
-                            <Rectangle Width="8" Height="68" Fill="#21F982" Margin="3,0"/>
-                            <Rectangle Width="8" Height="44" Fill="#21F982" Margin="3,0"/>
-                        </StackPanel>
-                    </Grid>
+                    <Border x:Name="AwarenessMapPanel" Grid.Column="2" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                            Margin="24,0,0,0" Background="#660B1120" BorderBrush="#255866" BorderThickness="1"
+                            CornerRadius="6" Padding="10" Cursor="Hand">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="1.25*"/>
+                                <ColumnDefinition Width="1*"/>
+                            </Grid.ColumnDefinitions>
+                            <Canvas x:Name="AwarenessMapCanvas" Background="#0B1120" ClipToBounds="True"/>
+                            <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
+                                <TextBlock x:Name="AwarenessMapTitle" Text="AWARENESS TIMELINE" Foreground="#22D3EE"
+                                           FontFamily="Consolas" FontSize="14" FontWeight="Bold"/>
+                                <TextBlock x:Name="AwarenessMapSummary" Text="No signal profile yet" Foreground="#E5E7EB"
+                                           FontFamily="Consolas" FontSize="18" FontWeight="Bold" Margin="0,8,0,0"/>
+                                <TextBlock x:Name="AwarenessMapNormal" Text="Normal: 0" Foreground="#21F982"
+                                           FontFamily="Consolas" FontSize="12" Margin="0,6,0,0"/>
+                                <TextBlock x:Name="AwarenessMapOdd" Text="One-offs / changes: 0" Foreground="#F59E0B"
+                                           FontFamily="Consolas" FontSize="12"/>
+                                <TextBlock x:Name="AwarenessMapLast" Text="Click for timeline" Foreground="#9CA3AF"
+                                           FontFamily="Consolas" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
                 </Grid>
 
                 <Border Background="{StaticResource PanelBrush}" BorderBrush="#255866" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,10">
@@ -2908,6 +3127,13 @@ $CellTile = $Window.FindName("CellTile")
 $SdrTile = $Window.FindName("SdrTile")
 $AlertTile = $Window.FindName("AlertTile")
 $MainSignalGrid = $Window.FindName("MainSignalGrid")
+$AwarenessMapPanel = $Window.FindName("AwarenessMapPanel")
+$AwarenessMapCanvas = $Window.FindName("AwarenessMapCanvas")
+$AwarenessMapTitle = $Window.FindName("AwarenessMapTitle")
+$AwarenessMapSummary = $Window.FindName("AwarenessMapSummary")
+$AwarenessMapNormal = $Window.FindName("AwarenessMapNormal")
+$AwarenessMapOdd = $Window.FindName("AwarenessMapOdd")
+$AwarenessMapLast = $Window.FindName("AwarenessMapLast")
 $SweepRotate = $Window.FindName("SweepRotate")
 
 Set-SnifferOpsImageSource -TargetImage $HeaderIconImage
@@ -2978,6 +3204,11 @@ $AlertTile.Add_MouseLeftButtonUp({
     Invoke-AppAction -Context "Open alerts details" -Action {
         $items = @(Get-AlertDetails) + @(Get-AwarenessDetails)
         Show-DetailWindow -Title "Signal Alerts + Awareness" -Accent "#EF4444" -Items $items
+    }
+})
+$AwarenessMapPanel.Add_MouseLeftButtonUp({
+    Invoke-AppAction -Context "Open awareness timeline" -Action {
+        Show-AwarenessTimelineWindow
     }
 })
 $MainSignalGrid.Add_MouseDoubleClick({
