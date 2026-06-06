@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
+import com.snifferops.model.AwarenessProfile
 import com.snifferops.model.SignalDevice
 import com.snifferops.model.SignalType
 import com.snifferops.model.ThreatLevel
@@ -17,7 +18,8 @@ import java.net.URL
 data class AwarenessSyncResult(
     val merged: Int,
     val totalSignals: Int,
-    val updatedDevices: List<SignalDevice>
+    val updatedDevices: List<SignalDevice>,
+    val profiles: List<AwarenessProfile>
 )
 
 class AwarenessSyncClient(private val context: Context) {
@@ -70,6 +72,9 @@ class AwarenessSyncClient(private val context: Context) {
                     put("timestamp", location.timestamp)
                 }
             })
+            put("completeTypes", JSONArray().apply {
+                devices.map { it.signalType.name }.distinct().forEach { put(it) }
+            })
             put("signals", JSONArray().apply {
                 devices.forEach { device -> put(device.toJson()) }
             })
@@ -106,10 +111,17 @@ class AwarenessSyncClient(private val context: Context) {
                 toSignalDevice(item)?.let { add(it) }
             }
         }
+        val profiles = buildList {
+            for (i in 0 until signals.length()) {
+                val item = signals.optJSONObject(i) ?: continue
+                toAwarenessProfile(item)?.let { add(it) }
+            }
+        }
         return AwarenessSyncResult(
             merged = json.optInt("merged", 0),
             totalSignals = json.optInt("totalSignals", devices.size),
-            updatedDevices = devices
+            updatedDevices = devices,
+            profiles = profiles
         )
     }
 
@@ -137,6 +149,29 @@ class AwarenessSyncClient(private val context: Context) {
         )
     } catch (error: Exception) {
         Log.w(TAG, "Skipping malformed awareness signal", error)
+        null
+    }
+
+    private fun toAwarenessProfile(item: JSONObject): AwarenessProfile? = try {
+        val key = item.optString("key", item.optString("address", item.optString("name", "")))
+        val type = runCatching { SignalType.valueOf(item.optString("type", "UNKNOWN")) }.getOrDefault(SignalType.UNKNOWN)
+        val threat = runCatching { ThreatLevel.valueOf(item.optString("threatLevel", "UNKNOWN")) }.getOrDefault(ThreatLevel.UNKNOWN)
+        AwarenessProfile(
+            key = key,
+            name = item.optString("name", type.name),
+            type = type,
+            deviceClass = item.optString("deviceClass", "Synced awareness signal"),
+            threatLevel = threat,
+            seenCount = item.optInt("seenCount", 1),
+            nodeCount = item.optInt("nodeCount", 0),
+            lastSeen = parseTime(item.optString("lastSeen")),
+            latestEvent = item.optString("latestEvent", ""),
+            latitude = item.optDouble("estimatedLatitude", 0.0),
+            longitude = item.optDouble("estimatedLongitude", 0.0),
+            source = "sync"
+        )
+    } catch (error: Exception) {
+        Log.w(TAG, "Skipping malformed awareness profile", error)
         null
     }
 

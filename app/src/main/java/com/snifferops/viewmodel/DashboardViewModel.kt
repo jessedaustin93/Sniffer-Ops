@@ -37,6 +37,7 @@ data class AppState(
     val awarenessSyncStatus: String = "Sync off",
     val awarenessSignalCount: Int = 0,
     val awarenessDevices: List<SignalDevice> = emptyList(),
+    val awarenessProfiles: List<AwarenessProfile> = emptyList(),
     val scanActive: Boolean = false,
     val wifiScanActive: Boolean = false,
     val btScanActive: Boolean = false,
@@ -381,7 +382,11 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         }
 
         viewModelScope.launch {
-            val outbound = (_state.value.wifiDevices + _state.value.bluetoothDevices + _state.value.bleDevices)
+            val snapshotState = _state.value
+            val outbound = (snapshotState.wifiDevices + snapshotState.bluetoothDevices + snapshotState.bleDevices)
+                .plus(snapshotState.cellTowers.toCellSignalDevices())
+                .plus(snapshotState.sdrSignals.toSdrSignalDevices())
+                .plus(listOfNotNull(snapshotState.lastNfcTag?.toSignalDevice()))
             runCatching {
                 awarenessSyncClient.sync(host, port, outbound)
             }.onSuccess { result ->
@@ -389,6 +394,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 _state.update {
                     it.copy(
                         awarenessDevices = result.updatedDevices,
+                        awarenessProfiles = result.profiles,
                         awarenessSignalCount = result.totalSignals,
                         awarenessSyncConnected = true,
                         awarenessSyncStatus = "Synced ${result.merged} scan signal(s), ${result.totalSignals} known"
@@ -470,7 +476,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     private fun AppState.alertWearDevices(): List<SignalDevice> =
-        (wifiDevices + bluetoothDevices + bleDevices)
+        (wifiDevices + bluetoothDevices + bleDevices + awarenessDevices)
             .filter { it.threatLevel != ThreatLevel.SAFE }
             .sortedByDescending { it.threatLevel.ordinal }
 
@@ -507,6 +513,51 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         else -> "$hz"
     }
 
+    private fun List<CellTower>.toCellSignalDevices(): List<SignalDevice> = map { tower ->
+        SignalDevice(
+            id = "cell_${tower.technology}_${tower.cid}_${tower.frequency}",
+            name = tower.carrier.ifBlank { "${tower.technology} cell tower" },
+            address = "CID ${tower.cid}",
+            signalType = SignalType.CELLULAR,
+            signalStrength = tower.signalStrength,
+            frequency = tower.frequency,
+            deviceClass = "${tower.technology} cell tower",
+            threatLevel = ThreatLevel.UNKNOWN,
+            notes = "MCC ${tower.mcc}; MNC ${tower.mnc}; LAC ${tower.lac}",
+            firstSeen = tower.timestamp,
+            lastSeen = tower.timestamp
+        )
+    }
+
+    private fun List<SdrSignal>.toSdrSignalDevices(): List<SignalDevice> = map { signal ->
+        SignalDevice(
+            id = "sdr_${signal.frequency}",
+            name = signal.label.ifBlank { "RF signal" },
+            address = "${signal.frequency}",
+            signalType = SignalType.RTL_SDR,
+            signalStrength = signal.power.toInt(),
+            frequency = signal.frequency,
+            deviceClass = signal.label.ifBlank { "Measured RF signal" },
+            threatLevel = ThreatLevel.UNKNOWN,
+            notes = "Power ${signal.power} dB; ${signal.modulation}",
+            firstSeen = signal.timestamp,
+            lastSeen = signal.timestamp
+        )
+    }
+
+    private fun NfcTag.toSignalDevice(): SignalDevice = SignalDevice(
+        id = "nfc_$id",
+        name = type.ifBlank { "NFC tag" },
+        address = id,
+        signalType = SignalType.NFC,
+        signalStrength = 0,
+        deviceClass = technologies.joinToString(", ").ifBlank { "NFC tag" },
+        threatLevel = ThreatLevel.UNKNOWN,
+        notes = data,
+        firstSeen = timestamp,
+        lastSeen = timestamp
+    )
+
     override fun onCleared() {
         super.onCleared()
         stopAllScans()
@@ -514,3 +565,76 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         awarenessSyncJob?.cancel()
     }
 }
+
+fun AppState.compactAwarenessProfiles(): List<AwarenessProfile> {
+    val local = (wifiDevices + bluetoothDevices + bleDevices).map { it.toAwarenessProfile("local") } +
+        cellTowers.map { it.toAwarenessProfile() } +
+        sdrSignals.map { it.toAwarenessProfile() } +
+        listOfNotNull(lastNfcTag?.toAwarenessProfile())
+
+    return (awarenessProfiles + local)
+        .groupBy { it.key.ifBlank { "${it.type}:${it.name}" } }
+        .map { (_, profiles) -> profiles.maxByOrNull { it.lastSeen } ?: profiles.first() }
+        .sortedWith(compareBy<AwarenessProfile> {
+            when (it.status) {
+                AwarenessStatus.WATCH -> 0
+                AwarenessStatus.ONE_OFF -> 1
+                AwarenessStatus.LEARNING -> 2
+                AwarenessStatus.NORMAL -> 3
+            }
+        }.thenByDescending { it.lastSeen })
+}
+
+private fun SignalDevice.toAwarenessProfile(source: String): AwarenessProfile = AwarenessProfile(
+    key = "${signalType.name}|${address.ifBlank { id }}",
+    name = name.ifBlank { signalType.name },
+    type = signalType,
+    deviceClass = deviceClass.ifBlank { signalType.name },
+    threatLevel = threatLevel,
+    seenCount = seenCount,
+    nodeCount = 1,
+    lastSeen = lastSeen,
+    latestEvent = notes.ifBlank { "Seen locally" },
+    latitude = latitude,
+    longitude = longitude,
+    source = source
+)
+
+private fun CellTower.toAwarenessProfile(): AwarenessProfile = AwarenessProfile(
+    key = "CELLULAR|${technology}|${cid}",
+    name = carrier.ifBlank { "$technology cell tower" },
+    type = SignalType.CELLULAR,
+    deviceClass = "$technology cell tower",
+    threatLevel = ThreatLevel.UNKNOWN,
+    seenCount = 1,
+    nodeCount = 1,
+    lastSeen = timestamp,
+    latestEvent = "Seen locally at CID $cid",
+    source = "local"
+)
+
+private fun SdrSignal.toAwarenessProfile(): AwarenessProfile = AwarenessProfile(
+    key = "RTL_SDR|${frequency / 250_000L}",
+    name = label.ifBlank { "RF signal" },
+    type = SignalType.RTL_SDR,
+    deviceClass = label.ifBlank { "Measured RF signal" },
+    threatLevel = ThreatLevel.UNKNOWN,
+    seenCount = 1,
+    nodeCount = 1,
+    lastSeen = timestamp,
+    latestEvent = "Measured ${power} dB ${modulation}",
+    source = "local"
+)
+
+private fun NfcTag.toAwarenessProfile(): AwarenessProfile = AwarenessProfile(
+    key = "NFC|$id",
+    name = type.ifBlank { "NFC tag" },
+    type = SignalType.NFC,
+    deviceClass = technologies.joinToString(", ").ifBlank { "NFC tag" },
+    threatLevel = ThreatLevel.UNKNOWN,
+    seenCount = 1,
+    nodeCount = 1,
+    lastSeen = timestamp,
+    latestEvent = "NFC tag read locally",
+    source = "local"
+)
