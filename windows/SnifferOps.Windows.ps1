@@ -533,6 +533,7 @@ if (Test-Path -LiteralPath $AppGradientFontPath) {
     $script:GradientFontFamily = New-Object System.Windows.Media.FontFamily("${fontUri}#Spy Agency Gradient Italic")
 }
 $script:SdrSignals = @()
+$script:SdrPowerScanCompleted = $false
 $script:AudioStreamer = $null
 $script:RestartRtlTcpAfterListen = $false
 $script:TunerStreamer = $null            # PcmWaveStreamer driving rtl_fm for the tuner
@@ -898,6 +899,7 @@ function Invoke-SdrFrequencySweep {
     }
 
     $script:SdrSignals = $signals
+    $script:SdrPowerScanCompleted = $true
     return $signals
 }
 
@@ -1282,11 +1284,14 @@ function Sync-LocalAwarenessSnapshot {
             }
         }
 
-        if ($signals.Count -eq 0) { return $null }
+        $completeTypes = @()
+        if ($script:SdrPowerScanCompleted) { $completeTypes += "RTL_SDR" }
+        if ($signals.Count -eq 0 -and $completeTypes.Count -eq 0) { return $null }
         return Merge-AwarenessSnapshot -Snapshot ([pscustomobject][ordered]@{
             nodeId = "windows-$env:COMPUTERNAME"
             nodeName = "Windows $env:COMPUTERNAME"
             location = [pscustomobject]@{}
+            completeTypes = $completeTypes
             signals = $signals
         })
     } catch {
