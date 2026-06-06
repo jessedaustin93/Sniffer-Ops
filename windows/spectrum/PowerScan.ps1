@@ -37,18 +37,19 @@ function Get-Median {
     return ([double]$sorted[$mid - 1] + [double]$sorted[$mid]) / 2.0
 }
 
-# Detect peaks: bins more than $ThresholdDb above the median noise floor, grouped
-# into contiguous runs. Returns one peak per run at its strongest bin.
+# Detect peaks: bins that stand above both the whole-sweep median and their
+# local neighborhood floor, grouped into runs. This avoids counting a smooth
+# receiver/antenna noise ramp as hundreds of "signals."
 function Find-SpectrumPeaks {
     param(
         [object[]] $Bins,
-        [double]   $ThresholdDb = 6.0
+        [double]   $ThresholdDb = 10.0,
+        [int]      $WindowBins = 24
     )
     if (@($Bins).Count -eq 0) { return @() }
 
     $sorted = @($Bins | Sort-Object Hz)
-    $floor = Get-Median -Values @($sorted | ForEach-Object { [double]$_.Db })
-    $cutoff = $floor + $ThresholdDb
+    $globalFloor = Get-Median -Values @($sorted | ForEach-Object { [double]$_.Db })
 
     # Estimate the bin spacing to know what "contiguous" means.
     $step = 1
@@ -56,34 +57,45 @@ function Find-SpectrumPeaks {
         $step = [long]($sorted[1].Hz - $sorted[0].Hz)
         if ($step -le 0) { $step = 1 }
     }
-    $gapLimit = $step * 2
+    $gapLimit = $step * 5
 
     $peaks = New-Object System.Collections.Generic.List[object]
     $runBest = $null
     $prevHz = $null
-    foreach ($bin in $sorted) {
-        $above = ($bin.Db -ge $cutoff)
+    for ($i = 0; $i -lt $sorted.Count; $i++) {
+        $bin = $sorted[$i]
+        $start = [Math]::Max(0, $i - $WindowBins)
+        $end = [Math]::Min($sorted.Count - 1, $i + $WindowBins)
+        $neighbors = New-Object System.Collections.Generic.List[double]
+        for ($j = $start; $j -le $end; $j++) {
+            if ([Math]::Abs($j - $i) -le 2) { continue }
+            $neighbors.Add([double]$sorted[$j].Db) | Out-Null
+        }
+        $localFloor = if ($neighbors.Count -gt 0) { Get-Median -Values $neighbors.ToArray() } else { $globalFloor }
+        $floor = [Math]::Max($globalFloor, $localFloor)
+        $above = ([double]$bin.Db -ge ($floor + $ThresholdDb))
         $contiguous = ($null -ne $prevHz) -and (($bin.Hz - $prevHz) -le $gapLimit)
         if ($above) {
+            $candidate = [pscustomobject]@{ Hz = [long]$bin.Hz; Db = [double]$bin.Db; FloorDb = [double]$floor; ProminenceDb = ([double]$bin.Db - [double]$floor) }
             if ($runBest -and $contiguous) {
-                if ($bin.Db -gt $runBest.Db) { $runBest = $bin }
+                if ($candidate.Db -gt $runBest.Db) { $runBest = $candidate }
             } else {
                 if ($runBest) {
-                    $peaks.Add([pscustomobject]@{ FrequencyHz = [long]$runBest.Hz; PowerDb = [double]$runBest.Db }) | Out-Null
+                    $peaks.Add([pscustomobject]@{ FrequencyHz = [long]$runBest.Hz; PowerDb = [double]$runBest.Db; FloorDb = [double]$runBest.FloorDb; ProminenceDb = [double]$runBest.ProminenceDb }) | Out-Null
                 }
-                $runBest = $bin
+                $runBest = $candidate
             }
             $prevHz = $bin.Hz
         } else {
             if ($runBest) {
-                $peaks.Add([pscustomobject]@{ FrequencyHz = [long]$runBest.Hz; PowerDb = [double]$runBest.Db }) | Out-Null
+                $peaks.Add([pscustomobject]@{ FrequencyHz = [long]$runBest.Hz; PowerDb = [double]$runBest.Db; FloorDb = [double]$runBest.FloorDb; ProminenceDb = [double]$runBest.ProminenceDb }) | Out-Null
                 $runBest = $null
             }
             $prevHz = $bin.Hz
         }
     }
     if ($runBest) {
-        $peaks.Add([pscustomobject]@{ FrequencyHz = [long]$runBest.Hz; PowerDb = [double]$runBest.Db }) | Out-Null
+        $peaks.Add([pscustomobject]@{ FrequencyHz = [long]$runBest.Hz; PowerDb = [double]$runBest.Db; FloorDb = [double]$runBest.FloorDb; ProminenceDb = [double]$runBest.ProminenceDb }) | Out-Null
     }
 
     return @($peaks.ToArray() | Sort-Object -Property @{ Expression = "PowerDb"; Descending = $true })

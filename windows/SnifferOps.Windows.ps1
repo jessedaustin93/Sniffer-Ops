@@ -571,7 +571,7 @@ Initialize-AwarenessLog -Path $AwarenessLog
 # Real spectrum scan (rtl_power): pure CSV parsing + peak detection live here.
 . (Join-Path $PSScriptRoot "spectrum\PowerScan.ps1")
 $script:PowerScanRange = "88M:1000M:50k"   # rtl_power -f range
-$script:PowerScanThresholdDb = 6.0          # dB above noise floor to count as a hit
+$script:PowerScanThresholdDb = 10.0         # dB above local noise floor to count as a hit
 
 # Fixed tuner gain (dB). "auto" lets the tuner AGC hunt, which causes a surging /
 # pumping sound on broadcast FM. A fixed value keeps the level steady. Bump up if
@@ -901,6 +901,32 @@ function Invoke-SdrFrequencySweep {
     return $signals
 }
 
+function Get-SdrBandCatalog {
+    return @($script:SdrScanFrequencies | ForEach-Object {
+        $frequency = [long]$_
+        $class = Get-SdrClassification -Frequency $frequency
+        $expectation = Get-SdrAudioExpectation -Label $class.Label -Modulation $class.Modulation
+        $row = [pscustomobject][ordered]@{
+            Decoder = ""
+            Frequency = Format-Frequency -Frequency $frequency
+            FrequencyHz = $frequency
+            PowerDb = ""
+            Bandwidth = "Catalog"
+            Label = $class.Label
+            Modulation = $class.Modulation
+            PossibleUse = $class.Label
+            Audio = $expectation
+            Confidence = "Catalog"
+            Evidence = "Known band-plan entry; not a confirmed live detection"
+            Description = $class.Description
+            NextStep = "Run DEEP SCAN (rtl_power) to measure actual RF peaks before counting this as present."
+            Source = "catalog"
+        }
+        $row.Decoder = Get-SignalDecoderText -Signal $row
+        $row
+    })
+}
+
 # Real wideband power sweep with rtl_power: measures actual power-vs-frequency and
 # detects peaks above the noise floor, so hits are genuine RF energy rather than
 # fixed band guesses. Needs exclusive dongle access, so rtl_tcp is paused.
@@ -951,7 +977,7 @@ function Invoke-SdrPowerScan {
             $lines = @(Get-Content -Path $csvPath -ErrorAction SilentlyContinue)
             $bins = ConvertFrom-RtlPowerCsv -Lines $lines
             $peaks = @(Find-SpectrumPeaks -Bins $bins -ThresholdDb $script:PowerScanThresholdDb)
-            Add-LogLine "Power scan: $($bins.Count) bins, $($peaks.Count) peak(s)."
+            Add-LogLine "Power scan: $($bins.Count) bins scanned, $($peaks.Count) peak(s) >= $($script:PowerScanThresholdDb)dB above local floor."
 
             foreach ($peak in $peaks) {
                 $class = Get-SdrClassification -Frequency $peak.FrequencyHz
@@ -967,7 +993,7 @@ function Invoke-SdrPowerScan {
                     PossibleUse = $class.Label
                     Audio = $expectation
                     Confidence = $class.Confidence
-                    Evidence = $class.Evidence
+                    Evidence = Join-NonEmptyText -Values @($class.Evidence, ("{0:N1} dB above local floor" -f $peak.ProminenceDb))
                     Description = $class.Description
                     NextStep = $class.NextStep
                     Source = "rtl_power"
@@ -1131,31 +1157,17 @@ function Get-BluetoothDetails {
 }
 
 function Get-SdrDetails {
-    $items = @()
-
     if (-not (Get-Process rtl_tcp -ErrorAction SilentlyContinue)) {
-        return @([pscustomobject][ordered]@{
-            Frequency = "SDR server is not running"
-            FrequencyHz = ""
-            PowerDb = ""
-            Bandwidth = ""
-            Label = "IDLE"
-            Modulation = ""
-            PossibleUse = "Click CONNECT NETWORK SDR first, then reopen SDR Radio."
-            Confidence = ""
-            Evidence = ""
-            Description = "The companion has not swept RF yet because rtl_tcp is not active."
-            NextStep = "Click CONNECT NETWORK SDR, then open SDR Radio again."
-            Source = "rtl_tcp"
-        })
+        Add-LogLine "Showing SDR band catalog. Start rtl_tcp or run DEEP SCAN for measured detections."
+        return @(Get-SdrBandCatalog)
     }
 
-    Add-LogLine "Sweeping SDR frequencies through rtl_tcp..."
-    $items = @(Invoke-SdrFrequencySweep)
-    Add-LogLine "SDR sweep complete: $($items.Count) hit(s)."
-    Refresh-ScannerCounts
+    if ($script:SdrSignals.Count -gt 0) {
+        return @($script:SdrSignals)
+    }
 
-    return $items
+    Add-LogLine "Showing SDR band catalog. Use DEEP SCAN (rtl_power) for confirmed detections."
+    return @(Get-SdrBandCatalog)
 }
 
 function Get-UnavailableDetails {
@@ -1453,7 +1465,7 @@ function Get-CompactDetailColumns {
             return @(
                 @{ Name = "Frequency"; Header = "Frequency" },
                 @{ Name = "Label"; Header = "Type*" },
-                @{ Name = "PowerDb"; Header = "Signal" },
+                @{ Name = "PowerDb"; Header = "Measured dB" },
                 @{ Name = "Modulation"; Header = "Mode" },
                 @{ Name = "Decoder"; Header = "Lens" },
                 @{ Name = "Source"; Header = "Source" }
@@ -2281,7 +2293,7 @@ function Set-UiStatus {
 
     $LiveText.Text = $State
     $SdrStatusText.Text = $Message
-    $ConnectButton.Content = if ($Active) { "STOP RTL_TCP" } else { "CONNECT NETWORK SDR" }
+    $ConnectButton.Content = if ($Active) { "STOP LOCAL RTL_TCP" } else { "START LOCAL RTL_TCP" }
     if ($Window -and $Window.Resources) {
         $ConnectButton.Background = if ($Active) { $Window.Resources["ButtonRedBrush"] } else { $Window.Resources["ButtonBlueBrush"] }
     } else {
@@ -2295,7 +2307,7 @@ function Refresh-ScannerCounts {
     $wifi = Get-WifiCount
     $bt = Get-BluetoothCount
     $running = Get-Process rtl_tcp -ErrorAction SilentlyContinue
-    $sdr = if ($script:SdrSignals.Count -gt 0) { $script:SdrSignals.Count } elseif ($running) { 0 } else { 0 }
+    $sdr = @($script:SdrSignals | Where-Object { $_.Source -eq "rtl_power" }).Count
     $awarenessCount = @(Get-AwarenessRows).Count
 
     $WifiCount.Text = [string]$wifi
@@ -2318,7 +2330,7 @@ function Refresh-ScannerCounts {
     }
 
     if ($running) {
-        $hitText = if ($script:SdrSignals.Count -gt 0) { " - $($script:SdrSignals.Count) RF hit(s)" } else { "" }
+        $hitText = if ($sdr -gt 0) { " - $sdr measured RF peak(s)" } else { " - no measured peaks yet" }
         Set-UiStatus "LIVE" "Network SDR: rtl_tcp on $(Get-LanIpAddress):$Port$hitText" $true
     } else {
         Set-UiStatus "IDLE" (Get-RtlStatusText) $false
@@ -2704,11 +2716,11 @@ function Test-RtlSdrDongle {
                     </Grid>
                 </Border>
 
-                <Button x:Name="ConnectButton" Content="CONNECT NETWORK SDR" Height="64"
+                <Button x:Name="ConnectButton" Content="START LOCAL RTL_TCP" Height="64"
                         Background="{StaticResource ButtonBlueBrush}" Foreground="White" BorderBrush="#0EA5E9"
                         FontFamily="Consolas" FontSize="18" FontWeight="Bold" Margin="0,0,0,12"/>
 
-                <Button x:Name="StartRemoteServerButton" Content="START WINDOWS RTL SERVER" Height="56"
+                <Button x:Name="StartRemoteServerButton" Content="OPEN RTL SERVER SCRIPT" Height="56"
                         Background="{StaticResource ButtonBlueBrush}" Foreground="White" BorderBrush="#0EA5E9"
                         FontFamily="Consolas" FontSize="17" FontWeight="Bold" Margin="0,0,0,12"/>
 
