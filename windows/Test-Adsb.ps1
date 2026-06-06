@@ -26,7 +26,9 @@ Assert "callsign frame is 14 bytes"        ($csBytes.Length -eq 14)
 Assert "callsign DF = 17"                   ((Get-AdsbDownlinkFormat -Bytes $csBytes) -eq 17)
 Assert "callsign ICAO = 4840D6"             ((Get-AdsbIcao -Bytes $csBytes) -eq "4840D6")
 Assert "callsign TC in 1..4"                (((Get-AdsbTypeCode -Bytes $csBytes) -ge 1) -and ((Get-AdsbTypeCode -Bytes $csBytes) -le 4))
+Assert "callsign checksum valid"            (Test-AdsbChecksum -Bytes $csBytes)
 Assert "callsign decodes to KLM1023"        ((Get-AdsbCallsign -Bytes $csBytes) -eq "KLM1023")
+Assert "checksum rejects one-bit noise"     (-not (Test-AdsbChecksum -Bytes (Convert-HexToBytes "8D4840D6202CC371C32CE0576099")))
 
 # Airborne position even/odd pair -> ICAO 40621D, ~lat 52.2572 lon 3.91937, 38000 ft
 $even = "8D40621D58C382D690C8AC2863A7"
@@ -34,6 +36,7 @@ $odd  = "8D40621D58C386435CC412692AD6"
 $evenBytes = Convert-HexToBytes $even
 $oddBytes  = Convert-HexToBytes $odd
 Assert "position ICAO = 40621D"             ((Get-AdsbIcao -Bytes $evenBytes) -eq "40621D")
+Assert "position checksums valid"           ((Test-AdsbChecksum -Bytes $evenBytes) -and (Test-AdsbChecksum -Bytes $oddBytes))
 AssertNear "altitude ~38000 ft"             (Get-AdsbAltitude -Bytes $evenBytes) 38000 25
 
 $evenCpr = Get-AdsbCprFrame -Bytes $evenBytes

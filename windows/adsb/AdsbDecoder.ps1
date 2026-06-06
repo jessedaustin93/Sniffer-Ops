@@ -52,6 +52,47 @@ function Get-AdsbTypeCode {
     return [int]($Bytes[4] -shr 3)
 }
 
+function Get-AdsbChecksum {
+    param([byte[]] $Bytes)
+
+    if ($Bytes.Length -ne 14) { return $null }
+
+    $poly = 0x1FFF409
+    $bits = New-Object int[] 112
+    for ($i = 0; $i -lt 112; $i++) {
+        $byteIndex = [int][math]::Floor($i / 8)
+        $bitInByte = 7 - ($i % 8)
+        $bits[$i] = ($Bytes[$byteIndex] -shr $bitInByte) -band 1
+    }
+    for ($i = 88; $i -lt 112; $i++) {
+        $bits[$i] = 0
+    }
+
+    for ($i = 0; $i -lt 88; $i++) {
+        if ($bits[$i] -eq 0) { continue }
+        for ($j = 0; $j -le 24; $j++) {
+            if (($poly -shr (24 - $j)) -band 1) {
+                $bits[$i + $j] = $bits[$i + $j] -bxor 1
+            }
+        }
+    }
+
+    $remainder = 0
+    for ($i = 88; $i -lt 112; $i++) {
+        $remainder = ($remainder -shl 1) -bor $bits[$i]
+    }
+    return $remainder
+}
+
+function Test-AdsbChecksum {
+    param([byte[]] $Bytes)
+
+    if ($Bytes.Length -ne 14) { return $false }
+    $expected = Get-AdsbChecksum -Bytes $Bytes
+    $actual = ([int]$Bytes[11] -shl 16) -bor ([int]$Bytes[12] -shl 8) -bor [int]$Bytes[13]
+    return $expected -eq $actual
+}
+
 function Get-AdsbCallsign {
     param([byte[]] $Bytes)
     if ($Bytes.Length -lt 11) { return $null }
@@ -198,6 +239,7 @@ function Convert-AdsbFrames {
         if ($bytes.Length -ne 14) { continue }   # only long (112-bit) squitters
         $df = Get-AdsbDownlinkFormat -Bytes $bytes
         if ($df -ne 17 -and $df -ne 18) { continue }
+        if (-not (Test-AdsbChecksum -Bytes $bytes)) { continue }
 
         $icao = Get-AdsbIcao -Bytes $bytes
         if (-not $icao) { continue }

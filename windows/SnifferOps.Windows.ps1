@@ -556,7 +556,11 @@ $AdsbDir = Join-Path $PSScriptRoot "adsb"
 . (Join-Path $AdsbDir "AdsbMap.ps1")
 # Override this scriptblock (param $JsonPath) to plug in an offline map program.
 $script:AdsbMapBackend = $null
-$script:AdsbCaptureSeconds = 30
+$script:AdsbCaptureSeconds = 90
+$script:AdsbCaptureChunkSeconds = 15
+
+# Shared WiFi/Bluetooth/SDR classification and explanation rules.
+. (Join-Path $PSScriptRoot "SignalClassifier.ps1")
 
 # Real spectrum scan (rtl_power): pure CSV parsing + peak detection live here.
 . (Join-Path $PSScriptRoot "spectrum\PowerScan.ps1")
@@ -754,50 +758,15 @@ function Format-Frequency {
 function Get-SdrClassification {
     param([long] $Frequency)
 
-    $mhz = $Frequency / 1000000.0
-    $label = switch ($true) {
-        { $mhz -ge 87.5 -and $mhz -le 108.0 } { "FM Radio"; break }
-        { $mhz -ge 108.0 -and $mhz -le 137.0 } { "Aviation VOR/ILS"; break }
-        { $mhz -ge 137.0 -and $mhz -le 144.0 } { "NOAA Weather Satellite"; break }
-        { $mhz -ge 144.0 -and $mhz -le 148.0 } { "Amateur (2m)"; break }
-        { $mhz -ge 148.0 -and $mhz -le 174.0 } { "VHF Government/Military"; break }
-        { $mhz -ge 162.4 -and $mhz -le 162.55 } { "NOAA Weather Radio"; break }
-        { $mhz -ge 174.0 -and $mhz -le 216.0 } { "TV Band VHF"; break }
-        { $mhz -ge 216.0 -and $mhz -le 222.0 } { "Amateur (1.25m)"; break }
-        { $mhz -ge 400.0 -and $mhz -le 406.0 } { "Meteorological"; break }
-        { $mhz -ge 406.0 -and $mhz -le 420.0 } { "Government"; break }
-        { $mhz -ge 420.0 -and $mhz -le 450.0 } { "Amateur (70cm)"; break }
-        { $mhz -ge 433.0 -and $mhz -le 435.0 } { "ISM 433MHz (IoT/Garage/Car Key)"; break }
-        { $mhz -ge 450.0 -and $mhz -le 470.0 } { "UHF Land Mobile"; break }
-        { $mhz -ge 470.0 -and $mhz -le 698.0 } { "TV UHF"; break }
-        { $mhz -ge 698.0 -and $mhz -le 806.0 } { "LTE Band 17/12"; break }
-        { $mhz -ge 806.0 -and $mhz -le 869.0 } { "Public Safety 800MHz"; break }
-        { $mhz -ge 869.0 -and $mhz -le 894.0 } { "Cellular 850MHz"; break }
-        { $mhz -ge 902.0 -and $mhz -le 928.0 } { "ISM 915MHz (LoRa/ZigBee)"; break }
-        { $mhz -ge 928.0 -and $mhz -le 960.0 } { "Cellular GSM 900"; break }
-        { $mhz -ge 960.0 -and $mhz -le 1215.0 } { "Aviation DME/TACAN"; break }
-        { $mhz -ge 1090.0 -and $mhz -le 1091.0 } { "ADS-B Aviation"; break }
-        { $mhz -ge 1215.0 -and $mhz -le 1240.0 } { "GPS L2"; break }
-        { $mhz -ge 1559.0 -and $mhz -le 1610.0 } { "GPS L1 / GLONASS"; break }
-        { $mhz -ge 1710.0 -and $mhz -le 1755.0 } { "AWS LTE Band 4"; break }
-        { $mhz -ge 1850.0 -and $mhz -le 1990.0 } { "PCS 1900 / LTE"; break }
-        { $mhz -ge 2400.0 -and $mhz -le 2500.0 } { "WiFi 2.4GHz / Bluetooth"; break }
-        { $mhz -ge 5150.0 -and $mhz -le 5850.0 } { "WiFi 5GHz"; break }
-        default { "Unknown RF Signal" }
-    }
-
-    $modulation = switch ($true) {
-        { $mhz -ge 87.5 -and $mhz -le 108.0 } { "FM/RBDS"; break }
-        { $mhz -ge 108.0 -and $mhz -le 137.0 } { "AM/VOR"; break }
-        { $mhz -ge 433.0 -and $mhz -le 435.0 } { "OOK/FSK"; break }
-        { $mhz -ge 851.0 -and $mhz -le 869.0 } { "P25/TDMA"; break }
-        { $mhz -ge 1090.0 -and $mhz -le 1091.0 } { "PPM/ADS-B"; break }
-        default { "Unknown" }
-    }
+    $explanation = Get-SdrSignalExplanation -Frequency $Frequency
 
     return [pscustomobject][ordered]@{
-        Label = $label
-        Modulation = $modulation
+        Label = $explanation.SpecificType
+        Modulation = $explanation.Modulation
+        Confidence = $explanation.Confidence
+        Evidence = $explanation.Evidence
+        Description = $explanation.Meaning
+        NextStep = $explanation.NextStep
     }
 }
 
@@ -895,6 +864,10 @@ function Invoke-SdrFrequencySweep {
                         Modulation = $class.Modulation
                         PossibleUse = $class.Label
                         Audio = $expectation
+                        Confidence = $class.Confidence
+                        Evidence = $class.Evidence
+                        Description = $class.Description
+                        NextStep = $class.NextStep
                         Source = "rtl_tcp"
                     }
                     $row.Decoder = Get-SignalDecoderText -Signal $row
@@ -987,6 +960,10 @@ function Invoke-SdrPowerScan {
                     Modulation = $class.Modulation
                     PossibleUse = $class.Label
                     Audio = $expectation
+                    Confidence = $class.Confidence
+                    Evidence = $class.Evidence
+                    Description = $class.Description
+                    NextStep = $class.NextStep
                     Source = "rtl_power"
                 }
                 $row.Decoder = Get-SignalDecoderText -Signal $row
@@ -1045,7 +1022,16 @@ function Get-WifiDetails {
         $current = $null
         foreach ($line in $output) {
             if ($line -match '^\s*SSID\s+\d+\s+:\s*(.*)$') {
-                if ($current) { $items += [pscustomobject]$current }
+                if ($current) {
+                    $wifiRow = [pscustomobject]$current
+                    $info = Get-WifiSignalExplanation -Wifi $wifiRow
+                    $wifiRow | Add-Member -NotePropertyName SpecificType -NotePropertyValue $info.SpecificType
+                    $wifiRow | Add-Member -NotePropertyName Confidence -NotePropertyValue $info.Confidence
+                    $wifiRow | Add-Member -NotePropertyName Evidence -NotePropertyValue $info.Evidence
+                    $wifiRow | Add-Member -NotePropertyName Meaning -NotePropertyValue $info.Meaning
+                    $wifiRow | Add-Member -NotePropertyName NextStep -NotePropertyValue $info.NextStep
+                    $items += $wifiRow
+                }
                 $ssid = $Matches[1].Trim()
                 if ([string]::IsNullOrWhiteSpace($ssid)) { $ssid = "<hidden>" }
                 $current = [ordered]@{
@@ -1079,7 +1065,16 @@ function Get-WifiDetails {
                 $current.Channel = $Matches[1].Trim()
             }
         }
-        if ($current) { $items += [pscustomobject]$current }
+        if ($current) {
+            $wifiRow = [pscustomobject]$current
+            $info = Get-WifiSignalExplanation -Wifi $wifiRow
+            $wifiRow | Add-Member -NotePropertyName SpecificType -NotePropertyValue $info.SpecificType
+            $wifiRow | Add-Member -NotePropertyName Confidence -NotePropertyValue $info.Confidence
+            $wifiRow | Add-Member -NotePropertyName Evidence -NotePropertyValue $info.Evidence
+            $wifiRow | Add-Member -NotePropertyName Meaning -NotePropertyValue $info.Meaning
+            $wifiRow | Add-Member -NotePropertyName NextStep -NotePropertyValue $info.NextStep
+            $items += $wifiRow
+        }
     } catch {
         $items += [pscustomobject][ordered]@{
             Name = "Wi-Fi scan failed"
@@ -1101,7 +1096,7 @@ function Get-BluetoothDetails {
             Sort-Object -Property FriendlyName
 
         return @($devices | ForEach-Object {
-            [pscustomobject][ordered]@{
+            $row = [pscustomobject][ordered]@{
                 Name = if ($_.FriendlyName) { $_.FriendlyName } else { $_.Name }
                 Address = $_.InstanceId
                 Status = $_.Status
@@ -1109,6 +1104,13 @@ function Get-BluetoothDetails {
                 Type = "Bluetooth"
                 Notes = if ($_.Present) { "Present" } else { "Known device; not currently present" }
             }
+            $info = Get-BluetoothSignalExplanation -Device $row
+            $row | Add-Member -NotePropertyName SpecificType -NotePropertyValue $info.SpecificType
+            $row | Add-Member -NotePropertyName Confidence -NotePropertyValue $info.Confidence
+            $row | Add-Member -NotePropertyName Evidence -NotePropertyValue $info.Evidence
+            $row | Add-Member -NotePropertyName Meaning -NotePropertyValue $info.Meaning
+            $row | Add-Member -NotePropertyName NextStep -NotePropertyValue $info.NextStep
+            $row
         })
     } catch {
         return @([pscustomobject][ordered]@{
@@ -1134,6 +1136,10 @@ function Get-SdrDetails {
             Label = "IDLE"
             Modulation = ""
             PossibleUse = "Click CONNECT NETWORK SDR first, then reopen SDR Radio."
+            Confidence = ""
+            Evidence = ""
+            Description = "The companion has not swept RF yet because rtl_tcp is not active."
+            NextStep = "Click CONNECT NETWORK SDR, then open SDR Radio again."
             Source = "rtl_tcp"
         })
     }
@@ -1157,6 +1163,11 @@ function Get-UnavailableDetails {
         Address = ""
         Status = "Unavailable on Windows"
         Type = "Phone hardware"
+        SpecificType = $Name
+        Confidence = "Hardware unavailable"
+        Evidence = "No compatible Windows hardware/API exposed"
+        Meaning = $Reason
+        NextStep = "Use the Android phone scanner for this section or attach a compatible Windows reader."
         Notes = $Reason
     })
 }
@@ -1180,6 +1191,11 @@ function Get-AlertDetails {
                 Strength = $wifi.Strength
                 Channel = $wifi.Channel
                 Type = "Wi-Fi alert"
+                SpecificType = $wifi.SpecificType
+                Confidence = $wifi.Confidence
+                Evidence = $wifi.Evidence
+                Meaning = $wifi.Meaning
+                NextStep = $wifi.NextStep
                 Notes = ($notes -join "; ")
             }
         }
@@ -1208,7 +1224,9 @@ function Get-MainSignalRows {
             Signal = $wifi.Name
             AddressOrFrequency = $wifi.Address
             StrengthOrPower = $wifi.Strength
-            Details = "Ch $($wifi.Channel); $($wifi.Security)"
+            Classification = $wifi.SpecificType
+            Confidence = $wifi.Confidence
+            Details = Join-NonEmptyText -Values @("Ch $($wifi.Channel)", $wifi.Security, $wifi.Evidence)
         }
     }
 
@@ -1218,7 +1236,9 @@ function Get-MainSignalRows {
             Signal = $bt.Name
             AddressOrFrequency = $bt.Address
             StrengthOrPower = $bt.Status
-            Details = "$($bt.Class); $($bt.Notes)"
+            Classification = $bt.SpecificType
+            Confidence = $bt.Confidence
+            Details = Join-NonEmptyText -Values @($bt.Class, $bt.Notes, $bt.Evidence)
         }
     }
 
@@ -1229,7 +1249,9 @@ function Get-MainSignalRows {
             Signal = $sdr.Label
             AddressOrFrequency = $sdr.Frequency
             StrengthOrPower = "$($sdr.PowerDb) dB"
-            Details = "$($sdr.Modulation); $($sdr.Audio)"
+            Classification = $sdr.PossibleUse
+            Confidence = $sdr.Confidence
+            Details = Join-NonEmptyText -Values @($sdr.Modulation, $sdr.Audio, $sdr.Evidence)
         }
     }
 
@@ -1239,11 +1261,181 @@ function Get-MainSignalRows {
             Signal = "No signals listed yet"
             AddressOrFrequency = ""
             StrengthOrPower = ""
+            Classification = ""
+            Confidence = ""
             Details = "Click REFRESH or open SDR Radio to run an SDR sweep."
         }
     }
 
     return $rows
+}
+
+function Get-ObjectDetailRows {
+    param([object] $Item)
+
+    if (-not $Item) { return @() }
+
+    $preferred = @(
+        "Name", "Signal", "SpecificType", "Classification", "Type",
+        "Address", "AddressOrFrequency", "Frequency", "FrequencyHz",
+        "Strength", "StrengthOrPower", "PowerDb", "Channel", "Security",
+        "Status", "Class", "Modulation", "Bandwidth", "Decoder", "Source",
+        "Confidence", "Evidence", "Meaning", "Description", "NextStep",
+        "PossibleUse", "Audio", "Notes", "Details"
+    )
+
+    $props = @($Item.PSObject.Properties | Where-Object {
+        $_.MemberType -match "Property" -and -not [string]::IsNullOrWhiteSpace([string]$_.Value)
+    })
+
+    $ordered = @()
+    foreach ($name in $preferred) {
+        $match = @($props | Where-Object { $_.Name -eq $name } | Select-Object -First 1)
+        if ($match.Count -gt 0) { $ordered += $match[0] }
+    }
+    foreach ($prop in $props) {
+        if (-not ($ordered | Where-Object { $_.Name -eq $prop.Name })) { $ordered += $prop }
+    }
+
+    return @($ordered | ForEach-Object {
+        [pscustomobject][ordered]@{
+            Field = $_.Name
+            Value = [string]$_.Value
+        }
+    })
+}
+
+function New-DataGridTextStyle {
+    param([bool] $Wrap = $false)
+
+    $style = [System.Windows.Style]::new([System.Windows.Controls.TextBlock])
+    [void]$style.Setters.Add([System.Windows.Setter]::new([System.Windows.Controls.TextBlock]::PaddingProperty, [System.Windows.Thickness]::new(4, 1, 4, 1)))
+    if ($Wrap) {
+        [void]$style.Setters.Add([System.Windows.Setter]::new([System.Windows.Controls.TextBlock]::TextWrappingProperty, [System.Windows.TextWrapping]::Wrap))
+    } else {
+        [void]$style.Setters.Add([System.Windows.Setter]::new([System.Windows.Controls.TextBlock]::TextTrimmingProperty, [System.Windows.TextTrimming]::CharacterEllipsis))
+    }
+    return $style
+}
+
+function Show-SignalDetailWindow {
+    param(
+        [string] $Title,
+        [string] $Accent,
+        [object] $Item
+    )
+
+    if (-not $Item) { return }
+
+    $detailWindow = New-Object System.Windows.Window
+    Set-SnifferOpsWindowIcon -TargetWindow $detailWindow
+    $detailWindow.Title = "SnifferOps - Signal Details"
+    $detailWindow.Width = 780
+    $detailWindow.Height = 520
+    $detailWindow.MinWidth = 520
+    $detailWindow.MinHeight = 360
+    $detailWindow.Background = $script:BrushConverter.ConvertFromString("#020617")
+    $detailWindow.WindowStartupLocation = "CenterOwner"
+    $detailWindow.Owner = $Window
+
+    $root = New-Object System.Windows.Controls.DockPanel
+    $root.Margin = "16"
+
+    $header = New-Object System.Windows.Controls.TextBlock
+    $name = if ($Item.Name) { [string]$Item.Name } elseif ($Item.Signal) { [string]$Item.Signal } elseif ($Item.Frequency) { [string]$Item.Frequency } else { $Title }
+    $kind = if ($Item.SpecificType) { [string]$Item.SpecificType } elseif ($Item.Classification) { [string]$Item.Classification } elseif ($Item.Label) { [string]$Item.Label } else { [string]$Item.Type }
+    $header.Text = (Join-NonEmptyText -Values @($name, $kind) -Separator " - ").ToUpperInvariant()
+    $header.Foreground = $script:BrushConverter.ConvertFromString($Accent)
+    $header.FontFamily = "Consolas"
+    $header.FontSize = 20
+    $header.FontWeight = "Bold"
+    $header.Margin = "0,0,0,12"
+    [System.Windows.Controls.DockPanel]::SetDock($header, "Top")
+    [void]$root.Children.Add($header)
+
+    $grid = New-Object System.Windows.Controls.DataGrid
+    $grid.AutoGenerateColumns = $false
+    $grid.IsReadOnly = $true
+    $grid.CanUserAddRows = $false
+    $grid.CanUserDeleteRows = $false
+    $grid.GridLinesVisibility = "Horizontal"
+    $grid.Background = $script:BrushConverter.ConvertFromString("#0B1120")
+    $grid.Foreground = $script:BrushConverter.ConvertFromString("#E5E7EB")
+    $grid.RowBackground = $script:BrushConverter.ConvertFromString("#111827")
+    $grid.AlternatingRowBackground = $script:BrushConverter.ConvertFromString("#0F172A")
+    $grid.BorderBrush = $script:BrushConverter.ConvertFromString("#374151")
+    $grid.FontFamily = "Consolas"
+    $grid.FontSize = 12
+    $grid.HorizontalAlignment = "Stretch"
+    $grid.VerticalAlignment = "Stretch"
+    $grid.HorizontalScrollBarVisibility = "Disabled"
+
+    $fieldColumn = New-Object System.Windows.Controls.DataGridTextColumn
+    $fieldColumn.Header = "Field"
+    $fieldColumn.Binding = New-Object System.Windows.Data.Binding("Field")
+    $fieldColumn.Width = New-Object System.Windows.Controls.DataGridLength(145)
+    $fieldColumn.ElementStyle = New-DataGridTextStyle
+    [void]$grid.Columns.Add($fieldColumn)
+
+    $valueColumn = New-Object System.Windows.Controls.DataGridTextColumn
+    $valueColumn.Header = "Value"
+    $valueColumn.Binding = New-Object System.Windows.Data.Binding("Value")
+    $valueColumn.Width = New-Object System.Windows.Controls.DataGridLength(1, [System.Windows.Controls.DataGridLengthUnitType]::Star)
+    $valueColumn.ElementStyle = New-DataGridTextStyle -Wrap $true
+    [void]$grid.Columns.Add($valueColumn)
+
+    $grid.ItemsSource = @(Get-ObjectDetailRows -Item $Item)
+    [void]$root.Children.Add($grid)
+
+    $detailWindow.Content = $root
+    Apply-SnifferOpsFont -Root $detailWindow
+    Apply-SnifferOpsSpecialFonts -Root $detailWindow
+    [void]$detailWindow.ShowDialog()
+}
+
+function Get-CompactDetailColumns {
+    param([string] $Title)
+
+    switch ($Title) {
+        "WiFi Scanner" {
+            return @(
+                @{ Name = "Name"; Header = "Name" },
+                @{ Name = "SpecificType"; Header = "Type*" },
+                @{ Name = "Strength"; Header = "Signal" },
+                @{ Name = "Address"; Header = "ID / BSSID" },
+                @{ Name = "Channel"; Header = "Channel" },
+                @{ Name = "Security"; Header = "Security" }
+            )
+        }
+        "Bluetooth Scanner" {
+            return @(
+                @{ Name = "Name"; Header = "Name" },
+                @{ Name = "SpecificType"; Header = "Type*" },
+                @{ Name = "Status"; Header = "Signal" },
+                @{ Name = "Address"; Header = "ID" },
+                @{ Name = "Notes"; Header = "Notes" }
+            )
+        }
+        "SDR Radio" {
+            return @(
+                @{ Name = "Frequency"; Header = "Frequency" },
+                @{ Name = "Label"; Header = "Type*" },
+                @{ Name = "PowerDb"; Header = "Signal" },
+                @{ Name = "Modulation"; Header = "Mode" },
+                @{ Name = "Decoder"; Header = "Lens" },
+                @{ Name = "Source"; Header = "Source" }
+            )
+        }
+        default {
+            return @(
+                @{ Name = "Name"; Header = "Name" },
+                @{ Name = "SpecificType"; Header = "Type*" },
+                @{ Name = "Status"; Header = "Status" },
+                @{ Name = "Address"; Header = "ID" },
+                @{ Name = "Notes"; Header = "Notes" }
+            )
+        }
+    }
 }
 
 function Stop-SdrAudio {
@@ -1858,9 +2050,9 @@ function Show-DetailWindow {
     $detailWindow = New-Object System.Windows.Window
     Set-SnifferOpsWindowIcon -TargetWindow $detailWindow
     $detailWindow.Title = "SnifferOps - $Title"
-    $detailWindow.Width = 860
+    $detailWindow.Width = 1180
     $detailWindow.Height = 620
-    $detailWindow.MinWidth = 620
+    $detailWindow.MinWidth = 760
     $detailWindow.MinHeight = 420
     $detailWindow.Background = $script:BrushConverter.ConvertFromString("#020617")
     $detailWindow.WindowStartupLocation = "CenterOwner"
@@ -1878,6 +2070,15 @@ function Show-DetailWindow {
     $header.Margin = "0,0,0,12"
     [System.Windows.Controls.DockPanel]::SetDock($header, "Top")
     [void]$root.Children.Add($header)
+
+    $estimateFooter = New-Object System.Windows.Controls.TextBlock
+    $estimateFooter.Text = "* type/info is estimated"
+    $estimateFooter.Foreground = $script:BrushConverter.ConvertFromString("#9CA3AF")
+    $estimateFooter.FontFamily = "Consolas"
+    $estimateFooter.FontSize = 12
+    $estimateFooter.Margin = "0,10,0,0"
+    [System.Windows.Controls.DockPanel]::SetDock($estimateFooter, "Bottom")
+    [void]$root.Children.Add($estimateFooter)
 
     if ($Title -eq "SDR Radio") {
         $listenPanel = New-Object System.Windows.Controls.StackPanel
@@ -1909,7 +2110,7 @@ function Show-DetailWindow {
         [void]$listenPanel.Children.Add($deepScanButton)
 
         $listenHint = New-Object System.Windows.Controls.TextBlock
-        $listenHint.Text = "  Select or double-click a row to open its viewer (listen / decode)."
+        $listenHint.Text = "  Select a row and use OPEN SELECTED to listen/decode. Double-click a row for details."
         $listenHint.Foreground = $script:BrushConverter.ConvertFromString("#9CA3AF")
         $listenHint.FontFamily = "Consolas"
         $listenHint.FontSize = 12
@@ -1932,7 +2133,49 @@ function Show-DetailWindow {
     $grid.BorderBrush = $script:BrushConverter.ConvertFromString("#374151")
     $grid.FontFamily = "Consolas"
     $grid.FontSize = 12
+    $grid.HorizontalAlignment = "Stretch"
+    $grid.VerticalAlignment = "Stretch"
+    $grid.HorizontalScrollBarVisibility = "Auto"
+
+    $compactColumns = @(Get-CompactDetailColumns -Title $Title)
+    $visibleNames = @($compactColumns | ForEach-Object { $_.Name })
+    $headers = @{}
+    foreach ($column in $compactColumns) { $headers[$column.Name] = $column.Header }
+    $grid.Add_AutoGeneratingColumn({
+        param($eventSender, $eventArgs)
+        if ($visibleNames -notcontains $eventArgs.PropertyName) {
+            $eventArgs.Cancel = $true
+            return
+        }
+        $eventArgs.Column.Header = $headers[$eventArgs.PropertyName]
+        if ($eventArgs.Column -is [System.Windows.Controls.DataGridTextColumn]) {
+            $eventArgs.Column.ElementStyle = New-DataGridTextStyle
+        }
+        switch ($eventArgs.PropertyName) {
+            "Name" { $eventArgs.Column.Width = New-Object System.Windows.Controls.DataGridLength(1.4, [System.Windows.Controls.DataGridLengthUnitType]::Star); break }
+            "SpecificType" { $eventArgs.Column.Width = New-Object System.Windows.Controls.DataGridLength(1.5, [System.Windows.Controls.DataGridLengthUnitType]::Star); break }
+            "Label" { $eventArgs.Column.Width = New-Object System.Windows.Controls.DataGridLength(1.8, [System.Windows.Controls.DataGridLengthUnitType]::Star); break }
+            "Address" { $eventArgs.Column.Width = New-Object System.Windows.Controls.DataGridLength(1.3, [System.Windows.Controls.DataGridLengthUnitType]::Star); break }
+            "Security" { $eventArgs.Column.Width = New-Object System.Windows.Controls.DataGridLength(1.5, [System.Windows.Controls.DataGridLengthUnitType]::Star); break }
+            "Decoder" { $eventArgs.Column.Width = New-Object System.Windows.Controls.DataGridLength(1.4, [System.Windows.Controls.DataGridLengthUnitType]::Star); break }
+            "Notes" { $eventArgs.Column.Width = New-Object System.Windows.Controls.DataGridLength(1.4, [System.Windows.Controls.DataGridLengthUnitType]::Star); break }
+            "Strength" { $eventArgs.Column.Width = New-Object System.Windows.Controls.DataGridLength(80); break }
+            "Status" { $eventArgs.Column.Width = New-Object System.Windows.Controls.DataGridLength(95); break }
+            "PowerDb" { $eventArgs.Column.Width = New-Object System.Windows.Controls.DataGridLength(85); break }
+            "Channel" { $eventArgs.Column.Width = New-Object System.Windows.Controls.DataGridLength(75); break }
+            "Modulation" { $eventArgs.Column.Width = New-Object System.Windows.Controls.DataGridLength(110); break }
+            "Source" { $eventArgs.Column.Width = New-Object System.Windows.Controls.DataGridLength(90); break }
+            default { $eventArgs.Column.Width = New-Object System.Windows.Controls.DataGridLength(1, [System.Windows.Controls.DataGridLengthUnitType]::Star); break }
+        }
+    }.GetNewClosure())
     $grid.ItemsSource = $Items
+
+    $detailAction = {
+        if ($grid.SelectedItem) {
+            Show-SignalDetailWindow -Title $Title -Accent $Accent -Item $grid.SelectedItem
+        }
+    }.GetNewClosure()
+    $grid.Add_MouseDoubleClick($detailAction)
 
     if ($Title -eq "SDR Radio") {
         $listenAction = {
@@ -1943,7 +2186,6 @@ function Show-DetailWindow {
             }
         }
         $listenButton.Add_Click($listenAction)
-        $grid.Add_MouseDoubleClick($listenAction)
 
         $deepScanButton.Add_Click({
             Invoke-AppAction -Context "Deep spectrum scan" -Action {
@@ -2128,6 +2370,7 @@ function Start-AdsbCapture {
     }
 
     $seconds = [int]$script:AdsbCaptureSeconds
+    $chunkSeconds = [math]::Max(5, [int]$script:AdsbCaptureChunkSeconds)
     $adsbOut = Join-Path $RepoRoot "rtl_adsb.out.log"
     $adsbErr = Join-Path $RepoRoot "rtl_adsb.err.log"
 
@@ -2141,44 +2384,74 @@ function Start-AdsbCapture {
     if (Test-Path $adsbOut) { Remove-Item -LiteralPath $adsbOut -Force }
     if (Test-Path $adsbErr) { Remove-Item -LiteralPath $adsbErr -Force }
 
-    Add-LogLine "Capturing ADS-B on 1090 MHz for ${seconds}s (rtl_adsb)..."
-    $proc = Start-Process -FilePath $RtlAdsbPath `
-        -WorkingDirectory $ToolRoot `
-        -RedirectStandardOutput $adsbOut `
-        -RedirectStandardError $adsbErr `
-        -WindowStyle Hidden `
-        -PassThru
-
-    try {
-        $deadline = (Get-Date).AddSeconds($seconds)
-        while ((Get-Date) -lt $deadline -and -not $proc.HasExited) {
-            Start-Sleep -Milliseconds 500
-        }
-    } finally {
-        if (-not $proc.HasExited) {
-            try { $proc.Kill() } catch {}
-        }
-    }
-    Start-Sleep -Milliseconds 300
-
+    Add-LogLine "Capturing ADS-B on 1090 MHz for up to ${seconds}s (rtl_adsb)..."
     $frames = @()
-    if (Test-Path $adsbOut) {
-        $frames = @(Get-Content -Path $adsbOut -ErrorAction SilentlyContinue |
-            Where-Object { $_ -match '\*[0-9A-Fa-f]+;' })
+    $validFrameCount = 0
+    $aircraft = @()
+    $positioned = @()
+    $elapsed = 0
+
+    while ($elapsed -lt $seconds) {
+        $runSeconds = [math]::Min($chunkSeconds, $seconds - $elapsed)
+        $chunkOut = Join-Path $RepoRoot ("rtl_adsb.chunk.{0}.out.log" -f $elapsed)
+        $chunkErr = Join-Path $RepoRoot ("rtl_adsb.chunk.{0}.err.log" -f $elapsed)
+        if (Test-Path $chunkOut) { Remove-Item -LiteralPath $chunkOut -Force }
+        if (Test-Path $chunkErr) { Remove-Item -LiteralPath $chunkErr -Force }
+
+        $proc = Start-Process -FilePath $RtlAdsbPath `
+            -WorkingDirectory $ToolRoot `
+            -RedirectStandardOutput $chunkOut `
+            -RedirectStandardError $chunkErr `
+            -WindowStyle Hidden `
+            -PassThru
+
+        try {
+            $deadline = (Get-Date).AddSeconds($runSeconds)
+            while ((Get-Date) -lt $deadline -and -not $proc.HasExited) {
+                Start-Sleep -Milliseconds 500
+            }
+        } finally {
+            if (-not $proc.HasExited) {
+                try { $proc.Kill() } catch {}
+            }
+        }
+        Start-Sleep -Milliseconds 300
+
+        if (Test-Path $chunkOut) {
+            $chunkFrames = @(Get-Content -Path $chunkOut -ErrorAction SilentlyContinue |
+                Where-Object { $_ -match '\*[0-9A-Fa-f]+;' })
+            if ($chunkFrames.Count -gt 0) {
+                Add-Content -Path $adsbOut -Value $chunkFrames -ErrorAction SilentlyContinue
+                $frames += $chunkFrames
+            }
+        }
+        if (Test-Path $chunkErr) {
+            Add-Content -Path $adsbErr -Value (Get-Content -Path $chunkErr -ErrorAction SilentlyContinue) -ErrorAction SilentlyContinue
+        }
+        Remove-Item -LiteralPath $chunkOut,$chunkErr -Force -ErrorAction SilentlyContinue
+
+        $validFrameCount = @($frames | Where-Object {
+            $bytes = Convert-HexToBytes $_
+            $bytes.Length -eq 14 -and ((Get-AdsbDownlinkFormat -Bytes $bytes) -in 17, 18) -and (Test-AdsbChecksum -Bytes $bytes)
+        }).Count
+        $aircraft = @(Convert-AdsbFrames -Frames $frames)
+        $positioned = @($aircraft | Where-Object { $null -ne $_.Lat })
+        $elapsed += $runSeconds
+
+        Add-LogLine "ADS-B chunk ${elapsed}s: $($frames.Count) raw, $validFrameCount verified, $($positioned.Count) positioned."
+        if ($positioned.Count -gt 0) { break }
     }
-    Add-LogLine "ADS-B capture done: $($frames.Count) raw frame(s)."
+    Add-LogLine "ADS-B capture done: $($frames.Count) raw frame(s), $validFrameCount verified ADS-B frame(s)."
 
     if ($serverWasRunning) {
         Start-RtlTcpServer
     }
 
-    $aircraft = @(Convert-AdsbFrames -Frames $frames)
-    $positioned = @($aircraft | Where-Object { $null -ne $_.Lat })
     Add-LogLine "Decoded $($aircraft.Count) aircraft ($($positioned.Count) with position)."
 
     if ($aircraft.Count -eq 0) {
         [System.Windows.MessageBox]::Show(
-            "No ADS-B aircraft were decoded in ${seconds}s.`n`nThis is normal indoors or without a 1090 MHz antenna. Try again near a window or with a better antenna.",
+            "No verified ADS-B aircraft were decoded in ${elapsed}s.`n`nThis can happen indoors, with a weak 1090 MHz antenna, or when rtl_adsb only sees noise. Try near a window or with a better antenna.",
             "SnifferOps - ADS-B", [System.Windows.MessageBoxButton]::OK,
             [System.Windows.MessageBoxImage]::Information) | Out-Null
         return
@@ -2608,14 +2881,19 @@ $AlertTile.Add_MouseLeftButtonUp({
     }
 })
 $MainSignalGrid.Add_MouseDoubleClick({
-    Invoke-AppAction -Context "Main signal listen" -Action {
+    Invoke-AppAction -Context "Main signal details" -Action {
         $row = $MainSignalGrid.SelectedItem
-        if ($row -and $row.Type -eq "SDR") {
+        if (-not $row) { return }
+
+        if ($row.Type -eq "SDR") {
             $match = @($script:SdrSignals | Where-Object { $_.Frequency -eq $row.AddressOrFrequency } | Select-Object -First 1)
             if ($match.Count -gt 0) {
-                Invoke-SignalLens -Signal $match[0]
+                Show-SignalDetailWindow -Title "Detected Signals" -Accent "#8B5CF6" -Item $match[0]
+                return
             }
         }
+
+        Show-SignalDetailWindow -Title "Detected Signals" -Accent "#39FF14" -Item $row
     }
 })
 

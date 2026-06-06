@@ -81,8 +81,9 @@ function New-AdsbLeafletMap {
   }).addTo(map);
 
   var acs = (DATA && DATA.aircraft) ? DATA.aircraft : [];
+  var positioned = acs.filter(function(a) { return a.Lat != null && a.Lon != null; });
   document.getElementById('meta').textContent =
-    acs.length + ' contacts  |  ' + (DATA.generated || '');
+    acs.length + ' contacts  |  ' + positioned.length + ' mapped  |  ' + (DATA.generated || '');
 
   var bounds = [];
   var list = document.getElementById('list');
@@ -107,6 +108,12 @@ function New-AdsbLeafletMap {
     }
   });
   if (bounds.length) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 10 });
+  if (!bounds.length && acs.length) {
+    var div = document.createElement('div');
+    div.className = 'ac nopos';
+    div.textContent = 'No map points yet: ADS-B position needs a verified even/odd position pair from the same aircraft.';
+    list.insertBefore(div, list.firstChild);
+  }
 </script>
 </body>
 </html>
