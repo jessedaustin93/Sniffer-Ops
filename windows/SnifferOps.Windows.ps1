@@ -901,32 +901,6 @@ function Invoke-SdrFrequencySweep {
     return $signals
 }
 
-function Get-SdrBandCatalog {
-    return @($script:SdrScanFrequencies | ForEach-Object {
-        $frequency = [long]$_
-        $class = Get-SdrClassification -Frequency $frequency
-        $expectation = Get-SdrAudioExpectation -Label $class.Label -Modulation $class.Modulation
-        $row = [pscustomobject][ordered]@{
-            Decoder = ""
-            Frequency = Format-Frequency -Frequency $frequency
-            FrequencyHz = $frequency
-            PowerDb = ""
-            Bandwidth = "Catalog"
-            Label = $class.Label
-            Modulation = $class.Modulation
-            PossibleUse = $class.Label
-            Audio = $expectation
-            Confidence = "Catalog"
-            Evidence = "Known band-plan entry; not a confirmed live detection"
-            Description = $class.Description
-            NextStep = "Run DEEP SCAN (rtl_power) to measure actual RF peaks before counting this as present."
-            Source = "catalog"
-        }
-        $row.Decoder = Get-SignalDecoderText -Signal $row
-        $row
-    })
-}
-
 # Real wideband power sweep with rtl_power: measures actual power-vs-frequency and
 # detects peaks above the noise floor, so hits are genuine RF energy rather than
 # fixed band guesses. Needs exclusive dongle access, so rtl_tcp is paused.
@@ -1157,17 +1131,26 @@ function Get-BluetoothDetails {
 }
 
 function Get-SdrDetails {
-    if (-not (Get-Process rtl_tcp -ErrorAction SilentlyContinue)) {
-        Add-LogLine "Showing SDR band catalog. Start rtl_tcp or run DEEP SCAN for measured detections."
-        return @(Get-SdrBandCatalog)
-    }
-
     if ($script:SdrSignals.Count -gt 0) {
         return @($script:SdrSignals)
     }
 
-    Add-LogLine "Showing SDR band catalog. Use DEEP SCAN (rtl_power) for confirmed detections."
-    return @(Get-SdrBandCatalog)
+    return @([pscustomobject][ordered]@{
+        Frequency = "No measured SDR detections yet"
+        FrequencyHz = ""
+        PowerDb = ""
+        Bandwidth = ""
+        Label = "Run DEEP SCAN"
+        Modulation = ""
+        PossibleUse = "No RF peaks have been measured above the local noise floor."
+        Audio = ""
+        Confidence = ""
+        Evidence = ""
+        Description = "The SDR table only displays rtl_power deep-scan results. Catalog placeholders are hidden so they cannot be mistaken for detections."
+        NextStep = "Click DEEP SCAN (rtl_power) to measure the spectrum and show confirmed candidate peaks."
+        Source = "idle"
+        Decoder = ""
+    })
 }
 
 function Get-UnavailableDetails {
