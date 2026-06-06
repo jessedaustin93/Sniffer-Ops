@@ -166,7 +166,7 @@ fun SdrScreen(
             } else if (connected && !networkConnected && !hasPermission) {
                 EmptyState("USB permission needed", "Approve the Android USB prompt to enable SDR scanning")
             } else if (signals.isEmpty()) {
-                EmptyState("No measured SDR detections yet", "Tap Scan to measure catalog bands for peaks above the local noise floor")
+                EmptyState("No measured SDR detections yet", "Tap Scan to run a measured sweep and show only peaks above the local noise floor")
             } else {
                 LazyColumn(
                     modifier = Modifier.weight(1f),
