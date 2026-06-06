@@ -12,6 +12,7 @@ import com.google.android.gms.wearable.Wearable
 import com.snifferops.data.AppDatabase
 import com.snifferops.model.*
 import com.snifferops.scanner.*
+import com.snifferops.util.groupSignalDevices
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
@@ -338,18 +339,19 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             dataMap.putBoolean("scanning", summary.scanActive)
             dataMap.putBoolean("sdr_connected", summary.sdrConnected)
             dataMap.putLong("updated_at", System.currentTimeMillis())
-            dataMap.putStringArrayList("wifi_items", appState.wifiDevices.toWearRows(8) { device ->
+            dataMap.putStringArrayList("wifi_items", appState.wifiDevices.groupSignalDevices().toWearRows(8) { group ->
+                val device = group.primary
                 wearRow(
-                    title = device.name.ifBlank { "Hidden WiFi" },
-                    detail = wearDetail(wearEstimatedType(device.deviceClass), device.address, "Ch ${device.channel}"),
-                    value = "${device.signalStrength}"
+                    title = group.title,
+                    detail = wearDetail(wearEstimatedType(group.typeLabel), wearCount(group.count), "Ch ${device.channel}"),
+                    value = "${group.strongestSignal}"
                 )
             })
-            dataMap.putStringArrayList("bt_items", (appState.bluetoothDevices + appState.bleDevices).toWearRows(8) { device ->
+            dataMap.putStringArrayList("bt_items", (appState.bluetoothDevices + appState.bleDevices).groupSignalDevices().toWearRows(8) { group ->
                 wearRow(
-                    title = device.name.ifBlank { "Bluetooth" },
-                    detail = wearDetail(wearEstimatedType(device.deviceClass), device.address),
-                    value = "${device.signalStrength}"
+                    title = group.title,
+                    detail = wearDetail(wearEstimatedType(group.typeLabel), wearCount(group.count)),
+                    value = "${group.strongestSignal}"
                 )
             })
             dataMap.putStringArrayList("cell_items", appState.cellTowers.toWearRows(8) { tower ->
@@ -366,11 +368,12 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                     value = formatWearFrequency(signal.frequency)
                 )
             })
-            dataMap.putStringArrayList("alert_items", appState.alertWearDevices().toWearRows(8) { device ->
+            dataMap.putStringArrayList("alert_items", appState.alertWearDevices().groupSignalDevices().toWearRows(8) { group ->
+                val device = group.primary
                 wearRow(
-                    title = device.name.ifBlank { device.signalType.name },
-                    detail = wearDetail(wearEstimatedType(device.deviceClass), device.threatLevel.name),
-                    value = "${device.signalStrength}"
+                    title = group.title,
+                    detail = wearDetail(wearEstimatedType(group.typeLabel), wearCount(group.count), device.threatLevel.name),
+                    value = "${group.strongestSignal}"
                 )
             })
         }.asPutDataRequest().setUrgent()
@@ -406,6 +409,9 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
     private fun wearEstimatedType(type: String): String =
         type.takeIf { it.isNotBlank() }?.let { "$it*" } ?: ""
+
+    private fun wearCount(count: Int): String =
+        if (count > 1) "$count signals" else ""
 
     private fun String.cleanWearText(): String =
         replace("|", "/").replace(Regex("\\s+"), " ").trim().take(32)

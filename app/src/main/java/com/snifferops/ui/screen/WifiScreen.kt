@@ -17,6 +17,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.snifferops.model.SignalDevice
+import com.snifferops.util.SignalDeviceGroup
+import com.snifferops.util.groupSignalDevices
 import com.snifferops.ui.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -29,7 +31,7 @@ fun WifiScreen(
     onTriggerScan: () -> Unit,
     onBack: () -> Unit
 ) {
-    var selectedDevice by remember { mutableStateOf<SignalDevice?>(null) }
+    var selectedGroup by remember { mutableStateOf<SignalDeviceGroup?>(null) }
 
     Scaffold(
         containerColor = BackgroundDark,
@@ -68,14 +70,14 @@ fun WifiScreen(
             if (devices.isEmpty()) {
                 EmptyState("No WiFi networks detected", "Tap scan to search for nearby networks")
             } else {
-                val sorted = devices.sortedByDescending { it.signalStrength }
+                val grouped = devices.groupSignalDevices()
                 LazyColumn(
                     modifier = Modifier.weight(1f),
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(sorted, key = { it.id }) { device ->
-                        WifiDeviceCard(device = device, onClick = { selectedDevice = device })
+                    items(grouped, key = { it.key }) { group ->
+                        WifiDeviceCard(group = group, onClick = { selectedGroup = group })
                     }
                 }
                 EstimatedInfoFooter()
@@ -83,18 +85,19 @@ fun WifiScreen(
         }
     }
 
-    selectedDevice?.let { device ->
+    selectedGroup?.let { group ->
         SignalDetailDialog(
-            title = device.name.ifBlank { "WiFi device" },
-            subtitle = device.deviceClass,
-            rows = device.detailRows(),
-            onDismiss = { selectedDevice = null }
+            title = group.title,
+            subtitle = group.typeLabel,
+            rows = group.detailRows(),
+            onDismiss = { selectedGroup = null }
         )
     }
 }
 
 @Composable
-private fun WifiDeviceCard(device: SignalDevice, onClick: () -> Unit) {
+private fun WifiDeviceCard(group: SignalDeviceGroup, onClick: () -> Unit) {
+    val device = group.primary
     Surface(
         shape = RoundedCornerShape(10.dp),
         color = SurfaceDark,
@@ -122,6 +125,9 @@ private fun WifiDeviceCard(device: SignalDevice, onClick: () -> Unit) {
                         fontSize = 14.sp,
                         maxLines = 1
                     )
+                    if (group.count > 1) {
+                        Text("${group.count} signals", color = TacticalBlue, fontSize = 11.sp)
+                    }
                     ThreatBadge(level = device.threatLevel)
                 }
                 Text(device.address, color = OnSurfaceMuted, fontSize = 11.sp,

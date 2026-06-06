@@ -17,6 +17,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.snifferops.model.SignalDevice
+import com.snifferops.util.SignalDeviceGroup
+import com.snifferops.util.groupSignalDevices
 import com.snifferops.ui.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -27,7 +29,8 @@ fun AlertsScreen(
     onBack: () -> Unit
 ) {
     val allAlerts = (wifiAlerts + btAlerts).sortedByDescending { it.threatLevel.ordinal }
-    var selectedDevice by remember { mutableStateOf<SignalDevice?>(null) }
+    val groupedAlerts = allAlerts.groupSignalDevices()
+    var selectedGroup by remember { mutableStateOf<SignalDeviceGroup?>(null) }
 
     Scaffold(
         containerColor = BackgroundDark,
@@ -68,25 +71,26 @@ fun AlertsScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(allAlerts, key = { it.id }) { device ->
-                    AlertDeviceCard(device, onClick = { selectedDevice = device })
+                items(groupedAlerts, key = { it.key }) { group ->
+                    AlertDeviceCard(group, onClick = { selectedGroup = group })
                 }
             }
         }
     }
 
-    selectedDevice?.let { device ->
+    selectedGroup?.let { group ->
         SignalDetailDialog(
-            title = device.name.ifBlank { "Alert" },
-            subtitle = device.deviceClass,
-            rows = device.detailRows(),
-            onDismiss = { selectedDevice = null }
+            title = group.title,
+            subtitle = group.typeLabel,
+            rows = group.detailRows(),
+            onDismiss = { selectedGroup = null }
         )
     }
 }
 
 @Composable
-private fun AlertDeviceCard(device: SignalDevice, onClick: () -> Unit) {
+private fun AlertDeviceCard(group: SignalDeviceGroup, onClick: () -> Unit) {
+    val device = group.primary
     Surface(
         shape = RoundedCornerShape(10.dp),
         color = SurfaceDark,
@@ -107,6 +111,9 @@ private fun AlertDeviceCard(device: SignalDevice, onClick: () -> Unit) {
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(device.name, color = OnSurface, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    if (group.count > 1) {
+                        Text("${group.count} signals", color = device.threatLevel.toColor(), fontSize = 11.sp)
+                    }
                     ThreatBadge(level = device.threatLevel)
                 }
                 Text(device.address, color = OnSurfaceMuted, fontSize = 11.sp,

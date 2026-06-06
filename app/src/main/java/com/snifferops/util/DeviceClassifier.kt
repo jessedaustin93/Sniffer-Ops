@@ -92,8 +92,11 @@ object DeviceClassifier {
     fun classifyBluetooth(name: String, address: String): Triple<String, String, ThreatLevel> {
         val manufacturer = lookupOui(address.take(8))
         val nameLower = name.lowercase()
+        val mfrLower = manufacturer.lowercase()
 
         val deviceClass = when {
+            nameLower.contains("flock") || mfrLower.contains("flock") ||
+                FLOCK_OUIS.any { address.uppercase().startsWith(it) } -> "Likely Flock camera"
             FLIPPER_IDENTIFIERS.any { nameLower.contains(it.lowercase()) } -> "Flipper Zero"
             nameLower.contains("flipper") -> "Flipper Zero"
             nameLower.contains("headphone") || nameLower.contains("earbuds") || nameLower.contains("buds") -> "Audio device"
@@ -109,6 +112,8 @@ object DeviceClassifier {
         }
 
         val threat = when {
+            nameLower.contains("flock") || mfrLower.contains("flock") ||
+                FLOCK_OUIS.any { address.uppercase().startsWith(it) } -> ThreatLevel.ALERT
             FLIPPER_IDENTIFIERS.any { nameLower.contains(it.lowercase()) } -> ThreatLevel.ALERT
             nameLower.contains("flipper") -> ThreatLevel.ALERT
             nameLower.contains("pineapple") || nameLower.contains("evil") -> ThreatLevel.ALERT

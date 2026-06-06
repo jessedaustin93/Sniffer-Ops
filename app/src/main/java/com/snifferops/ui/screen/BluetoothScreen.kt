@@ -17,6 +17,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.snifferops.model.SignalDevice
+import com.snifferops.util.SignalDeviceGroup
+import com.snifferops.util.groupSignalDevices
 import com.snifferops.ui.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -33,7 +35,7 @@ fun BluetoothScreen(
     onBack: () -> Unit
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
-    var selectedDevice by remember { mutableStateOf<SignalDevice?>(null) }
+    var selectedGroup by remember { mutableStateOf<SignalDeviceGroup?>(null) }
     val tabs = listOf("Classic BT (${classicDevices.size})", "BLE (${bleDevices.size})")
 
     Scaffold(
@@ -77,8 +79,8 @@ fun BluetoothScreen(
                         color = TacticalBlue, onStart = onStartClassic, onStop = onStopClassic
                     )
                     BtDeviceList(
-                        devices = classicDevices.sortedByDescending { it.signalStrength },
-                        onSelect = { selectedDevice = it }
+                        groups = classicDevices.groupSignalDevices(),
+                        onSelect = { selectedGroup = it }
                     )
                 }
                 1 -> {
@@ -87,27 +89,27 @@ fun BluetoothScreen(
                         color = TacticalBlue, onStart = onStartBle, onStop = onStopBle
                     )
                     BtDeviceList(
-                        devices = bleDevices.sortedByDescending { it.signalStrength },
-                        onSelect = { selectedDevice = it }
+                        groups = bleDevices.groupSignalDevices(),
+                        onSelect = { selectedGroup = it }
                     )
                 }
             }
         }
     }
 
-    selectedDevice?.let { device ->
+    selectedGroup?.let { group ->
         SignalDetailDialog(
-            title = device.name.ifBlank { "Bluetooth device" },
-            subtitle = device.deviceClass,
-            rows = device.detailRows(),
-            onDismiss = { selectedDevice = null }
+            title = group.title,
+            subtitle = group.typeLabel,
+            rows = group.detailRows(),
+            onDismiss = { selectedGroup = null }
         )
     }
 }
 
 @Composable
-private fun ColumnScope.BtDeviceList(devices: List<SignalDevice>, onSelect: (SignalDevice) -> Unit) {
-    if (devices.isEmpty()) {
+private fun ColumnScope.BtDeviceList(groups: List<SignalDeviceGroup>, onSelect: (SignalDeviceGroup) -> Unit) {
+    if (groups.isEmpty()) {
         EmptyState("No Bluetooth devices found", "Tap scan to search for nearby devices")
         return
     }
@@ -116,15 +118,16 @@ private fun ColumnScope.BtDeviceList(devices: List<SignalDevice>, onSelect: (Sig
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        items(devices, key = { it.id }) { device ->
-            BtDeviceCard(device, onClick = { onSelect(device) })
+        items(groups, key = { it.key }) { group ->
+            BtDeviceCard(group, onClick = { onSelect(group) })
         }
     }
     EstimatedInfoFooter()
 }
 
 @Composable
-private fun BtDeviceCard(device: SignalDevice, onClick: () -> Unit) {
+private fun BtDeviceCard(group: SignalDeviceGroup, onClick: () -> Unit) {
+    val device = group.primary
     Surface(
         shape = RoundedCornerShape(10.dp),
         color = SurfaceDark,
@@ -148,6 +151,9 @@ private fun BtDeviceCard(device: SignalDevice, onClick: () -> Unit) {
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(device.name, color = OnSurface, fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                    if (group.count > 1) {
+                        Text("${group.count} signals", color = TacticalBlue, fontSize = 11.sp)
+                    }
                     ThreatBadge(level = device.threatLevel)
                 }
                 Text(device.address, color = OnSurfaceMuted, fontSize = 11.sp,
