@@ -155,6 +155,7 @@ object DeviceClassifier {
             mhz in 150.0..174.0 -> "VHF land mobile"
             mhz in 174.0..216.0 -> "VHF TV / broadcast"
             mhz in 216.0..222.0 -> "Amateur (1.25m)"
+            mhz in 225.0..400.0 -> "Military aviation UHF airband"
             mhz in 400.0..406.0 -> "Meteorological"
             mhz in 406.0..420.0 -> "Government"
             mhz in 433.0..435.0 -> "433 MHz ISM device"
@@ -181,6 +182,7 @@ object DeviceClassifier {
         val modulation = when {
             mhz in 87.5..108.0 -> "FM/RBDS"
             mhz in 108.0..137.0 -> "AM/VOR"
+            mhz in 225.0..400.0 -> "AM aviation"
             mhz in 433.0..435.0 -> "OOK/FSK"
             mhz in 851.0..869.0 -> "P25/TDMA"
             mhz in 1090.0..1091.0 -> "PPM/ADS-B"

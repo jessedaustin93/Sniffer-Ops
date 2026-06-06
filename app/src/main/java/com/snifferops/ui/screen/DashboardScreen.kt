@@ -437,6 +437,6 @@ private fun ScannerTile.subtitle(): String = when (screen) {
     Screen.Bluetooth -> "BT/BLE scan"
     Screen.Nfc -> "Samsung NFC reader"
     Screen.Cellular -> "Radio info"
-    Screen.Sdr -> "RTL feed"
+    Screen.Sdr -> "Measured RF peaks"
     Screen.Alerts -> "App status"
 }

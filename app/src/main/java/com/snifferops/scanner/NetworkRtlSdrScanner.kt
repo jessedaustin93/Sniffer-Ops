@@ -20,6 +20,7 @@ class NetworkRtlSdrScanner {
         private const val READ_TIMEOUT_MS = 1200
         private const val DEFAULT_SAMPLE_RATE = 1_024_000
         private const val DEFAULT_GAIN = 0
+        private const val DETECTION_PROMINENCE_DB = 10f
     }
 
     fun sweepFrequencies(host: String, port: Int): Flow<List<SdrSignal>> = flow {
@@ -35,7 +36,7 @@ class NetworkRtlSdrScanner {
             writeCommand(output, 0x03, 0)
             writeCommand(output, 0x04, DEFAULT_GAIN)
 
-            val allSignals = mutableListOf<SdrSignal>()
+            val measured = mutableListOf<Pair<Long, Float>>()
             for (frequency in RtlSdrScanner.SCAN_FREQUENCIES) {
                 writeCommand(output, 0x01, frequency.toInt())
                 delay(120)
@@ -44,23 +45,39 @@ class NetworkRtlSdrScanner {
                 val read = input.read(buffer)
                 if (read > 0) {
                     val power = calculatePower(buffer, read)
-                    if (power > -80f) {
-                        val (label, modulation) = DeviceClassifier.classifySdrSignal(frequency)
-                        allSignals.add(
-                            SdrSignal(
-                                frequency = frequency,
-                                bandwidth = DEFAULT_SAMPLE_RATE.toLong(),
-                                power = power,
-                                modulation = modulation,
-                                label = label
-                            )
-                        )
-                        emit(allSignals.toList())
-                    }
+                    measured += frequency to power
+                    val detections = detectionsFromSweep(measured)
+                    emit(detections)
                 }
             }
         }
     }.flowOn(Dispatchers.IO)
+
+    private fun detectionsFromSweep(measured: List<Pair<Long, Float>>): List<SdrSignal> {
+        if (measured.size < 3) return emptyList()
+        val floor = median(measured.map { it.second })
+        val cutoff = floor + DETECTION_PROMINENCE_DB
+        return measured
+            .filter { it.second >= cutoff }
+            .sortedByDescending { it.second }
+            .map { (frequency, power) ->
+                val (label, modulation) = DeviceClassifier.classifySdrSignal(frequency)
+                SdrSignal(
+                    frequency = frequency,
+                    bandwidth = DEFAULT_SAMPLE_RATE.toLong(),
+                    power = power,
+                    modulation = modulation,
+                    label = label
+                )
+            }
+    }
+
+    private fun median(values: List<Float>): Float {
+        if (values.isEmpty()) return -120f
+        val sorted = values.sorted()
+        val mid = sorted.size / 2
+        return if (sorted.size % 2 == 1) sorted[mid] else (sorted[mid - 1] + sorted[mid]) / 2f
+    }
 
     private fun writeCommand(output: OutputStream, command: Int, parameter: Int) {
         output.write(

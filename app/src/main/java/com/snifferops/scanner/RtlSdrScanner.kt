@@ -46,6 +46,8 @@ class RtlSdrScanner(private val context: Context) {
             978_000_000L,  // ADS-B Mode S
             1_090_000_000L // ADS-B 1090MHz
         )
+
+        private const val DETECTION_PROMINENCE_DB = 10f
     }
 
     private val usbManager = context.getSystemService(Context.USB_SERVICE) as UsbManager
@@ -135,24 +137,24 @@ class RtlSdrScanner(private val context: Context) {
         val device = findRtlDevice() ?: return@flow
         if (!usbManager.hasPermission(device)) return@flow
 
-        val allSignals = mutableListOf<SdrSignal>()
+        val measured = mutableListOf<Pair<Long, Float>>()
 
         for (freq in SCAN_FREQUENCIES) {
-            val signals = sampleAtFrequency(freq)
-            allSignals.addAll(signals)
-            if (allSignals.isNotEmpty()) emit(allSignals.toList())
+            samplePowerAtFrequency(freq)?.let { power ->
+                measured += freq to power
+                emit(detectionsFromSweep(measured))
+            }
             delay(200)
         }
     }.flowOn(Dispatchers.IO)
 
-    private suspend fun sampleAtFrequency(frequency: Long): List<SdrSignal> {
-        val device = findRtlDevice() ?: return emptyList()
-        val connection = usbManager.openDevice(device) ?: return emptyList()
-        val signals = mutableListOf<SdrSignal>()
+    private suspend fun samplePowerAtFrequency(frequency: Long): Float? {
+        val device = findRtlDevice() ?: return null
+        val connection = usbManager.openDevice(device) ?: return null
 
         try {
             val iface = device.getInterface(0)
-            val endpoint = getBulkInEndpoint(device) ?: return emptyList()
+            val endpoint = getBulkInEndpoint(device) ?: return null
             connection.claimInterface(iface, true)
             setCenterFrequency(connection, frequency)
             delay(50)
@@ -160,23 +162,39 @@ class RtlSdrScanner(private val context: Context) {
             val buffer = ByteArray(16384)
             val read = connection.bulkTransfer(endpoint, buffer, buffer.size, 500)
             if (read > 0) {
-                val power = calculatePower(buffer, read)
-                if (power > -80f) { // Only report signals above noise floor
-                    val (label, modulation) = DeviceClassifier.classifySdrSignal(frequency)
-                    signals.add(SdrSignal(
-                        frequency = frequency,
-                        power = power,
-                        modulation = modulation,
-                        label = label
-                    ))
-                }
+                return calculatePower(buffer, read)
             }
         } finally {
             runCatching { connection.releaseInterface(device.getInterface(0)) }
             connection.close()
         }
 
-        return signals
+        return null
+    }
+
+    private fun detectionsFromSweep(measured: List<Pair<Long, Float>>): List<SdrSignal> {
+        if (measured.size < 3) return emptyList()
+        val floor = median(measured.map { it.second })
+        val cutoff = floor + DETECTION_PROMINENCE_DB
+        return measured
+            .filter { it.second >= cutoff }
+            .sortedByDescending { it.second }
+            .map { (frequency, power) ->
+                val (label, modulation) = DeviceClassifier.classifySdrSignal(frequency)
+                SdrSignal(
+                    frequency = frequency,
+                    power = power,
+                    modulation = modulation,
+                    label = label
+                )
+            }
+    }
+
+    private fun median(values: List<Float>): Float {
+        if (values.isEmpty()) return -120f
+        val sorted = values.sorted()
+        val mid = sorted.size / 2
+        return if (sorted.size % 2 == 1) sorted[mid] else (sorted[mid - 1] + sorted[mid]) / 2f
     }
 
     private fun getBulkInEndpoint(device: UsbDevice): UsbEndpoint? {
