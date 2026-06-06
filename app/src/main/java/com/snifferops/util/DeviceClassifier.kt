@@ -152,7 +152,7 @@ object DeviceClassifier {
             mhz in 137.0..138.0 -> "NOAA satellite"
             mhz in 144.0..148.0 -> "Amateur 2m"
             mhz in 162.4..162.55 -> "NOAA Weather Radio"
-            mhz in 150.0..174.0 -> "VHF land mobile"
+            mhz in 148.0..174.0 -> "VHF land mobile"
             mhz in 174.0..216.0 -> "VHF TV / broadcast"
             mhz in 216.0..222.0 -> "Amateur (1.25m)"
             mhz in 225.0..400.0 -> "Military aviation UHF airband"
