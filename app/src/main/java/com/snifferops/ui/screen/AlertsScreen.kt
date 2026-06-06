@@ -37,7 +37,7 @@ fun AlertsScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Text("THREAT ALERTS (${allAlerts.size})", fontFamily = FontFamily.Monospace,
+                    Text("SIGNAL ALERTS (${allAlerts.size})", fontFamily = FontFamily.Monospace,
                         color = AlertRed, letterSpacing = 1.sp, fontSize = 16.sp)
                 },
                 navigationIcon = {
@@ -62,7 +62,7 @@ fun AlertsScreen(
                         modifier = Modifier.size(64.dp))
                     Text("ALL CLEAR", color = SafeGreen, fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold, fontSize = 20.sp, letterSpacing = 4.sp)
-                    Text("No threats detected", color = OnSurfaceMuted, fontSize = 14.sp)
+                    Text("No alerts noticed", color = OnSurfaceMuted, fontSize = 14.sp)
                 }
             }
         } else {

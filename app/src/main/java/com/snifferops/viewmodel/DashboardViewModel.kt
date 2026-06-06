@@ -45,6 +45,8 @@ data class AppState(
         nfcCount = if (lastNfcTag != null) 1 else 0,
         cellCount = cellTowers.size,
         sdrCount = sdrSignals.size,
+        noticedCount = (wifiDevices + bluetoothDevices + bleDevices)
+            .count { it.threatLevel == ThreatLevel.UNKNOWN },
         suspiciousCount = (wifiDevices + bluetoothDevices + bleDevices)
             .count { it.threatLevel == ThreatLevel.SUSPICIOUS },
         alertCount = (wifiDevices + bluetoothDevices + bleDevices)
@@ -52,6 +54,8 @@ data class AppState(
         sdrConnected = sdrConnected || networkSdrConnected,
         scanActive = scanActive
     )
+
+    val alertTotal: Int get() = summary.alertCount + summary.suspiciousCount + summary.noticedCount
 }
 
 @OptIn(FlowPreview::class)
@@ -335,7 +339,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             dataMap.putInt("bt", summary.bluetoothCount + summary.bleCount)
             dataMap.putInt("cell", summary.cellCount)
             dataMap.putInt("sdr", summary.sdrCount)
-            dataMap.putInt("alerts", summary.alertCount + summary.suspiciousCount)
+            dataMap.putInt("alerts", appState.alertTotal)
             dataMap.putBoolean("scanning", summary.scanActive)
             dataMap.putBoolean("sdr_connected", summary.sdrConnected)
             dataMap.putLong("updated_at", System.currentTimeMillis())
@@ -372,7 +376,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 val device = group.primary
                 wearRow(
                     title = group.title,
-                    detail = wearDetail(wearEstimatedType(group.typeLabel), wearCount(group.count), device.threatLevel.name),
+                    detail = wearDetail(wearEstimatedType(group.typeLabel), wearCount(group.count), device.threatLevel.wearLabel()),
                     value = "${group.strongestSignal}"
                 )
             })
@@ -384,7 +388,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                     TAG,
                     "Published summary scanning=${summary.scanActive} wifi=${summary.wifiCount} " +
                         "bt=${summary.bluetoothCount + summary.bleCount} cell=${summary.cellCount} " +
-                        "sdr=${summary.sdrCount} alerts=${summary.alertCount + summary.suspiciousCount}"
+                        "sdr=${summary.sdrCount} alerts=${appState.alertTotal}"
                 )
             }
             .addOnFailureListener { error ->
@@ -394,7 +398,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
     private fun AppState.alertWearDevices(): List<SignalDevice> =
         (wifiDevices + bluetoothDevices + bleDevices)
-            .filter { it.threatLevel == ThreatLevel.ALERT || it.threatLevel == ThreatLevel.SUSPICIOUS }
+            .filter { it.threatLevel != ThreatLevel.SAFE }
             .sortedByDescending { it.threatLevel.ordinal }
 
     private fun <T> List<T>.toWearRows(limit: Int, mapper: (T) -> String): ArrayList<String> =
@@ -412,6 +416,13 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
     private fun wearCount(count: Int): String =
         if (count > 1) "$count signals" else ""
+
+    private fun ThreatLevel.wearLabel(): String = when (this) {
+        ThreatLevel.ALERT -> "ALERT"
+        ThreatLevel.SUSPICIOUS -> "WATCH"
+        ThreatLevel.UNKNOWN -> "NOTICED"
+        ThreatLevel.SAFE -> "SAFE"
+    }
 
     private fun String.cleanWearText(): String =
         replace("|", "/").replace(Regex("\\s+"), " ").trim().take(32)

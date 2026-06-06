@@ -89,6 +89,7 @@ fun DashboardScreen(
     onClearData: () -> Unit
 ) {
     val summary = state.summary
+    val alertTotal = state.alertTotal
     val infiniteTransition = rememberInfiniteTransition(label = "radar")
     val sweepAngle by infiniteTransition.animateFloat(
         initialValue = 0f,
@@ -135,9 +136,9 @@ fun DashboardScreen(
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Black),
                 actions = {
-                    if (summary.alertCount > 0) {
+                    if (alertTotal > 0) {
                         BadgedBox(badge = {
-                            Badge(containerColor = AlertRed) { Text("${summary.alertCount}") }
+                            Badge(containerColor = AlertRed) { Text("$alertTotal") }
                         }) {
                             IconButton(onClick = { onNavigate(Screen.Alerts) }) {
                                 Icon(Icons.Default.Warning, "Alerts", tint = AlertRed)
@@ -192,7 +193,7 @@ fun DashboardScreen(
                             StatusRow("BT/BLE", summary.bluetoothCount + summary.bleCount, TacticalBlue)
                             StatusRow("CELL", summary.cellCount, WarningOrange)
                             StatusRow("SDR", summary.sdrCount, Color(0xFF8B5CF6))
-                            StatusRow("ALERTS", summary.alertCount, AlertRed)
+                            StatusRow("ALERTS", alertTotal, AlertRed)
                         }
                     }
                     SignalMapStrip()
@@ -364,13 +365,14 @@ private fun SdrStatusBadge(connected: Boolean, deviceName: String) {
 @Composable
 private fun ScannerGrid(state: AppState, onNavigate: (Screen) -> Unit) {
     val summary = state.summary
+    val alertTotal = state.alertTotal
     val items = listOf(
         ScannerTile("WiFi", Icons.Default.Wifi, Screen.Wifi, summary.wifiCount, state.wifiScanActive, RadarGreen),
         ScannerTile("Bluetooth", Icons.Default.Bluetooth, Screen.Bluetooth, summary.bluetoothCount + summary.bleCount, state.btScanActive || state.bleScanActive, TacticalBlue),
         ScannerTile("NFC", Icons.Default.Nfc, Screen.Nfc, if (state.lastNfcTag != null) 1 else 0, false, Color(0xFFEC4899)),
         ScannerTile("Cellular", Icons.Default.CellTower, Screen.Cellular, summary.cellCount, state.cellScanActive, WarningOrange),
         ScannerTile("SDR Radio", Icons.Default.Radio, Screen.Sdr, summary.sdrCount, state.sdrScanActive, Color(0xFF8B5CF6)),
-        ScannerTile("Alerts", Icons.Default.Warning, Screen.Alerts, summary.alertCount + summary.suspiciousCount, false, AlertRed)
+        ScannerTile("Alerts", Icons.Default.Warning, Screen.Alerts, alertTotal, false, AlertRed)
     )
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {

@@ -18,10 +18,22 @@ object DeviceClassifier {
         "jenoptik", "redflex", "conduent", "perceptics"
     )
 
-    // Known Flipper Zero / hacking tool identifiers
-    private val FLIPPER_IDENTIFIERS = setOf(
-        "Flipper Zero", "Flipper_", "xRemote", "Evil_Twin",
-        "BadUSB", "Marauder", "Deauther"
+    private val TRAFFIC_READER_KEYWORDS = setOf(
+        "flock", "alpr", "lpr", "license plate", "plate reader",
+        "traffic reader", "traffic camera", "speed camera", "red light"
+    )
+
+    // Tooling that can be used for interception, impersonation, or data capture.
+    private val DATA_STEALING_KEYWORDS = setOf(
+        "flipper", "flipper zero", "flipper_", "xremote", "evil_twin",
+        "evil twin", "badusb", "marauder", "deauther", "pwnagotchi",
+        "pineapple", "wifi pineapple", "rogue ap", "credential",
+        "password", "phish", "skimmer", "sniffer"
+    )
+
+    private val NOTICED_KEYWORDS = setOf(
+        "direct", "wifi direct", "beacon", "tracker", "airtag", "tile",
+        "unknown ble", "ble tag", "sensor"
     )
 
     // OUI database (first 3 octets of MAC -> manufacturer)
@@ -54,12 +66,18 @@ object DeviceClassifier {
         val manufacturer = lookupOui(bssid)
         val ssidLower = ssid.lowercase()
         val mfrLower = manufacturer.lowercase()
+        val isFlockLike = isFlockLike(ssidLower, mfrLower, bssid)
+        val isTrafficReader = hasAny(ssidLower, TRAFFIC_READER_KEYWORDS) ||
+            hasAny(mfrLower, TRAFFIC_READER_KEYWORDS)
+        val isSurveillance = hasAny(ssidLower, SURVEILLANCE_KEYWORDS) ||
+            hasAny(mfrLower, SURVEILLANCE_KEYWORDS)
+        val isDataStealingTool = hasAny(ssidLower, DATA_STEALING_KEYWORDS)
 
         val deviceClass = when {
-            ssidLower.contains("flock") || mfrLower.contains("flock") ||
-                FLOCK_OUIS.any { bssid.uppercase().startsWith(it) } -> "Likely Flock camera"
-            SURVEILLANCE_KEYWORDS.any { ssidLower.contains(it) || mfrLower.contains(it) } -> "Camera / surveillance WiFi"
-            FLIPPER_IDENTIFIERS.any { ssidLower.contains(it.lowercase()) } -> "Flipper / hacking device"
+            isFlockLike -> "Possible Flock camera"
+            isTrafficReader -> "Traffic reader / ALPR device"
+            isSurveillance -> "Camera / surveillance WiFi"
+            isDataStealingTool -> "Data-capture / hacking device"
             ssidLower.contains("cam") || ssidLower.contains("ipcam") -> "Camera WiFi"
             ssidLower.contains("ring") || ssidLower.contains("nest") -> "Doorbell / camera WiFi"
             ssidLower.contains("arlo") || ssidLower.contains("wyze") -> "Camera WiFi"
@@ -77,11 +95,9 @@ object DeviceClassifier {
         }
 
         val threat = when {
-            ssidLower.contains("flock") || mfrLower.contains("flock") ||
-                FLOCK_OUIS.any { bssid.uppercase().startsWith(it) } -> ThreatLevel.ALERT
-            SURVEILLANCE_KEYWORDS.any { ssidLower.contains(it) || mfrLower.contains(it) } -> ThreatLevel.SUSPICIOUS
-            FLIPPER_IDENTIFIERS.any { ssidLower.contains(it.lowercase()) } -> ThreatLevel.ALERT
-            ssidLower.contains("evil") || ssidLower.contains("pineapple") -> ThreatLevel.ALERT
+            isDataStealingTool -> ThreatLevel.ALERT
+            isFlockLike || isTrafficReader || isSurveillance -> ThreatLevel.SUSPICIOUS
+            hasAny(ssidLower, NOTICED_KEYWORDS) -> ThreatLevel.UNKNOWN
             !capabilities.contains("WPA") && !capabilities.contains("WEP") -> ThreatLevel.UNKNOWN
             else -> ThreatLevel.SAFE
         }
@@ -93,12 +109,18 @@ object DeviceClassifier {
         val manufacturer = lookupOui(address.take(8))
         val nameLower = name.lowercase()
         val mfrLower = manufacturer.lowercase()
+        val isFlockLike = isFlockLike(nameLower, mfrLower, address)
+        val isTrafficReader = hasAny(nameLower, TRAFFIC_READER_KEYWORDS) ||
+            hasAny(mfrLower, TRAFFIC_READER_KEYWORDS)
+        val isSurveillance = hasAny(nameLower, SURVEILLANCE_KEYWORDS) ||
+            hasAny(mfrLower, SURVEILLANCE_KEYWORDS)
+        val isDataStealingTool = hasAny(nameLower, DATA_STEALING_KEYWORDS)
 
         val deviceClass = when {
-            nameLower.contains("flock") || mfrLower.contains("flock") ||
-                FLOCK_OUIS.any { address.uppercase().startsWith(it) } -> "Likely Flock camera"
-            FLIPPER_IDENTIFIERS.any { nameLower.contains(it.lowercase()) } -> "Flipper Zero"
-            nameLower.contains("flipper") -> "Flipper Zero"
+            isFlockLike -> "Possible Flock camera"
+            isTrafficReader -> "Traffic reader / ALPR device"
+            isSurveillance -> "Camera / surveillance device"
+            isDataStealingTool -> "Data-capture / hacking device"
             nameLower.contains("headphone") || nameLower.contains("earbuds") || nameLower.contains("buds") -> "Audio device"
             nameLower.contains("watch") || nameLower.contains("band") -> "Wearable"
             nameLower.contains("keyboard") -> "Keyboard"
@@ -112,11 +134,9 @@ object DeviceClassifier {
         }
 
         val threat = when {
-            nameLower.contains("flock") || mfrLower.contains("flock") ||
-                FLOCK_OUIS.any { address.uppercase().startsWith(it) } -> ThreatLevel.ALERT
-            FLIPPER_IDENTIFIERS.any { nameLower.contains(it.lowercase()) } -> ThreatLevel.ALERT
-            nameLower.contains("flipper") -> ThreatLevel.ALERT
-            nameLower.contains("pineapple") || nameLower.contains("evil") -> ThreatLevel.ALERT
+            isDataStealingTool -> ThreatLevel.ALERT
+            isFlockLike || isTrafficReader || isSurveillance -> ThreatLevel.SUSPICIOUS
+            hasAny(nameLower, NOTICED_KEYWORDS) -> ThreatLevel.UNKNOWN
             else -> ThreatLevel.SAFE
         }
 
@@ -174,4 +194,12 @@ object DeviceClassifier {
         val oui = address.uppercase().take(8).replace("-", ":")
         return KNOWN_OUIS[oui] ?: "Unknown"
     }
+
+    private fun isFlockLike(label: String, manufacturer: String, address: String): Boolean =
+        label.contains("flock") ||
+            manufacturer.contains("flock") ||
+            FLOCK_OUIS.any { address.uppercase().startsWith(it) }
+
+    private fun hasAny(value: String, keywords: Set<String>): Boolean =
+        keywords.any { value.contains(it) }
 }

@@ -68,6 +68,7 @@ data class ScanSummary(
     val nfcCount: Int = 0,
     val cellCount: Int = 0,
     val sdrCount: Int = 0,
+    val noticedCount: Int = 0,
     val suspiciousCount: Int = 0,
     val alertCount: Int = 0,
     val sdrConnected: Boolean = false,

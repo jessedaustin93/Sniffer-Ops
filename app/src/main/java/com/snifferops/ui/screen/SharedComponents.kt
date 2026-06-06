@@ -66,7 +66,7 @@ fun ScanControlBar(
 
 @Composable
 fun ThreatBadge(level: ThreatLevel) {
-    if (level == ThreatLevel.SAFE || level == ThreatLevel.UNKNOWN) return
+    if (level == ThreatLevel.SAFE) return
     Surface(
         shape = RoundedCornerShape(4.dp),
         color = level.toColor().copy(alpha = 0.15f)

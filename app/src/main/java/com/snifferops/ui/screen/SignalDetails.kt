@@ -30,6 +30,7 @@ import com.snifferops.ui.theme.BackgroundDark
 import com.snifferops.ui.theme.OnSurface
 import com.snifferops.ui.theme.OnSurfaceMuted
 import com.snifferops.ui.theme.SurfaceDark
+import com.snifferops.ui.theme.toLabel
 
 data class SignalDetailRow(val label: String, val value: String)
 
@@ -130,7 +131,7 @@ fun SignalDevice.detailRows(): List<SignalDetailRow> = listOf(
     SignalDetailRow("Frequency", displayFrequency()),
     SignalDetailRow("Security", if (signalType.name == "WIFI") if (isEncrypted) "Encrypted" else "Open" else ""),
     SignalDetailRow("Raw", notes),
-    SignalDetailRow("Threat", threatLevel.name),
+    SignalDetailRow("Alert", threatLevel.toLabel()),
     SignalDetailRow("Seen", seenCount.toString())
 )
 
@@ -157,6 +158,7 @@ fun SignalDeviceGroup.detailRows(): List<SignalDetailRow> {
         SignalDetailRow("Name", title),
         SignalDetailRow("Type*", typeLabel),
         SignalDetailRow("Definition", groupDefinition()),
+        SignalDetailRow("Alert", primary.threatLevel.toLabel()),
         SignalDetailRow("Signals", count.toString()),
         SignalDetailRow("Best", "$strongestSignal dBm"),
         SignalDetailRow("Vendor", primary.manufacturer.takeUnless { it == "Unknown" }.orEmpty()),
