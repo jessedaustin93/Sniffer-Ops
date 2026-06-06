@@ -36,6 +36,16 @@ $flat = "2024-01-01, 12:00:00, 100000000, 110000000, 1000000.00, 100, -60, -61, 
 $peaks3 = @(Find-SpectrumPeaks -Bins (ConvertFrom-RtlPowerCsv -Lines @($flat)) -ThresholdDb 6.0)
 Assert "flat noise -> no peaks"         ($peaks3.Count -eq 0)
 
+# Nearby peaks from one wide emitter should collapse to the stronger bucket.
+$near = @(
+    [pscustomobject]@{ FrequencyHz = 740309000; PowerDb = -2.9; FloorDb = -15.0; ProminenceDb = 12.1 },
+    [pscustomobject]@{ FrequencyHz = 740440000; PowerDb = -2.4; FloorDb = -15.0; ProminenceDb = 12.6 },
+    [pscustomobject]@{ FrequencyHz = 744000000; PowerDb = 1.0; FloorDb = -15.0; ProminenceDb = 16.0 }
+)
+$mergedNear = @(Merge-NearbySpectrumPeaks -Peaks $near -CoalesceHz 250000)
+Assert "nearby peaks coalesce"          ($mergedNear.Count -eq 2)
+Assert "coalesced peak keeps stronger"  ((@($mergedNear | Where-Object { $_.FrequencyHz -eq 740440000 })).Count -eq 1)
+
 # Comment/blank lines are skipped.
 $bins4 = ConvertFrom-RtlPowerCsv -Lines @("# header", "", $line)
 Assert "comment/blank lines skipped"    ($bins4.Count -eq 10)

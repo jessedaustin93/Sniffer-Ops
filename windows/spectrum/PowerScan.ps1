@@ -44,7 +44,8 @@ function Find-SpectrumPeaks {
     param(
         [object[]] $Bins,
         [double]   $ThresholdDb = 10.0,
-        [int]      $WindowBins = 24
+        [int]      $WindowBins = 24,
+        [long]     $CoalesceHz = 250000
     )
     if (@($Bins).Count -eq 0) { return @() }
 
@@ -98,5 +99,41 @@ function Find-SpectrumPeaks {
         $peaks.Add([pscustomobject]@{ FrequencyHz = [long]$runBest.Hz; PowerDb = [double]$runBest.Db; FloorDb = [double]$runBest.FloorDb; ProminenceDb = [double]$runBest.ProminenceDb }) | Out-Null
     }
 
-    return @($peaks.ToArray() | Sort-Object -Property @{ Expression = "PowerDb"; Descending = $true })
+    return @(Merge-NearbySpectrumPeaks -Peaks $peaks.ToArray() -CoalesceHz $CoalesceHz |
+        Sort-Object -Property @{ Expression = "PowerDb"; Descending = $true })
+}
+
+function Merge-NearbySpectrumPeaks {
+    param(
+        [object[]] $Peaks,
+        [long] $CoalesceHz = 250000
+    )
+    if (@($Peaks).Count -eq 0) { return @() }
+
+    $sorted = @($Peaks | Sort-Object FrequencyHz)
+    $merged = New-Object System.Collections.Generic.List[object]
+    $cluster = @()
+
+    foreach ($peak in $sorted) {
+        if ($cluster.Count -eq 0) {
+            $cluster = @($peak)
+            continue
+        }
+
+        $last = $cluster[-1]
+        if (([long]$peak.FrequencyHz - [long]$last.FrequencyHz) -le $CoalesceHz) {
+            $cluster += $peak
+        } else {
+            $best = @($cluster | Sort-Object -Property @{ Expression = "PowerDb"; Descending = $true } | Select-Object -First 1)[0]
+            $merged.Add($best) | Out-Null
+            $cluster = @($peak)
+        }
+    }
+
+    if ($cluster.Count -gt 0) {
+        $best = @($cluster | Sort-Object -Property @{ Expression = "PowerDb"; Descending = $true } | Select-Object -First 1)[0]
+        $merged.Add($best) | Out-Null
+    }
+
+    return @($merged.ToArray())
 }

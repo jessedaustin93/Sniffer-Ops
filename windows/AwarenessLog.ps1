@@ -66,6 +66,13 @@ function Get-AwarenessSignalKey {
     if (-not $type) { $type = ([string]$Signal.signalType).Trim() }
     if (-not $type) { $type = "UNKNOWN" }
 
+    $frequency = ConvertTo-AwarenessNumber $Signal.frequencyHz
+    if ($type.ToUpperInvariant() -eq "RTL_SDR" -and $null -ne $frequency) {
+        $bucketHz = 250000.0
+        $id = [string]([long]([Math]::Round($frequency / $bucketHz) * $bucketHz))
+        return "$($type.ToUpperInvariant())|$id"
+    }
+
     $id = ([string]$Signal.address).Trim()
     if (-not $id) { $id = ([string]$Signal.id).Trim() }
     if (-not $id -and $Signal.frequencyHz) { $id = [string]$Signal.frequencyHz }
