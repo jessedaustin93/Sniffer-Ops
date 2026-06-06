@@ -508,6 +508,8 @@ $AppGradientFontPath = Join-Path $PSScriptRoot "assets\fonts\spyagency3gradital.
 $OutLog = Join-Path $RepoRoot "rtl_tcp.out.log"
 $ErrLog = Join-Path $RepoRoot "rtl_tcp.err.log"
 $AppLog = Join-Path $RepoRoot "snifferops-windows.log"
+$AwarenessLog = Join-Path $RepoRoot "data\signal-awareness.json"
+$AwarenessSyncPort = 8765
 $script:RtlTcpProcess = $null
 $script:ScanTimer = $null
 $script:SweepTimer = $null
@@ -561,6 +563,10 @@ $script:AdsbCaptureChunkSeconds = 15
 
 # Shared WiFi/Bluetooth/SDR classification and explanation rules.
 . (Join-Path $PSScriptRoot "SignalClassifier.ps1")
+
+# Durable signal awareness log + optional LAN sync with Android nodes.
+. (Join-Path $PSScriptRoot "AwarenessLog.ps1")
+Initialize-AwarenessLog -Path $AwarenessLog
 
 # Real spectrum scan (rtl_power): pure CSV parsing + peak detection live here.
 . (Join-Path $PSScriptRoot "spectrum\PowerScan.ps1")
@@ -1215,6 +1221,21 @@ function Get-AlertDetails {
     return $alerts
 }
 
+function Get-AwarenessDetails {
+    $rows = @(Get-AwarenessRows)
+    if ($rows.Count -gt 0) { return $rows }
+
+    return @([pscustomobject][ordered]@{
+        Type = "Awareness"
+        Signal = "No synced signal history yet"
+        AddressOrFrequency = ""
+        StrengthOrPower = ""
+        Classification = "Waiting for nodes"
+        Confidence = ""
+        Details = "Run the phone app standalone or enable Windows sync from the phone when this PC is reachable."
+    })
+}
+
 function Get-MainSignalRows {
     $rows = @()
 
@@ -1252,6 +1273,18 @@ function Get-MainSignalRows {
             Classification = $sdr.PossibleUse
             Confidence = $sdr.Confidence
             Details = Join-NonEmptyText -Values @($sdr.Modulation, $sdr.Audio, $sdr.Evidence)
+        }
+    }
+
+    foreach ($known in @(Get-AwarenessRows)) {
+        $rows += [pscustomobject][ordered]@{
+            Type = "Awareness"
+            Signal = $known.Signal
+            AddressOrFrequency = $known.AddressOrFrequency
+            StrengthOrPower = $known.StrengthOrPower
+            Classification = $known.Classification
+            Confidence = $known.Confidence
+            Details = $known.Details
         }
     }
 
@@ -2263,22 +2296,23 @@ function Refresh-ScannerCounts {
     $bt = Get-BluetoothCount
     $running = Get-Process rtl_tcp -ErrorAction SilentlyContinue
     $sdr = if ($script:SdrSignals.Count -gt 0) { $script:SdrSignals.Count } elseif ($running) { 0 } else { 0 }
+    $awarenessCount = @(Get-AwarenessRows).Count
 
     $WifiCount.Text = [string]$wifi
     $BluetoothCount.Text = [string]$bt
     $CellCount.Text = "0"
     $SdrCount.Text = [string]$sdr
-    $AlertCount.Text = "0"
+    $AlertCount.Text = [string]$awarenessCount
 
     $WifiTileCount.Text = [string]$wifi
     $BluetoothTileCount.Text = [string]$bt
     $NfcTileCount.Text = "0"
     $CellTileCount.Text = "0"
     $SdrTileCount.Text = [string]$sdr
-    $AlertTileCount.Text = "0"
+    $AlertTileCount.Text = [string]$awarenessCount
 
     $LocalIpText.Text = "$(Get-LanIpAddress):$Port"
-    $EndpointText.Text = "$(Get-LanIpAddress):$Port"
+    $EndpointText.Text = "SDR $(Get-LanIpAddress):$Port  |  SYNC $(Get-LanIpAddress):$AwarenessSyncPort"
     if ($MainSignalGrid) {
         $MainSignalGrid.ItemsSource = @(Get-MainSignalRows)
     }
@@ -2877,7 +2911,8 @@ $SdrTile.Add_MouseLeftButtonUp({
 })
 $AlertTile.Add_MouseLeftButtonUp({
     Invoke-AppAction -Context "Open alerts details" -Action {
-        Show-DetailWindow -Title "Threat Alerts" -Accent "#EF4444" -Items @(Get-AlertDetails)
+        $items = @(Get-AlertDetails) + @(Get-AwarenessDetails)
+        Show-DetailWindow -Title "Signal Alerts + Awareness" -Accent "#EF4444" -Items $items
     }
 })
 $MainSignalGrid.Add_MouseDoubleClick({
@@ -2900,7 +2935,10 @@ $MainSignalGrid.Add_MouseDoubleClick({
 $script:ScanTimer = New-Object Windows.Threading.DispatcherTimer
 $script:ScanTimer.Interval = [TimeSpan]::FromSeconds(4)
 $script:ScanTimer.Add_Tick({
-    Invoke-AppAction -Context "Auto refresh" -Action { Refresh-ScannerCounts }
+    Invoke-AppAction -Context "Auto refresh" -Action {
+        [void](Receive-AwarenessSyncRequests -LogPath $AppLog)
+        Refresh-ScannerCounts
+    }
 })
 $script:ScanTimer.Start()
 
@@ -2917,10 +2955,17 @@ $script:SweepTimer.Start()
 $Window.Add_Closed({
     if ($script:ScanTimer) { $script:ScanTimer.Stop() }
     if ($script:SweepTimer) { $script:SweepTimer.Stop() }
+    Stop-AwarenessSyncServer
     Stop-SdrAudio -RestoreServer:$false
 })
 
 Invoke-AppAction -Context "Startup refresh" -Action {
+    try {
+        Start-AwarenessSyncServer -BindAddress $BindAddress -Port $AwarenessSyncPort -LogPath $AppLog
+        Add-LogLine "Awareness sync listening at http://$(Get-LanIpAddress):$AwarenessSyncPort/snifferops/sync"
+    } catch {
+        Add-LogLine "Awareness sync unavailable: $($_.Exception.Message)"
+    }
     Refresh-ScannerCounts
     Add-LogLine "SnifferOps Windows ready."
     Add-LogLine "Click START WINDOWS RTL SERVER when the Android app needs RTL data."

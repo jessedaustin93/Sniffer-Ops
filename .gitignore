@@ -16,3 +16,4 @@ tools/
 *.out.csv
 adsb-aircraft.json
 adsb-map.html
+data/
