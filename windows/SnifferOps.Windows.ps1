@@ -1231,6 +1231,70 @@ function Get-AwarenessDetails {
     })
 }
 
+function Sync-LocalAwarenessSnapshot {
+    try {
+        $signals = @()
+        foreach ($wifi in @(Get-WifiDetails)) {
+            if ($wifi.Name -match "failed") { continue }
+            $signals += [pscustomobject][ordered]@{
+                id = "windows_wifi_$($wifi.Address)"
+                name = $wifi.Name
+                address = $wifi.Address
+                type = "WIFI"
+                deviceClass = $wifi.SpecificType
+                manufacturer = ""
+                threatLevel = "UNKNOWN"
+                signalStrength = $wifi.Strength
+                channel = $wifi.Channel
+                frequencyHz = ""
+                notes = Join-NonEmptyText -Values @($wifi.Security, $wifi.Evidence)
+            }
+        }
+        foreach ($bt in @(Get-BluetoothDetails)) {
+            if ($bt.Name -match "failed") { continue }
+            $signals += [pscustomobject][ordered]@{
+                id = "windows_bt_$($bt.Address)"
+                name = $bt.Name
+                address = $bt.Address
+                type = "BLUETOOTH"
+                deviceClass = $bt.SpecificType
+                manufacturer = ""
+                threatLevel = "UNKNOWN"
+                signalStrength = $bt.Status
+                channel = ""
+                frequencyHz = ""
+                notes = Join-NonEmptyText -Values @($bt.Class, $bt.Notes, $bt.Evidence)
+            }
+        }
+        foreach ($sdr in @($script:SdrSignals | Where-Object { $_.Source -eq "rtl_power" })) {
+            $signals += [pscustomobject][ordered]@{
+                id = "windows_sdr_$($sdr.FrequencyHz)"
+                name = $sdr.Label
+                address = ""
+                type = "RTL_SDR"
+                deviceClass = $sdr.PossibleUse
+                manufacturer = ""
+                threatLevel = "UNKNOWN"
+                signalStrength = $sdr.PowerDb
+                channel = ""
+                frequencyHz = $sdr.FrequencyHz
+                notes = Join-NonEmptyText -Values @($sdr.Modulation, $sdr.Evidence, $sdr.Source)
+            }
+        }
+
+        if ($signals.Count -eq 0) { return $null }
+        return Merge-AwarenessSnapshot -Snapshot ([pscustomobject][ordered]@{
+            nodeId = "windows-$env:COMPUTERNAME"
+            nodeName = "Windows $env:COMPUTERNAME"
+            location = [pscustomobject]@{}
+            signals = $signals
+        })
+    } catch {
+        Write-AppError -Context "Local awareness sync" -ErrorObject $_
+        return $null
+    }
+}
+
 function Get-MainSignalRows {
     $rows = @()
 
@@ -2287,6 +2351,7 @@ function Set-UiStatus {
 }
 
 function Refresh-ScannerCounts {
+    [void](Sync-LocalAwarenessSnapshot)
     $wifi = Get-WifiCount
     $bt = Get-BluetoothCount
     $running = Get-Process rtl_tcp -ErrorAction SilentlyContinue

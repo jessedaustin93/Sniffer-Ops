@@ -3,7 +3,6 @@
 $script:AwarenessLogPath = $null
 $script:AwarenessSyncListener = $null
 $script:AwarenessSyncAsyncResult = $null
-$script:AwarenessSyncStop = $false
 
 function Initialize-AwarenessLog {
     param([string] $Path)
@@ -79,8 +78,9 @@ function Get-AwarenessSignalKey {
 function ConvertTo-AwarenessNumber {
     param([object] $Value)
     if ($null -eq $Value) { return $null }
+    $text = ([string]$Value).Trim().TrimEnd("%")
     $number = 0.0
-    if ([double]::TryParse(([string]$Value), [ref]$number)) { return $number }
+    if ([double]::TryParse($text, [ref]$number)) { return $number }
     return $null
 }
 
@@ -107,6 +107,8 @@ function Merge-AwarenessSnapshot {
         if ($null -eq $signalLat) { $signalLat = $nodeLat }
         if ($null -eq $signalLon) { $signalLon = $nodeLon }
         if ($null -eq $signalAccuracy) { $signalAccuracy = $nodeAccuracy }
+        $signalStrength = $signal.signalStrength
+        $signalStrengthNumber = ConvertTo-AwarenessNumber $signalStrength
         $existing = $state.Signals[$key]
         if (-not $existing) {
             $existing = [pscustomobject][ordered]@{
@@ -124,7 +126,9 @@ function Merge-AwarenessSnapshot {
                 LastSeen = $now
                 SeenCount = 0
                 StrongestSignal = $signal.signalStrength
+                StrongestSignalNumeric = $signalStrengthNumber
                 LastSignal = $signal.signalStrength
+                LastSignalNumeric = $signalStrengthNumber
                 NodeIds = @()
                 Sightings = @()
                 EstimatedLatitude = $null
@@ -145,8 +149,14 @@ function Merge-AwarenessSnapshot {
         $existing.LastSeen = $now
         $existing.SeenCount = [int]$existing.SeenCount + 1
         $existing.LastSignal = $signal.signalStrength
-        if ($null -eq $existing.StrongestSignal -or ([int]$signal.signalStrength -gt [int]$existing.StrongestSignal)) {
+        $existing.LastSignalNumeric = $signalStrengthNumber
+        $strongestNumber = ConvertTo-AwarenessNumber $existing.StrongestSignalNumeric
+        if ($null -ne $signalStrengthNumber -and ($null -eq $strongestNumber -or $signalStrengthNumber -gt $strongestNumber)) {
             $existing.StrongestSignal = $signal.signalStrength
+            $existing.StrongestSignalNumeric = $signalStrengthNumber
+        } elseif ($null -eq $existing.StrongestSignal -or [string]::IsNullOrWhiteSpace([string]$existing.StrongestSignal)) {
+            $existing.StrongestSignal = $signal.signalStrength
+            $existing.StrongestSignalNumeric = $signalStrengthNumber
         }
 
         $nodes = @($existing.NodeIds)
@@ -164,6 +174,7 @@ function Merge-AwarenessSnapshot {
             NodeLatitude = $nodeLat
             NodeLongitude = $nodeLon
             SignalStrength = $signal.signalStrength
+            SignalStrengthNumeric = $signalStrengthNumber
         }
         if ($sightings.Count -gt 100) {
             $sightings = @($sightings | Select-Object -Last 100)
@@ -235,21 +246,6 @@ function Get-AwarenessSyncPayload {
     }
 }
 
-function Send-AwarenessJsonResponse {
-    param(
-        [System.Net.HttpListenerContext] $Context,
-        [object] $Body,
-        [int] $StatusCode = 200
-    )
-
-    $json = $Body | ConvertTo-Json -Depth 40
-    $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
-    $Context.Response.StatusCode = $StatusCode
-    $Context.Response.ContentType = "application/json"
-    $Context.Response.OutputStream.Write($bytes, 0, $bytes.Length)
-    $Context.Response.Close()
-}
-
 function Start-AwarenessSyncServer {
     param(
         [string] $BindAddress = "0.0.0.0",
@@ -259,21 +255,21 @@ function Start-AwarenessSyncServer {
 
     if ($script:AwarenessSyncListener) { return }
 
-    $prefixHost = if ($BindAddress -eq "0.0.0.0") { "+" } else { $BindAddress }
-    $prefix = "http://$prefixHost`:$Port/"
-    $script:AwarenessSyncStop = $false
-    $listener = New-Object System.Net.HttpListener
-    $listener.Prefixes.Add($prefix)
+    $ip = if ($BindAddress -eq "0.0.0.0") {
+        [System.Net.IPAddress]::Any
+    } else {
+        [System.Net.IPAddress]::Parse($BindAddress)
+    }
+    $listener = New-Object System.Net.Sockets.TcpListener($ip, $Port)
     $listener.Start()
     $script:AwarenessSyncListener = $listener
-    $script:AwarenessSyncAsyncResult = $listener.BeginGetContext($null, $null)
+    $script:AwarenessSyncAsyncResult = $listener.BeginAcceptTcpClient($null, $null)
 }
 
 function Stop-AwarenessSyncServer {
     try {
         if ($script:AwarenessSyncListener) {
             $script:AwarenessSyncListener.Stop()
-            $script:AwarenessSyncListener.Close()
         }
     } catch {}
     $script:AwarenessSyncListener = $null
@@ -283,50 +279,112 @@ function Stop-AwarenessSyncServer {
 function Receive-AwarenessSyncRequests {
     param([string] $LogPath)
 
-    if (-not $script:AwarenessSyncListener -or -not $script:AwarenessSyncListener.IsListening) { return 0 }
+    if (-not $script:AwarenessSyncListener) { return 0 }
     $handled = 0
     if (-not $script:AwarenessSyncAsyncResult) {
-        $script:AwarenessSyncAsyncResult = $script:AwarenessSyncListener.BeginGetContext($null, $null)
+        $script:AwarenessSyncAsyncResult = $script:AwarenessSyncListener.BeginAcceptTcpClient($null, $null)
     }
-    while ($script:AwarenessSyncListener.IsListening -and $script:AwarenessSyncAsyncResult.IsCompleted) {
-        $context = $null
+    while ($script:AwarenessSyncAsyncResult -and $script:AwarenessSyncAsyncResult.IsCompleted) {
+        $client = $null
         try {
-            $context = $script:AwarenessSyncListener.EndGetContext($script:AwarenessSyncAsyncResult)
-            $script:AwarenessSyncAsyncResult = $script:AwarenessSyncListener.BeginGetContext($null, $null)
-            $path = $context.Request.Url.AbsolutePath.ToLowerInvariant()
-            if ($context.Request.HttpMethod -eq "GET" -and $path -eq "/snifferops/health") {
-                Send-AwarenessJsonResponse -Context $context -Body @{ ok = $true; service = "snifferops-awareness" }
+            $client = $script:AwarenessSyncListener.EndAcceptTcpClient($script:AwarenessSyncAsyncResult)
+            $script:AwarenessSyncAsyncResult = $script:AwarenessSyncListener.BeginAcceptTcpClient($null, $null)
+            $request = Read-AwarenessHttpRequest -Client $client
+            $path = $request.Path.ToLowerInvariant()
+            if ($request.Method -eq "GET" -and $path -eq "/snifferops/health") {
+                Send-AwarenessTcpJsonResponse -Client $client -Body @{ ok = $true; service = "snifferops-awareness" }
                 $handled++
                 continue
             }
-            if ($context.Request.HttpMethod -eq "GET" -and $path -eq "/snifferops/awareness") {
-                Send-AwarenessJsonResponse -Context $context -Body (Get-AwarenessSyncPayload)
+            if ($request.Method -eq "GET" -and $path -eq "/snifferops/awareness") {
+                Send-AwarenessTcpJsonResponse -Client $client -Body (Get-AwarenessSyncPayload)
                 $handled++
                 continue
             }
-            if ($context.Request.HttpMethod -eq "POST" -and $path -eq "/snifferops/sync") {
-                $reader = New-Object System.IO.StreamReader($context.Request.InputStream, $context.Request.ContentEncoding)
-                $raw = $reader.ReadToEnd()
-                $snapshot = $raw | ConvertFrom-Json
+            if ($request.Method -eq "POST" -and $path -eq "/snifferops/sync") {
+                $snapshot = $request.Body | ConvertFrom-Json
                 $merge = Merge-AwarenessSnapshot -Snapshot $snapshot
                 $payload = Get-AwarenessSyncPayload
                 $payload["merged"] = $merge.Merged
-                Send-AwarenessJsonResponse -Context $context -Body $payload
+                Send-AwarenessTcpJsonResponse -Client $client -Body $payload
                 $handled++
                 continue
             }
-            Send-AwarenessJsonResponse -Context $context -StatusCode 404 -Body @{ error = "not found" }
+            Send-AwarenessTcpJsonResponse -Client $client -StatusCode 404 -Body @{ error = "not found" }
             $handled++
         } catch {
             try {
                 if ($LogPath) {
                     Add-Content -LiteralPath $LogPath -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Awareness sync error: $($_.Exception.Message)" -ErrorAction SilentlyContinue
                 }
-                if ($context -and $context.Response) {
-                    Send-AwarenessJsonResponse -Context $context -StatusCode 500 -Body @{ error = $_.Exception.Message }
+                if ($client -and $client.Connected) {
+                    Send-AwarenessTcpJsonResponse -Client $client -StatusCode 500 -Body @{ error = $_.Exception.Message }
                 }
             } catch {}
+        } finally {
+            try { if ($client) { $client.Close() } } catch {}
         }
     }
     return $handled
+}
+
+function Read-AwarenessHttpRequest {
+    param([System.Net.Sockets.TcpClient] $Client)
+
+    $stream = $Client.GetStream()
+    $buffer = New-Object byte[] 65536
+    $bytes = New-Object System.Collections.Generic.List[byte]
+    $contentLength = 0
+    $headerText = $null
+
+    while ($true) {
+        $read = $stream.Read($buffer, 0, $buffer.Length)
+        if ($read -le 0) { break }
+        for ($i = 0; $i -lt $read; $i++) { $bytes.Add($buffer[$i]) | Out-Null }
+        $text = [System.Text.Encoding]::UTF8.GetString($bytes.ToArray())
+        $headerEnd = $text.IndexOf("`r`n`r`n")
+        if ($headerEnd -ge 0) {
+            $headerText = $text.Substring(0, $headerEnd)
+            foreach ($line in $headerText -split "`r`n") {
+                if ($line -match '^Content-Length:\s*(\d+)') { $contentLength = [int]$Matches[1] }
+            }
+            $bodyBytesAlready = $bytes.Count - ($headerEnd + 4)
+            if ($bodyBytesAlready -ge $contentLength) { break }
+        }
+    }
+
+    if (-not $headerText) { throw "Invalid HTTP request" }
+    $allText = [System.Text.Encoding]::UTF8.GetString($bytes.ToArray())
+    $headerEnd = $allText.IndexOf("`r`n`r`n")
+    $body = if ($contentLength -gt 0) { $allText.Substring($headerEnd + 4, $contentLength) } else { "" }
+    $firstLine = ($headerText -split "`r`n")[0]
+    $parts = $firstLine -split "\s+"
+    return [pscustomobject]@{
+        Method = if ($parts.Count -gt 0) { $parts[0].ToUpperInvariant() } else { "" }
+        Path = if ($parts.Count -gt 1) { $parts[1] } else { "/" }
+        Body = $body
+    }
+}
+
+function Send-AwarenessTcpJsonResponse {
+    param(
+        [System.Net.Sockets.TcpClient] $Client,
+        [object] $Body,
+        [int] $StatusCode = 200
+    )
+
+    $reason = switch ($StatusCode) {
+        200 { "OK" }
+        404 { "Not Found" }
+        500 { "Internal Server Error" }
+        default { "OK" }
+    }
+    $json = $Body | ConvertTo-Json -Depth 40
+    $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+    $header = "HTTP/1.1 $StatusCode $reason`r`nContent-Type: application/json`r`nContent-Length: $($bodyBytes.Length)`r`nConnection: close`r`n`r`n"
+    $headerBytes = [System.Text.Encoding]::ASCII.GetBytes($header)
+    $stream = $Client.GetStream()
+    $stream.Write($headerBytes, 0, $headerBytes.Length)
+    $stream.Write($bodyBytes, 0, $bodyBytes.Length)
+    $stream.Flush()
 }
