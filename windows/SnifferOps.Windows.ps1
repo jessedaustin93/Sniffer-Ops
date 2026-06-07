@@ -1198,17 +1198,18 @@ function Get-AlertDetails {
         }
     }
 
-    foreach ($profile in @(Get-AwarenessProfiles)) {
-        $alert = Get-SignalAlertClassification -Name $profile.Name -Type $profile.Type -SpecificType $profile.SpecificType -ThreatLevel $profile.ThreatLevel -Notes (Join-NonEmptyText -Values @($profile.LastEvent, $profile.Details))
+    foreach ($profile in @(Get-AwarenessDisplayProfiles -Profiles @(Get-AwarenessProfiles))) {
+        if ($profile.Class -eq "Normal") { continue }
+        $alert = Get-SignalAlertClassification -Name $profile.Signal -Type $profile.SourceType -SpecificType $profile.Type -ThreatLevel $profile.ThreatLevel -Notes $profile.LastEvent
         if ($alert.Level -eq "NONE") { continue }
         $alerts += [pscustomobject][ordered]@{
             Level = $alert.Level
-            Name = $profile.Name
-            Address = if ($profile.Address) { $profile.Address } else { $profile.FrequencyHz }
-            Strength = $profile.LastSignal
+            Name = $profile.Signal
+            Address = $profile.RawIds
+            Strength = $profile.Strength
             Channel = ""
-            Type = $profile.Type
-            SpecificType = $profile.SpecificType
+            Type = $profile.SourceType
+            SpecificType = $profile.Type
             Confidence = $profile.ThreatLevel
             Evidence = $alert.Evidence
             Meaning = $alert.Meaning
@@ -1260,12 +1261,13 @@ function Get-SignalAlertClassification {
     $threat = ([string]$ThreatLevel).ToUpperInvariant()
 
     $highPattern = '(imsi|stingray|fake\s*sim|fake\s*cell|rogue\s*cell|cell\s*site\s*simulator|evil\s*twin|wifi\s*pineapple|pineapple|deauther|pwnagotchi|marauder|flipper|badusb|skimmer|tap\s*to\s*pay|payment|nfc\s*intercept|credential|password|phish|sniffer|data[- ]?capture|hacking)'
-    $mediumPattern = '(flock|flock\s*safety|alpr|lpr|license\s*plate|plate\s*reader|traffic\s*reader|traffic\s*camera|speed\s*camera|red\s*light|surveillance|cctv|camera|doorbell|verkada|avigilon|hikvision|dahua|axis|vigilant|genetec|motorola)'
+    $mediumPattern = '(flock|flock\s*safety|alpr|lpr|license\s*plate|plate\s*reader|traffic\s*reader|traffic\s*camera|speed\s*camera|red\s*light|surveillance|cctv|doorbell|verkada|avigilon|hikvision|dahua|axis|vigilant|genetec|motorola)'
     $lowPattern = '(unknown\s*ble|beacon|tracker|airtag|tile|hidden\s*wifi|open\s*wifi|open\s*security|unsecured|rogue|spoof|jam|burst|unclassified\s*rf|unexpected|odd|weird)'
 
     $highMatch = if ($text -match $highPattern) { $Matches[0] } else { "" }
     $mediumMatch = if ($text -match $mediumPattern) { $Matches[0] } else { "" }
     $lowMatch = if ($text -match $lowPattern) { $Matches[0] } else { "" }
+    $movementMatch = if ($text -match '(new\s+scan\s+location|location_changed|also\s+seen\s+by|same\s+reader|following|followed|moved\s+with)') { $Matches[0] } else { "" }
 
     if ($threat -eq "ALERT" -or $highMatch) {
         return [pscustomobject][ordered]@{
@@ -1277,6 +1279,15 @@ function Get-SignalAlertClassification {
         }
     }
     if ($threat -eq "SUSPICIOUS" -or $mediumMatch) {
+        if ($movementMatch) {
+            return [pscustomobject][ordered]@{
+                Level = "HIGH"
+                Evidence = "Surveillance/traffic class with movement clue: $movementMatch"
+                Meaning = "Possible surveillance or reader system seen across scan locations or nodes."
+                NextStep = "Correlate the timeline and map; repeated movement with your route deserves immediate attention."
+                Notes = "High alert: surveillance-class signal appears to move or repeat across scan locations."
+            }
+        }
         return [pscustomobject][ordered]@{
             Level = "MEDIUM"
             Evidence = if ($mediumMatch) { "Surveillance/traffic keyword/classification: $mediumMatch" } else { "Threat level is SUSPICIOUS" }
@@ -1319,6 +1330,12 @@ function Get-AwarenessDetails {
     })
 }
 
+function Join-NonEmptyText {
+    param([object[]] $Values, [string] $Separator = "; ")
+
+    return (($Values | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ }) -join $Separator)
+}
+
 function Get-AwarenessProfiles {
     try {
         $state = Read-AwarenessState
@@ -1327,13 +1344,16 @@ function Get-AwarenessProfiles {
             $timeline = @($profile.Timeline)
             $sightings = @($profile.Sightings)
             $lastEvent = if ($timeline.Count -gt 0) { $timeline[-1].Summary } else { "" }
-            $isNormal = ([int]$profile.SeenCount -ge 3 -and @($profile.NodeIds).Count -le 2 -and
-                ([string]$profile.ThreatLevel -in @("", "SAFE", "UNKNOWN") -and
-                [string]$profile.PresenceState -ne "not_seen" -and
-                -not ($timeline | Where-Object { $_.Kind -in @("alert_changed", "signal_jump", "reappeared", "new_node") })))
-            $isOneOff = ([int]$profile.SeenCount -le 1 -or [string]$profile.PresenceState -eq "not_seen")
-            $isWatch = ([string]$profile.ThreatLevel -in @("SUSPICIOUS", "ALERT") -or
-                ($timeline | Where-Object { $_.Kind -in @("alert_changed", "signal_jump", "reappeared", "new_node", "location_changed") }))
+            $alert = Get-SignalAlertClassification -Name $profile.Name -Type $profile.Type -SpecificType $profile.SpecificType -ThreatLevel $profile.ThreatLevel -Notes (Join-NonEmptyText -Values @($lastEvent, $profile.Notes) -Separator " ")
+            $presence = if ($profile.PresenceState) { [string]$profile.PresenceState } else { "seen" }
+            $class = switch ($alert.Level) {
+                "HIGH" { "Alert"; break }
+                "MEDIUM" { "Watch"; break }
+                "LOW" { if ([int]$profile.SeenCount -ge 5) { "Normal" } else { "Noticed" }; break }
+                default {
+                    if ([int]$profile.SeenCount -le 1) { "One-off" } else { "Normal" }
+                }
+            }
             $lastSighting = if ($sightings.Count -gt 0) { $sightings[-1] } else { $null }
             [pscustomobject][ordered]@{
                 Key = $_.Key
@@ -1355,7 +1375,7 @@ function Get-AwarenessProfiles {
                 LastLongitude = if ($lastSighting) { $lastSighting.Longitude } else { $profile.EstimatedLongitude }
                 TimelineCount = $timeline.Count
                 LastEvent = $lastEvent
-                Class = if ($isWatch) { "Watch" } elseif ($isOneOff) { "One-off" } elseif ($isNormal) { "Normal" } else { "Learning" }
+                Class = $class
                 Details = "Seen $($profile.SeenCount)x from $(@($profile.NodeIds).Count) node(s); $lastEvent"
                 Timeline = $timeline
                 Sightings = $sightings
@@ -1368,14 +1388,17 @@ function Get-AwarenessProfiles {
 }
 
 function Get-AwarenessScanLocations {
-    $profiles = @(Get-AwarenessProfiles)
+    $profiles = @(Get-AwarenessDisplayProfiles -Profiles @(Get-AwarenessProfiles))
     $points = @()
     foreach ($profile in $profiles) {
+        $seenLocationKeys = @{}
         foreach ($sighting in @($profile.Sightings)) {
             $lat = ConvertTo-AwarenessNumber $sighting.Latitude
             $lon = ConvertTo-AwarenessNumber $sighting.Longitude
             if ($null -eq $lat -or $null -eq $lon) { continue }
             $key = "{0:N4},{1:N4}" -f $lat, $lon
+            if ($seenLocationKeys.ContainsKey($key)) { continue }
+            $seenLocationKeys[$key] = $true
             $existing = @($points | Where-Object { $_.Key -eq $key } | Select-Object -First 1)
             if ($existing.Count -gt 0) {
                 $existing[0].SignalCount++
@@ -1437,7 +1460,9 @@ function Get-AwarenessClassRank {
     param([string] $Class)
 
     switch ($Class) {
+        "Alert" { return 5 }
         "Watch" { return 4 }
+        "Noticed" { return 3 }
         "One-off" { return 3 }
         "Learning" { return 2 }
         "Normal" { return 1 }
@@ -1484,6 +1509,8 @@ function Get-AwarenessDisplayProfiles {
             Class = $primary.Class
             Signal = Get-AwarenessDisplayName -Profile $primary
             Type = if ($types) { $types } else { $primary.SpecificType }
+            SourceType = $primary.Type
+            ThreatLevel = $primary.ThreatLevel
             Seen = (@($members | Measure-Object -Property SeenCount -Sum).Sum)
             Nodes = [Math]::Max($primary.NodeCount, $nodeIds.Count)
             Last = $latest.LastSeen
@@ -1523,15 +1550,15 @@ function Show-AwarenessLocationWindow {
 function Update-AwarenessMapPanel {
     if (-not $AwarenessMapCanvas) { return }
 
-    $profiles = @(Get-AwarenessProfiles)
+    $profiles = @(Get-AwarenessDisplayProfiles -Profiles @(Get-AwarenessProfiles))
     $locations = @(Get-AwarenessScanLocations)
     $normal = @($profiles | Where-Object { $_.Class -eq "Normal" }).Count
-    $oneOff = @($profiles | Where-Object { $_.Class -in @("One-off", "Watch") }).Count
+    $oneOff = @($profiles | Where-Object { $_.Class -in @("One-off", "Noticed", "Watch", "Alert") }).Count
     $changes = @($profiles | Where-Object { $_.TimelineCount -gt 1 }).Count
 
     $AwarenessMapSummary.Text = "$($profiles.Count) known  /  $($locations.Count) scan spots"
     $AwarenessMapNormal.Text = "Normal: $normal"
-    $AwarenessMapOdd.Text = "One-offs / changes: $oneOff / $changes"
+    $AwarenessMapOdd.Text = "Noticed / changes: $oneOff / $changes"
     $latest = @($profiles | Sort-Object LastSeen -Descending | Select-Object -First 1)
     $AwarenessMapLast.Text = if ($latest.Count -gt 0) { "Latest: $($latest[0].Name) - $($latest[0].Class)" } else { "Click for timeline" }
 
@@ -1961,7 +1988,7 @@ function Get-CompactDetailColumns {
             return @(
                 @{ Name = "Location"; Header = "Scan spot" },
                 @{ Name = "Signals"; Header = "Signals" },
-                @{ Name = "WatchOrOneOff"; Header = "One-offs / changes" },
+                @{ Name = "WatchOrOneOff"; Header = "Noticed / watch" },
                 @{ Name = "Notes"; Header = "Next" }
             )
         }
