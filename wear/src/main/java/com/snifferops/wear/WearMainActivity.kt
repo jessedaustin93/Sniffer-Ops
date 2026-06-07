@@ -67,6 +67,7 @@ private enum class WatchPanel(val label: String) {
     Bluetooth("BT"),
     Cellular("CELL"),
     Sdr("SDR"),
+    Awareness("AWARE"),
     Alerts("ALERTS")
 }
 
@@ -112,13 +113,15 @@ fun WearApp() {
                         cell = dataMap.getInt("cell", 0),
                         sdr = dataMap.getInt("sdr", 0),
                         alerts = dataMap.getInt("alerts", 0),
+                        awareness = dataMap.getInt("awareness", 0),
                         scanning = dataMap.getBoolean("scanning", false),
                         sdrConnected = dataMap.getBoolean("sdr_connected", false),
                         wifiItems = dataMap.readItems("wifi_items"),
                         btItems = dataMap.readItems("bt_items"),
                         cellItems = dataMap.readItems("cell_items"),
                         sdrItems = dataMap.readItems("sdr_items"),
-                        alertItems = dataMap.readItems("alert_items")
+                        alertItems = dataMap.readItems("alert_items"),
+                        awarenessItems = dataMap.readItems("awareness_items")
                     )
                 }
             }
@@ -217,6 +220,37 @@ fun WearApp() {
                                 fontFamily = WatchFont,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.align(Alignment.Center).padding(vertical = 6.dp)
+                            )
+                        }
+                    }
+                }
+
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF22D3EE).copy(alpha = 0.12f))
+                            .border(1.dp, Color(0xFF22D3EE).copy(alpha = 0.45f), RoundedCornerShape(8.dp))
+                            .clickable { selectedPanel = WatchPanel.Awareness }
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                "AWARENESS ${state.awarenessCount}",
+                                color = Color(0xFF22D3EE),
+                                fontSize = 12.sp,
+                                fontFamily = WatchFont,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                "timeline / normal / one-offs",
+                                color = Color.Gray,
+                                fontSize = 8.sp,
+                                fontFamily = WatchCondensedFont
                             )
                         }
                     }
@@ -392,6 +426,7 @@ private fun WearState.itemsFor(panel: WatchPanel): List<WearSignalItem> = when (
     WatchPanel.Bluetooth -> btItems
     WatchPanel.Cellular -> cellItems
     WatchPanel.Sdr -> sdrItems
+    WatchPanel.Awareness -> awarenessItems
     WatchPanel.Alerts -> alertItems
 }
 
@@ -401,5 +436,6 @@ private fun WatchPanel.color(): Color = when (this) {
     WatchPanel.Bluetooth -> WatchBlue
     WatchPanel.Cellular -> WatchOrange
     WatchPanel.Sdr -> Color(0xFF8B5CF6)
+    WatchPanel.Awareness -> Color(0xFF22D3EE)
     WatchPanel.Alerts -> WatchRed
 }

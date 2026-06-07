@@ -412,12 +412,14 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
     private fun syncWearState(appState: AppState) {
         val summary = appState.summary
+        val awarenessProfiles = appState.compactAwarenessProfiles()
         val request = PutDataMapRequest.create("/snifferops/summary").apply {
             dataMap.putInt("wifi", summary.wifiCount)
             dataMap.putInt("bt", summary.bluetoothCount + summary.bleCount)
             dataMap.putInt("cell", summary.cellCount)
             dataMap.putInt("sdr", summary.sdrCount)
             dataMap.putInt("alerts", appState.alertTotal)
+            dataMap.putInt("awareness", awarenessProfiles.size)
             dataMap.putBoolean("scanning", summary.scanActive)
             dataMap.putBoolean("sdr_connected", summary.sdrConnected)
             dataMap.putLong("updated_at", System.currentTimeMillis())
@@ -456,6 +458,13 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                     title = group.title,
                     detail = wearDetail(wearEstimatedType(group.typeLabel), wearCount(group.count), device.threatLevel.wearLabel()),
                     value = "${group.strongestSignal}"
+                )
+            })
+            dataMap.putStringArrayList("awareness_items", awarenessProfiles.toWearRows(8) { profile ->
+                wearRow(
+                    title = profile.name,
+                    detail = wearDetail(profile.status.wearLabel(), "${profile.seenCount}x", profile.latestEvent.ifBlank { profile.deviceClass }),
+                    value = profile.source.uppercase()
                 )
             })
         }.asPutDataRequest().setUrgent()
@@ -498,6 +507,13 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         ThreatLevel.SUSPICIOUS -> "WATCH"
         ThreatLevel.UNKNOWN -> "NOTICED"
         ThreatLevel.SAFE -> "SAFE"
+    }
+
+    private fun AwarenessStatus.wearLabel(): String = when (this) {
+        AwarenessStatus.NORMAL -> "NORMAL"
+        AwarenessStatus.LEARNING -> "LEARN"
+        AwarenessStatus.ONE_OFF -> "ONE-OFF"
+        AwarenessStatus.WATCH -> "WATCH"
     }
 
     private fun String.cleanWearText(): String =

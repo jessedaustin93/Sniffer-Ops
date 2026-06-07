@@ -31,13 +31,15 @@ class WearDataService : WearableListenerService() {
                         cell = dataMap.getInt("cell", 0),
                         sdr = dataMap.getInt("sdr", 0),
                         alerts = dataMap.getInt("alerts", 0),
+                        awareness = dataMap.getInt("awareness", 0),
                         scanning = dataMap.getBoolean("scanning", false),
                         sdrConnected = dataMap.getBoolean("sdr_connected", false),
                         wifiItems = dataMap.readItems("wifi_items"),
                         btItems = dataMap.readItems("bt_items"),
                         cellItems = dataMap.readItems("cell_items"),
                         sdrItems = dataMap.readItems("sdr_items"),
-                        alertItems = dataMap.readItems("alert_items")
+                        alertItems = dataMap.readItems("alert_items"),
+                        awarenessItems = dataMap.readItems("awareness_items")
                     )
                 }
             }
