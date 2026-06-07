@@ -1394,6 +1394,132 @@ function Get-AwarenessScanLocations {
     return $points
 }
 
+function Get-AwarenessDisplayGroupKey {
+    param([object] $Profile)
+
+    $source = ([string]$Profile.Type).Trim().ToUpperInvariant()
+    $name = Get-AwarenessDisplayName -Profile $Profile
+    $genericNames = @("", "UNKNOWN", "UNCLASSIFIED", "UNCLASSIFIED BLUETOOTH DEVICE OR SERVICE", "UNCLASSIFIED RF SIGNAL")
+    $normalizedName = ($name -replace "\s+", " ").Trim().ToUpperInvariant()
+
+    if ($source -notin @("SDR", "RTL_SDR") -and $normalizedName -and $genericNames -notcontains $normalizedName) {
+        return "NAME|$source|$normalizedName"
+    }
+
+    if ($Profile.Key) { return "KEY|$($Profile.Key)" }
+    return "RAW|$source|$normalizedName|$($Profile.Address)|$($Profile.FrequencyHz)"
+}
+
+function Get-AwarenessDisplayName {
+    param([object] $Profile)
+
+    $name = ([string]$Profile.Name).Trim()
+    $source = ([string]$Profile.Type).Trim().ToUpperInvariant()
+    if ($source -eq "BLUETOOTH" -and $name) {
+        $serviceSuffixes = @(
+            "\s+AVRCP\s+TRANSPORT$",
+            "\s+A2DP\s+(SINK|SOURCE)$",
+            "\s+RFCOMM\s+.*$",
+            "\s+HANDS[- ]FREE\s+.*$",
+            "\s+HEADSET\s+.*$",
+            "\s+GATT\s+.*$",
+            "\s+HID\s+.*$"
+        )
+        foreach ($suffix in $serviceSuffixes) {
+            $trimmed = [regex]::Replace($name, $suffix, "", "IgnoreCase").Trim()
+            if ($trimmed -and $trimmed -ne $name) { return $trimmed }
+        }
+    }
+    return $name
+}
+
+function Get-AwarenessClassRank {
+    param([string] $Class)
+
+    switch ($Class) {
+        "Watch" { return 4 }
+        "One-off" { return 3 }
+        "Learning" { return 2 }
+        "Normal" { return 1 }
+        default { return 0 }
+    }
+}
+
+function Join-AwarenessUniqueText {
+    param([object[]] $Values, [string] $Separator = ", ")
+
+    return (($Values | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ } | Select-Object -Unique) -join $Separator)
+}
+
+function Get-AwarenessDisplayProfiles {
+    param([object[]] $Profiles)
+
+    $groups = [ordered]@{}
+    foreach ($profile in @($Profiles)) {
+        $key = Get-AwarenessDisplayGroupKey -Profile $profile
+        if (-not $groups.Contains($key)) { $groups[$key] = @() }
+        $groups[$key] = @($groups[$key]) + $profile
+    }
+
+    $rows = @()
+    foreach ($key in $groups.Keys) {
+        $members = @($groups[$key])
+        if ($members.Count -eq 0) { continue }
+
+        $primary = @($members | Sort-Object -Property @{ Expression = { Get-AwarenessClassRank -Class $_.Class }; Descending = $true }, @{ Expression = "LastSeen"; Descending = $true } | Select-Object -First 1)[0]
+        $latest = @($members | Sort-Object -Property LastSeen -Descending | Select-Object -First 1)[0]
+        $timeline = @($members | ForEach-Object { @($_.Timeline) })
+        $sightings = @($members | ForEach-Object { @($_.Sightings) })
+        $nodeIds = @($sightings | ForEach-Object { [string]$_.NodeId } | Where-Object { $_ } | Select-Object -Unique)
+        if ($nodeIds.Count -eq 0) {
+            $nodeIds = @($members | ForEach-Object { "node-$($_.NodeCount)" } | Where-Object { $_ } | Select-Object -Unique)
+        }
+        $latestEvent = if ($latest.LastEvent) { $latest.LastEvent } else { "profile updated" }
+        $rawIds = Join-AwarenessUniqueText -Values @($members | ForEach-Object {
+            if ($_.Address) { $_.Address } elseif ($_.FrequencyHz) { $_.FrequencyHz } else { $_.Key }
+        })
+        $types = Join-AwarenessUniqueText -Values @($members | ForEach-Object { $_.SpecificType })
+
+        $rows += [pscustomobject][ordered]@{
+            Class = $primary.Class
+            Signal = Get-AwarenessDisplayName -Profile $primary
+            Type = if ($types) { $types } else { $primary.SpecificType }
+            Seen = (@($members | Measure-Object -Property SeenCount -Sum).Sum)
+            Nodes = [Math]::Max($primary.NodeCount, $nodeIds.Count)
+            Last = $latest.LastSeen
+            LastEvent = if ($members.Count -gt 1) { "Grouped $($members.Count) matching IDs; $latestEvent" } else { $latestEvent }
+            Strength = $latest.LastSignal
+            RawIds = $rawIds
+            CombinedProfiles = $members.Count
+            TimelineCount = @($timeline).Count
+            Sightings = $sightings
+        }
+    }
+
+    return @($rows | Sort-Object -Property @{ Expression = { Get-AwarenessClassRank -Class $_.Class }; Descending = $true }, @{ Expression = "Seen"; Descending = $true }, @{ Expression = "Last"; Descending = $true })
+}
+
+function Show-AwarenessLocationWindow {
+    $locations = @(Get-AwarenessScanLocations)
+    if ($locations.Count -eq 0) {
+        Show-AwarenessTimelineWindow
+        return
+    }
+
+    $rows = @()
+    foreach ($loc in $locations) {
+        $rows += [pscustomobject][ordered]@{
+            Location = $loc.Key
+            Signals = $loc.SignalCount
+            WatchOrOneOff = $loc.InterestingCount
+            Notes = "Double-click to view condensed signals from this scan spot"
+            LocationKey = $loc.Key
+        }
+    }
+
+    Show-DetailWindow -Title "Awareness Locations" -Accent "#22D3EE" -Items $rows
+}
+
 function Update-AwarenessMapPanel {
     if (-not $AwarenessMapCanvas) { return }
 
@@ -1499,16 +1625,18 @@ function Show-AwarenessTimelineWindow {
     }
 
     $rows = @()
-    foreach ($profile in $profiles) {
+    foreach ($profile in @(Get-AwarenessDisplayProfiles -Profiles $profiles)) {
         $rows += [pscustomobject][ordered]@{
             Class = $profile.Class
-            Signal = $profile.Name
-            Type = $profile.SpecificType
-            Seen = $profile.SeenCount
-            Nodes = $profile.NodeCount
-            Last = $profile.LastSeen
+            Signal = $profile.Signal
+            Type = $profile.Type
+            Seen = $profile.Seen
+            Nodes = $profile.Nodes
+            Last = $profile.Last
             LastEvent = $profile.LastEvent
-            Strength = $profile.LastSignal
+            Strength = $profile.Strength
+            RawIds = $profile.RawIds
+            CombinedProfiles = $profile.CombinedProfiles
         }
     }
     if ($rows.Count -eq 0) {
@@ -1827,6 +1955,14 @@ function Get-CompactDetailColumns {
                 @{ Name = "Last"; Header = "Last seen" },
                 @{ Name = "LastEvent"; Header = "Latest timeline note" },
                 @{ Name = "Strength"; Header = "Signal" }
+            )
+        }
+        "Awareness Locations" {
+            return @(
+                @{ Name = "Location"; Header = "Scan spot" },
+                @{ Name = "Signals"; Header = "Signals" },
+                @{ Name = "WatchOrOneOff"; Header = "One-offs / changes" },
+                @{ Name = "Notes"; Header = "Next" }
             )
         }
         "Signal Alerts + Awareness" {
@@ -2594,6 +2730,11 @@ function Show-DetailWindow {
 
     $detailAction = {
         if ($grid.SelectedItem) {
+            if ($Title -eq "Awareness Locations" -and $grid.SelectedItem.LocationKey) {
+                $detailWindow.Close()
+                Show-AwarenessTimelineWindow -LocationKey ([string]$grid.SelectedItem.LocationKey)
+                return
+            }
             Show-SignalDetailWindow -Title $Title -Accent $Accent -Item $grid.SelectedItem
         }
     }.GetNewClosure()
@@ -3324,8 +3465,8 @@ $AlertTile.Add_MouseLeftButtonUp({
     }
 })
 $AwarenessMapPanel.Add_MouseLeftButtonUp({
-    Invoke-AppAction -Context "Open awareness timeline" -Action {
-        Show-AwarenessTimelineWindow
+    Invoke-AppAction -Context "Open awareness locations" -Action {
+        Show-AwarenessLocationWindow
     }
 })
 $MainSignalGrid.Add_MouseDoubleClick({
