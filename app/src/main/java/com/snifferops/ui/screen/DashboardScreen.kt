@@ -340,13 +340,6 @@ private fun SignalMapStrip(profiles: List<AwarenessProfile>) {
                         fontSize = 10.sp
                     )
                 }
-                Text(
-                    overview.latest?.name?.take(18) ?: "NO LOG",
-                    color = if (overview.watch > 0) WarningOrange else RadarGreen,
-                    fontFamily = SnifferOpsCondensedFont,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
-                )
             }
             if (expanded) {
                 important.forEach { profile ->
