@@ -1177,45 +1177,131 @@ function Get-UnavailableDetails {
 
 function Get-AlertDetails {
     $alerts = @()
-    foreach ($wifi in Get-WifiDetails) {
-        $name = [string]$wifi.Name
-        $security = [string]$wifi.Security
-        $notes = @()
-        if ($security -match 'Open|None|No authentication') {
-            $notes += "Open or weakly secured network"
-        }
-        if ($name -match '(?i)cam|camera|ipcam|doorbell|baby|nanny|surveillance|cctv') {
-            $notes += "Name matches camera/surveillance keyword"
-        }
-        if ($notes.Count -gt 0) {
+
+    foreach ($wifi in @(Get-WifiDetails)) {
+        $alert = Get-SignalAlertClassification -Name $wifi.Name -Type $wifi.Type -SpecificType $wifi.SpecificType -ThreatLevel "" -Notes (Join-NonEmptyText -Values @($wifi.Security, $wifi.Evidence, $wifi.Meaning))
+        if ($alert.Level -ne "NONE") {
             $alerts += [pscustomobject][ordered]@{
+                Level = $alert.Level
                 Name = $wifi.Name
                 Address = $wifi.Address
                 Strength = $wifi.Strength
                 Channel = $wifi.Channel
-                Type = "Wi-Fi alert"
+                Type = "Wi-Fi"
                 SpecificType = $wifi.SpecificType
                 Confidence = $wifi.Confidence
-                Evidence = $wifi.Evidence
-                Meaning = $wifi.Meaning
-                NextStep = $wifi.NextStep
-                Notes = ($notes -join "; ")
+                Evidence = $alert.Evidence
+                Meaning = $alert.Meaning
+                NextStep = $alert.NextStep
+                Notes = $alert.Notes
             }
         }
     }
 
-    if ($alerts.Count -eq 0) {
+    foreach ($profile in @(Get-AwarenessProfiles)) {
+        $alert = Get-SignalAlertClassification -Name $profile.Name -Type $profile.Type -SpecificType $profile.SpecificType -ThreatLevel $profile.ThreatLevel -Notes (Join-NonEmptyText -Values @($profile.LastEvent, $profile.Details))
+        if ($alert.Level -eq "NONE") { continue }
         $alerts += [pscustomobject][ordered]@{
-            Name = "ALL CLEAR"
-            Address = ""
-            Strength = ""
+            Level = $alert.Level
+            Name = $profile.Name
+            Address = if ($profile.Address) { $profile.Address } else { $profile.FrequencyHz }
+            Strength = $profile.LastSignal
             Channel = ""
-            Type = "Alert"
-            Notes = "No local Windows alert heuristics matched."
+            Type = $profile.Type
+            SpecificType = $profile.SpecificType
+            Confidence = $profile.ThreatLevel
+            Evidence = $alert.Evidence
+            Meaning = $alert.Meaning
+            NextStep = $alert.NextStep
+            Notes = $alert.Notes
         }
     }
 
-    return $alerts
+    if ($alerts.Count -gt 0) {
+        return @($alerts | Sort-Object -Property @{ Expression = { Get-AlertSortRank $_.Level }; Descending = $false }, Name)
+    }
+
+    return @([pscustomobject][ordered]@{
+        Level = "CLEAR"
+        Name = "ALL CLEAR"
+        Address = ""
+        Strength = ""
+        Channel = ""
+        Type = "Alert"
+        SpecificType = ""
+        Confidence = ""
+        Evidence = "No alert-tier classifications matched."
+        Meaning = "New or ordinary signals stay in Awareness Timeline and do not become alerts by themselves."
+        NextStep = "Review Awareness Timeline for history, one-offs, and changes."
+        Notes = "Alerts are reserved for weirdness, surveillance/traffic systems, and data-capture/interception risks."
+    })
+}
+
+function Get-AlertSortRank {
+    param([string] $Level)
+    switch (($Level).ToUpperInvariant()) {
+        "HIGH" { return 0 }
+        "MEDIUM" { return 1 }
+        "LOW" { return 2 }
+        default { return 9 }
+    }
+}
+
+function Get-SignalAlertClassification {
+    param(
+        [string] $Name,
+        [string] $Type,
+        [string] $SpecificType,
+        [string] $ThreatLevel,
+        [string] $Notes
+    )
+
+    $text = (Join-NonEmptyText -Values @($Name, $Type, $SpecificType, $ThreatLevel, $Notes) -Separator " ").ToLowerInvariant()
+    $threat = ([string]$ThreatLevel).ToUpperInvariant()
+
+    $highPattern = '(imsi|stingray|fake\s*sim|fake\s*cell|rogue\s*cell|cell\s*site\s*simulator|evil\s*twin|wifi\s*pineapple|pineapple|deauther|pwnagotchi|marauder|flipper|badusb|skimmer|tap\s*to\s*pay|payment|nfc\s*intercept|credential|password|phish|sniffer|data[- ]?capture|hacking)'
+    $mediumPattern = '(flock|flock\s*safety|alpr|lpr|license\s*plate|plate\s*reader|traffic\s*reader|traffic\s*camera|speed\s*camera|red\s*light|surveillance|cctv|camera|doorbell|verkada|avigilon|hikvision|dahua|axis|vigilant|genetec|motorola)'
+    $lowPattern = '(unknown\s*ble|beacon|tracker|airtag|tile|hidden\s*wifi|open\s*wifi|open\s*security|unsecured|rogue|spoof|jam|burst|unclassified\s*rf|unexpected|odd|weird)'
+
+    $highMatch = if ($text -match $highPattern) { $Matches[0] } else { "" }
+    $mediumMatch = if ($text -match $mediumPattern) { $Matches[0] } else { "" }
+    $lowMatch = if ($text -match $lowPattern) { $Matches[0] } else { "" }
+
+    if ($threat -eq "ALERT" -or $highMatch) {
+        return [pscustomobject][ordered]@{
+            Level = "HIGH"
+            Evidence = if ($highMatch) { "High-risk keyword/classification: $highMatch" } else { "Threat level is ALERT" }
+            Meaning = "Possible data-capture, impersonation, payment/NFC interception, rogue cellular, or credential-stealing equipment."
+            NextStep = "Do not connect or tap credentials/payment devices near it; correlate location and repeat sightings."
+            Notes = "High alert: possible data-gathering/interception risk."
+        }
+    }
+    if ($threat -eq "SUSPICIOUS" -or $mediumMatch) {
+        return [pscustomobject][ordered]@{
+            Level = "MEDIUM"
+            Evidence = if ($mediumMatch) { "Surveillance/traffic keyword/classification: $mediumMatch" } else { "Threat level is SUSPICIOUS" }
+            Meaning = "Possible Flock, ALPR, traffic reader, camera, or surveillance-style system."
+            NextStep = "Correlate with roadway/parking locations, camera hardware, and repeated GPS sightings."
+            Notes = "Medium alert: possible surveillance, traffic, or reader system."
+        }
+    }
+    if ($lowMatch) {
+        return [pscustomobject][ordered]@{
+            Level = "LOW"
+            Evidence = "Noticed/weirdness keyword/classification: $lowMatch"
+            Meaning = "Something is unusual enough to notice, but it is not classified as data theft or surveillance."
+            NextStep = "Let the timeline decide if it becomes normal, repeats in odd places, or changes behavior."
+            Notes = "Low alert: weirdness or unusual signal, not merely new."
+        }
+    }
+
+    return [pscustomobject][ordered]@{
+        Level = "NONE"
+        Evidence = ""
+        Meaning = ""
+        NextStep = ""
+        Notes = ""
+    }
 }
 
 function Get-AwarenessDetails {
@@ -1729,6 +1815,29 @@ function Get-CompactDetailColumns {
                 @{ Name = "Modulation"; Header = "Mode" },
                 @{ Name = "Decoder"; Header = "Lens" },
                 @{ Name = "Source"; Header = "Source" }
+            )
+        }
+        { $_ -like "Awareness Timeline*" } {
+            return @(
+                @{ Name = "Class"; Header = "Status" },
+                @{ Name = "Signal"; Header = "Signal" },
+                @{ Name = "Type"; Header = "Type*" },
+                @{ Name = "Seen"; Header = "Seen" },
+                @{ Name = "Nodes"; Header = "Nodes" },
+                @{ Name = "Last"; Header = "Last seen" },
+                @{ Name = "LastEvent"; Header = "Latest timeline note" },
+                @{ Name = "Strength"; Header = "Signal" }
+            )
+        }
+        "Signal Alerts + Awareness" {
+            return @(
+                @{ Name = "Level"; Header = "Level" },
+                @{ Name = "Name"; Header = "Signal" },
+                @{ Name = "SpecificType"; Header = "Type*" },
+                @{ Name = "Type"; Header = "Source" },
+                @{ Name = "Strength"; Header = "Signal" },
+                @{ Name = "Evidence"; Header = "Why" },
+                @{ Name = "Notes"; Header = "Tier" }
             )
         }
         default {
@@ -2458,14 +2567,22 @@ function Show-DetailWindow {
         }
         switch ($eventArgs.PropertyName) {
             "Name" { $eventArgs.Column.Width = New-Object System.Windows.Controls.DataGridLength(1.4, [System.Windows.Controls.DataGridLengthUnitType]::Star); break }
+            "Signal" { $eventArgs.Column.Width = New-Object System.Windows.Controls.DataGridLength(1.4, [System.Windows.Controls.DataGridLengthUnitType]::Star); break }
             "SpecificType" { $eventArgs.Column.Width = New-Object System.Windows.Controls.DataGridLength(1.5, [System.Windows.Controls.DataGridLengthUnitType]::Star); break }
+            "Type" { $eventArgs.Column.Width = New-Object System.Windows.Controls.DataGridLength(1.2, [System.Windows.Controls.DataGridLengthUnitType]::Star); break }
             "Label" { $eventArgs.Column.Width = New-Object System.Windows.Controls.DataGridLength(1.8, [System.Windows.Controls.DataGridLengthUnitType]::Star); break }
             "Address" { $eventArgs.Column.Width = New-Object System.Windows.Controls.DataGridLength(1.3, [System.Windows.Controls.DataGridLengthUnitType]::Star); break }
             "Security" { $eventArgs.Column.Width = New-Object System.Windows.Controls.DataGridLength(1.5, [System.Windows.Controls.DataGridLengthUnitType]::Star); break }
             "Decoder" { $eventArgs.Column.Width = New-Object System.Windows.Controls.DataGridLength(1.4, [System.Windows.Controls.DataGridLengthUnitType]::Star); break }
             "Notes" { $eventArgs.Column.Width = New-Object System.Windows.Controls.DataGridLength(1.4, [System.Windows.Controls.DataGridLengthUnitType]::Star); break }
+            "Evidence" { $eventArgs.Column.Width = New-Object System.Windows.Controls.DataGridLength(1.7, [System.Windows.Controls.DataGridLengthUnitType]::Star); break }
+            "LastEvent" { $eventArgs.Column.Width = New-Object System.Windows.Controls.DataGridLength(2.0, [System.Windows.Controls.DataGridLengthUnitType]::Star); break }
+            "Level" { $eventArgs.Column.Width = New-Object System.Windows.Controls.DataGridLength(85); break }
+            "Class" { $eventArgs.Column.Width = New-Object System.Windows.Controls.DataGridLength(90); break }
             "Strength" { $eventArgs.Column.Width = New-Object System.Windows.Controls.DataGridLength(80); break }
             "Status" { $eventArgs.Column.Width = New-Object System.Windows.Controls.DataGridLength(95); break }
+            "Seen" { $eventArgs.Column.Width = New-Object System.Windows.Controls.DataGridLength(65); break }
+            "Nodes" { $eventArgs.Column.Width = New-Object System.Windows.Controls.DataGridLength(65); break }
             "PowerDb" { $eventArgs.Column.Width = New-Object System.Windows.Controls.DataGridLength(85); break }
             "Channel" { $eventArgs.Column.Width = New-Object System.Windows.Controls.DataGridLength(75); break }
             "Modulation" { $eventArgs.Column.Width = New-Object System.Windows.Controls.DataGridLength(110); break }
@@ -2569,20 +2686,21 @@ function Refresh-ScannerCounts {
     $bt = Get-BluetoothCount
     $running = Get-Process rtl_tcp -ErrorAction SilentlyContinue
     $sdr = @($script:SdrSignals | Where-Object { $_.Source -eq "rtl_power" }).Count
-    $awarenessCount = @(Get-AwarenessRows).Count
+    $alertRows = @(Get-AlertDetails | Where-Object { $_.Level -ne "CLEAR" })
+    $alertCountValue = $alertRows.Count
 
     $WifiCount.Text = [string]$wifi
     $BluetoothCount.Text = [string]$bt
     $CellCount.Text = "0"
     $SdrCount.Text = [string]$sdr
-    $AlertCount.Text = [string]$awarenessCount
+    $AlertCount.Text = [string]$alertCountValue
 
     $WifiTileCount.Text = [string]$wifi
     $BluetoothTileCount.Text = [string]$bt
     $NfcTileCount.Text = "0"
     $CellTileCount.Text = "0"
     $SdrTileCount.Text = [string]$sdr
-    $AlertTileCount.Text = [string]$awarenessCount
+    $AlertTileCount.Text = [string]$alertCountValue
 
     $LocalIpText.Text = "$(Get-LanIpAddress):$Port"
     $EndpointText.Text = "SDR $(Get-LanIpAddress):$Port  |  SYNC $(Get-LanIpAddress):$AwarenessSyncPort"
@@ -3202,8 +3320,7 @@ $SdrTile.Add_MouseLeftButtonUp({
 })
 $AlertTile.Add_MouseLeftButtonUp({
     Invoke-AppAction -Context "Open alerts details" -Action {
-        $items = @(Get-AlertDetails) + @(Get-AwarenessDetails)
-        Show-DetailWindow -Title "Signal Alerts + Awareness" -Accent "#EF4444" -Items $items
+        Show-DetailWindow -Title "Signal Alerts + Awareness" -Accent "#EF4444" -Items @(Get-AlertDetails)
     }
 })
 $AwarenessMapPanel.Add_MouseLeftButtonUp({
