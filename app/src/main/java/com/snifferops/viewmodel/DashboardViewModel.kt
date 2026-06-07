@@ -512,8 +512,10 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private fun AwarenessStatus.wearLabel(): String = when (this) {
         AwarenessStatus.NORMAL -> "NORMAL"
         AwarenessStatus.LEARNING -> "LEARN"
+        AwarenessStatus.NOTICED -> "NOTICED"
         AwarenessStatus.ONE_OFF -> "ONE-OFF"
         AwarenessStatus.WATCH -> "WATCH"
+        AwarenessStatus.ALERT -> "ALERT"
     }
 
     private fun String.cleanWearText(): String =
@@ -590,8 +592,10 @@ fun AppState.compactAwarenessProfiles(): List<AwarenessProfile> {
         .map { (_, profiles) -> profiles.maxByOrNull { it.lastSeen } ?: profiles.first() }
         .sortedWith(compareBy<AwarenessProfile> {
             when (it.status) {
+                AwarenessStatus.ALERT -> 0
                 AwarenessStatus.WATCH -> 0
-                AwarenessStatus.ONE_OFF -> 1
+                AwarenessStatus.NOTICED -> 1
+                AwarenessStatus.ONE_OFF -> 2
                 AwarenessStatus.LEARNING -> 2
                 AwarenessStatus.NORMAL -> 3
             }
@@ -618,7 +622,7 @@ fun SignalDevice.isAlertRelevant(): Boolean {
         .joinToString(" ")
         .lowercase()
     val highPattern = Regex("imsi|stingray|fake\\s*sim|fake\\s*cell|rogue\\s*cell|cell\\s*site\\s*simulator|evil\\s*twin|wifi\\s*pineapple|pineapple|deauther|pwnagotchi|marauder|flipper|badusb|skimmer|tap\\s*to\\s*pay|payment|nfc\\s*intercept|credential|password|phish|sniffer|data[- ]?capture|hacking")
-    val mediumPattern = Regex("flock|flock\\s*safety|alpr|lpr|license\\s*plate|plate\\s*reader|traffic\\s*reader|traffic\\s*camera|speed\\s*camera|red\\s*light|surveillance|cctv|camera|doorbell|verkada|avigilon|hikvision|dahua|axis|vigilant|genetec|motorola")
+    val mediumPattern = Regex("flock|flock\\s*safety|alpr|lpr|license\\s*plate|plate\\s*reader|traffic\\s*reader|traffic\\s*camera|speed\\s*camera|red\\s*light|surveillance|cctv|doorbell|verkada|avigilon|hikvision|dahua|axis|vigilant|genetec|motorola")
     val lowPattern = Regex("unknown\\s*ble|beacon|tracker|airtag|tile|hidden\\s*wifi|open\\s*wifi|open\\s*security|unsecured|rogue|spoof|jam|burst|unexpected|odd|weird")
 
     return when (threatLevel) {
@@ -626,7 +630,7 @@ fun SignalDevice.isAlertRelevant(): Boolean {
         ThreatLevel.SUSPICIOUS -> true
         ThreatLevel.UNKNOWN -> highPattern.containsMatchIn(text) ||
             mediumPattern.containsMatchIn(text) ||
-            lowPattern.containsMatchIn(text)
+            (seenCount < 5 && lowPattern.containsMatchIn(text))
         ThreatLevel.SAFE -> highPattern.containsMatchIn(text) || mediumPattern.containsMatchIn(text)
     }
 }

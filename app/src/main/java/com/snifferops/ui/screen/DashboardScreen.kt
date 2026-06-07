@@ -370,7 +370,12 @@ private fun MiniAwarenessMap(profiles: List<AwarenessProfile>, modifier: Modifie
         gpsProfiles.takeLast(12).forEach { profile ->
             val x = 7f + (((profile.longitude - minLon) / (maxLon - minLon)).toFloat() * (size.width - 14f))
             val y = 7f + (((maxLat - profile.latitude) / (maxLat - minLat)).toFloat() * (size.height - 14f))
-            val color = if (profile.status == AwarenessStatus.NORMAL) RadarGreen else WarningOrange
+            val color = when (profile.status) {
+                AwarenessStatus.NORMAL, AwarenessStatus.NOTICED -> RadarGreen
+                AwarenessStatus.LEARNING -> TacticalBlue
+                AwarenessStatus.ALERT -> AlertRed
+                else -> WarningOrange
+            }
             drawCircle(color, radius = 5f, center = Offset(x, y))
         }
     }
@@ -386,8 +391,10 @@ private fun AwarenessProfileLine(profile: AwarenessProfile) {
         val color = when (profile.status) {
             AwarenessStatus.NORMAL -> RadarGreen
             AwarenessStatus.LEARNING -> TacticalBlue
+            AwarenessStatus.NOTICED -> RadarGreen
             AwarenessStatus.ONE_OFF -> WarningOrange
             AwarenessStatus.WATCH -> WarningOrange
+            AwarenessStatus.ALERT -> AlertRed
         }
         Box(Modifier.size(7.dp).clip(CircleShape).background(color))
         Text(
@@ -410,8 +417,10 @@ private fun AwarenessProfileLine(profile: AwarenessProfile) {
 private fun AwarenessStatus.label(): String = when (this) {
     AwarenessStatus.NORMAL -> "NORMAL"
     AwarenessStatus.LEARNING -> "LEARNING"
+    AwarenessStatus.NOTICED -> "NOTICED"
     AwarenessStatus.ONE_OFF -> "ONE-OFF"
     AwarenessStatus.WATCH -> "WATCH"
+    AwarenessStatus.ALERT -> "ALERT"
 }
 
 @Composable

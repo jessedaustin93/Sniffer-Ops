@@ -16,20 +16,28 @@ data class AwarenessProfile(
 ) {
     val status: AwarenessStatus
         get() = when {
-            threatLevel == ThreatLevel.ALERT || threatLevel == ThreatLevel.SUSPICIOUS -> AwarenessStatus.WATCH
+            threatLevel == ThreatLevel.ALERT -> AwarenessStatus.ALERT
+            threatLevel == ThreatLevel.SUSPICIOUS && hasMovementEvent -> AwarenessStatus.ALERT
+            threatLevel == ThreatLevel.SUSPICIOUS -> AwarenessStatus.WATCH
+            threatLevel == ThreatLevel.UNKNOWN && seenCount < NORMAL_BASELINE_COUNT -> AwarenessStatus.NOTICED
             seenCount <= 1 -> AwarenessStatus.ONE_OFF
-            latestEvent.contains("jump", ignoreCase = true) ||
-                latestEvent.contains("changed", ignoreCase = true) ||
-                latestEvent.contains("again", ignoreCase = true) ||
-                latestEvent.contains("new scan location", ignoreCase = true) -> AwarenessStatus.WATCH
-            seenCount >= 3 -> AwarenessStatus.NORMAL
+            seenCount >= NORMAL_BASELINE_COUNT -> AwarenessStatus.NORMAL
             else -> AwarenessStatus.LEARNING
         }
+
+    private val hasMovementEvent: Boolean
+        get() = latestEvent.contains("new scan location", ignoreCase = true) ||
+            latestEvent.contains("location_changed", ignoreCase = true) ||
+            latestEvent.contains("also seen by", ignoreCase = true) ||
+            latestEvent.contains("following", ignoreCase = true) ||
+            latestEvent.contains("moved with", ignoreCase = true)
 }
 
 enum class AwarenessStatus {
-    NORMAL, LEARNING, ONE_OFF, WATCH
+    NORMAL, LEARNING, ONE_OFF, NOTICED, WATCH, ALERT
 }
+
+private const val NORMAL_BASELINE_COUNT = 5
 
 data class AwarenessOverview(
     val total: Int = 0,
@@ -51,8 +59,8 @@ fun List<AwarenessProfile>.overview(): AwarenessOverview {
     return AwarenessOverview(
         total = size,
         normal = count { it.status == AwarenessStatus.NORMAL },
-        oneOff = count { it.status == AwarenessStatus.ONE_OFF },
-        watch = count { it.status == AwarenessStatus.WATCH },
+        oneOff = count { it.status == AwarenessStatus.ONE_OFF || it.status == AwarenessStatus.NOTICED },
+        watch = count { it.status == AwarenessStatus.WATCH || it.status == AwarenessStatus.ALERT },
         scanSpots = gpsSpots,
         latest = maxByOrNull { it.lastSeen }
     )
