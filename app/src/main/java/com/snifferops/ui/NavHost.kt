@@ -4,7 +4,6 @@ import androidx.compose.runtime.Composable
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.snifferops.model.ThreatLevel
 import com.snifferops.ui.screen.*
 import com.snifferops.viewmodel.AppState
 import com.snifferops.viewmodel.DashboardViewModel
@@ -106,8 +105,8 @@ fun SnifferOpsNavHost(
         }
         composable(Screen.Alerts.route) {
             AlertsScreen(
-                wifiAlerts = state.wifiDevices.filter { it.threatLevel != ThreatLevel.SAFE },
-                btAlerts = (state.bluetoothDevices + state.bleDevices + state.awarenessDevices).filter { it.threatLevel != ThreatLevel.SAFE },
+                wifiAlerts = state.alertDevices.filter { it.signalType.name == "WIFI" },
+                btAlerts = state.alertDevices.filter { it.signalType.name != "WIFI" },
                 onBack = { navController.popBackStack() }
             )
         }

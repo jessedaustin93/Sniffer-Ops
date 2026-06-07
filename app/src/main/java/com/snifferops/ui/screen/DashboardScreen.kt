@@ -295,13 +295,13 @@ private fun SignalMapStrip(profiles: List<AwarenessProfile>) {
     val overview = profiles.overview()
     val important = profiles
         .filter { it.status != AwarenessStatus.NORMAL }
-        .take(3)
-        .ifEmpty { profiles.take(3) }
+        .take(4)
+        .ifEmpty { profiles.take(4) }
 
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .height(if (expanded) 156.dp else 86.dp)
+            .height(if (expanded) 206.dp else 86.dp)
             .clickable { expanded = !expanded },
         color = Color(0x66111827),
         shape = RoundedCornerShape(8.dp),
@@ -405,13 +405,20 @@ private fun AwarenessProfileLine(profile: AwarenessProfile) {
             modifier = Modifier.width(112.dp)
         )
         Text(
-            "${profile.seenCount}x ${profile.deviceClass}".take(34),
+            "${profile.status.label()}  ${profile.seenCount}x  ${profile.latestEvent.ifBlank { profile.deviceClass }}".take(58),
             color = OnSurfaceMuted,
             fontFamily = SnifferOpsCondensedFont,
             fontSize = 9.sp,
             modifier = Modifier.weight(1f)
         )
     }
+}
+
+private fun AwarenessStatus.label(): String = when (this) {
+    AwarenessStatus.NORMAL -> "NORMAL"
+    AwarenessStatus.LEARNING -> "LEARNING"
+    AwarenessStatus.ONE_OFF -> "ONE-OFF"
+    AwarenessStatus.WATCH -> "WATCH"
 }
 
 @Composable

@@ -54,17 +54,16 @@ data class AppState(
         nfcCount = if (lastNfcTag != null) 1 else 0,
         cellCount = cellTowers.size,
         sdrCount = sdrSignals.size,
-        noticedCount = (wifiDevices + bluetoothDevices + bleDevices)
-            .count { it.threatLevel == ThreatLevel.UNKNOWN },
-        suspiciousCount = (wifiDevices + bluetoothDevices + bleDevices)
-            .count { it.threatLevel == ThreatLevel.SUSPICIOUS },
-        alertCount = (wifiDevices + bluetoothDevices + bleDevices)
-            .count { it.threatLevel == ThreatLevel.ALERT },
+        noticedCount = alertDevices.count { it.threatLevel == ThreatLevel.UNKNOWN },
+        suspiciousCount = alertDevices.count { it.threatLevel == ThreatLevel.SUSPICIOUS },
+        alertCount = alertDevices.count { it.threatLevel == ThreatLevel.ALERT },
         sdrConnected = sdrConnected || networkSdrConnected,
         scanActive = scanActive
     )
 
     val alertTotal: Int get() = summary.alertCount + summary.suspiciousCount + summary.noticedCount
+    val alertDevices: List<SignalDevice> get() =
+        (wifiDevices + bluetoothDevices + bleDevices + awarenessDevices).filter { it.isAlertRelevant() }
 }
 
 @OptIn(FlowPreview::class)
@@ -476,9 +475,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     private fun AppState.alertWearDevices(): List<SignalDevice> =
-        (wifiDevices + bluetoothDevices + bleDevices + awarenessDevices)
-            .filter { it.threatLevel != ThreatLevel.SAFE }
-            .sortedByDescending { it.threatLevel.ordinal }
+        alertDevices.sortedByDescending { it.threatLevel.ordinal }
 
     private fun <T> List<T>.toWearRows(limit: Int, mapper: (T) -> String): ArrayList<String> =
         take(limit).mapTo(ArrayList(), mapper)
@@ -599,6 +596,24 @@ private fun SignalDevice.toAwarenessProfile(source: String): AwarenessProfile = 
     longitude = longitude,
     source = source
 )
+
+fun SignalDevice.isAlertRelevant(): Boolean {
+    val text = listOf(name, signalType.name, deviceClass, manufacturer, notes)
+        .joinToString(" ")
+        .lowercase()
+    val highPattern = Regex("imsi|stingray|fake\\s*sim|fake\\s*cell|rogue\\s*cell|cell\\s*site\\s*simulator|evil\\s*twin|wifi\\s*pineapple|pineapple|deauther|pwnagotchi|marauder|flipper|badusb|skimmer|tap\\s*to\\s*pay|payment|nfc\\s*intercept|credential|password|phish|sniffer|data[- ]?capture|hacking")
+    val mediumPattern = Regex("flock|flock\\s*safety|alpr|lpr|license\\s*plate|plate\\s*reader|traffic\\s*reader|traffic\\s*camera|speed\\s*camera|red\\s*light|surveillance|cctv|camera|doorbell|verkada|avigilon|hikvision|dahua|axis|vigilant|genetec|motorola")
+    val lowPattern = Regex("unknown\\s*ble|beacon|tracker|airtag|tile|hidden\\s*wifi|open\\s*wifi|open\\s*security|unsecured|rogue|spoof|jam|burst|unexpected|odd|weird")
+
+    return when (threatLevel) {
+        ThreatLevel.ALERT -> true
+        ThreatLevel.SUSPICIOUS -> true
+        ThreatLevel.UNKNOWN -> highPattern.containsMatchIn(text) ||
+            mediumPattern.containsMatchIn(text) ||
+            lowPattern.containsMatchIn(text)
+        ThreatLevel.SAFE -> highPattern.containsMatchIn(text) || mediumPattern.containsMatchIn(text)
+    }
+}
 
 private fun CellTower.toAwarenessProfile(): AwarenessProfile = AwarenessProfile(
     key = "CELLULAR|${technology}|${cid}",
