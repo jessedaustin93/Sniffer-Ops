@@ -17,3 +17,5 @@ tools/
 adsb-aircraft.json
 adsb-map.html
 data/
+__pycache__
+**/__pycache__/
