@@ -947,17 +947,43 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
             self._peer_list.append(row)
             return
 
+        last_syncs = {}
+        if _sync_manager:
+            last_syncs = dict(_sync_manager._last_sync)
+
         for i, p in enumerate(peers):
+            key = f"{p['host']}:{p.get('port', 8765)}"
+            via_tag = "  •  tailscale" if p.get("via") == "tailscale" else ""
+            ts = last_syncs.get(key, 0)
+            if ts:
+                import time as _time
+                age = int(_time.time() - ts)
+                if age < 60:
+                    sync_str = f"  •  synced {age}s ago"
+                elif age < 3600:
+                    sync_str = f"  •  synced {age // 60}m ago"
+                else:
+                    sync_str = f"  •  synced {age // 3600}h ago"
+            else:
+                sync_str = "  •  not synced yet"
             row = Adw.ActionRow(
                 title=p.get("name", p["host"]),
-                subtitle=f"{p['host']}:{p.get('port', 8765)}"
+                subtitle=f"{p['host']}:{p.get('port', 8765)}{via_tag}{sync_str}"
             )
+            # Online dot
             dot = Gtk.Label()
             dot.set_markup(f'<span foreground="{C["muted"]}" size="large">●</span>')
             row.add_suffix(dot)
             self._peer_status_labels.append(dot)
+            # Sync-now button
+            sync_btn = Gtk.Button(icon_name="view-refresh-symbolic",
+                                  valign=Gtk.Align.CENTER, tooltip_text="Sync now")
+            sync_btn.add_css_class("flat")
+            sync_btn.connect("clicked", self._on_sync_peer_now, p)
+            row.add_suffix(sync_btn)
+            # Remove button
             rm = Gtk.Button(icon_name="list-remove-symbolic",
-                            valign=Gtk.Align.CENTER)
+                            valign=Gtk.Align.CENTER, tooltip_text="Remove peer")
             rm.add_css_class("flat")
             rm.connect("clicked", self._on_remove_peer, i)
             row.add_suffix(rm)
@@ -1035,6 +1061,17 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
             self._rebuild_peers()
             self.toast(f"Added peer: {name}")
         dlg.connect("response", _resp); dlg.present()
+
+    def _on_sync_peer_now(self, _btn, peer: dict) -> None:
+        self.toast(f"Syncing {peer.get('name', peer['host'])}…")
+        def _work():
+            if _sync_manager:
+                results = _sync_manager.sync_all_now()
+                name = peer.get("name", peer["host"])
+                status = results.get(name, "done")
+                GLib.idle_add(self.toast, f"{name}: {status}")
+                GLib.idle_add(self._rebuild_peers)
+        threading.Thread(target=_work, daemon=True).start()
 
     def _on_remove_peer(self, _btn, idx: int) -> None:
         peers = self._cfg.get("peers", [])
@@ -1314,8 +1351,22 @@ class SnifferOpsApp(Adw.Application):
         global _sync_manager
         cfg = win._cfg
         awareness_log.start_server("0.0.0.0", cfg.get("port", 8765))
-        _sync_manager = NodeSyncManager(awareness_log, NODE_ID, NODE_NAME,
-                                        peers=cfg.get("peers", []))
+
+        def _on_peers_discovered(new_peers: list[dict]) -> None:
+            """Called from sync thread when Tailscale auto-discovers new nodes."""
+            for p in new_peers:
+                if p not in cfg.setdefault("peers", []):
+                    cfg["peers"].append(p)
+            save_config(cfg)
+            GLib.idle_add(win._rebuild_peers)
+            GLib.idle_add(win.toast,
+                f"Auto-connected {len(new_peers)} Tailscale node(s)")
+
+        _sync_manager = NodeSyncManager(
+            awareness_log, NODE_ID, NODE_NAME,
+            peers=cfg.get("peers", []),
+            on_peer_update=_on_peers_discovered,
+        )
         _sync_manager.start()
 
         if cfg.get("wifi", True):
