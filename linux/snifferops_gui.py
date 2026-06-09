@@ -65,8 +65,12 @@ C = {
 
 CSS = f"""
 * {{
-    font-family: "Monospace", "Consolas", monospace;
+    font-family: "Ubuntu Mono", "DejaVu Sans Mono", "Courier New", monospace;
     color: {C['text']};
+}}
+label, button > label, entry, textview, columnview, listview,
+headerbar label, viewswitcherbar label {{
+    font-family: "Ubuntu Mono", "DejaVu Sans Mono", "Courier New", monospace;
 }}
 window, .main-window {{
     background-color: {C['bg']};
@@ -238,6 +242,28 @@ viewswitcherbar button {{
 }}
 viewswitcherbar button:checked {{
     color: {C['green']};
+}}
+.tile-btn {{
+    background-color: {C['panel']};
+    border: 1px solid {C['border']};
+    border-radius: 6px;
+    padding: 0;
+    margin: 3px;
+}}
+.tile-btn:hover {{
+    background-color: #1a2840;
+    border-color: {C['green']};
+}}
+.tile-btn:active {{
+    background-color: {C['surface']};
+}}
+.tile-btn-disabled {{
+    background-color: {C['panel']};
+    border: 1px solid {C['border']};
+    border-radius: 6px;
+    padding: 0;
+    margin: 3px;
+    opacity: 0.65;
 }}
 """
 
@@ -411,27 +437,24 @@ def _label(text: str, css: str = "", markup: bool = False) -> Gtk.Label:
 
 
 def _scanner_tile(count_css: str, label: str, sub: str,
-                  border_colour: str) -> tuple[Gtk.Frame, Gtk.Label]:
-    """Returns (frame, count_label) for a scanner tile."""
-    frame = Gtk.Frame()
-    frame.set_margin_start(3)
-    frame.set_margin_end(3)
-    frame.set_margin_top(3)
-    frame.set_margin_bottom(3)
-    frame.add_css_class("panel")
+                  navigable: bool = True) -> tuple[Gtk.Button, Gtk.Label]:
+    """Returns (button, count_label) for a scanner tile."""
+    btn = Gtk.Button()
+    btn.add_css_class("tile-btn" if navigable else "tile-btn-disabled")
+    btn.set_hexpand(True)
 
     box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
     box.set_margin_start(12)
     box.set_margin_end(12)
     box.set_margin_top(10)
     box.set_margin_bottom(10)
-    frame.set_child(box)
+    btn.set_child(box)
 
     count_lbl = _label("0", count_css)
     box.append(count_lbl)
     box.append(_label(label, "tile-label"))
     box.append(_label(sub,   "tile-sub"))
-    return frame, count_lbl
+    return btn, count_lbl
 
 
 def _stat_row(dot_colour: str, label: str,
@@ -673,19 +696,24 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
         grid.set_row_homogeneous(True)
         outer.append(grid)
 
+        # (count_css, label, sub, page_name_or_None)
         tiles = [
-            ("tile-count-green",  "WIFI",      "Linux WLAN scan"),
-            ("tile-count-blue",   "BLUETOOTH", "BT/BLE discovery"),
-            ("tile-count-pink",   "NFC",        "Phone-only scanner"),
-            ("tile-count-orange", "CELLULAR",   "Phone-only scanner"),
-            ("tile-count-purple", "SDR RADIO",  f"{self._local_ip()}:1234"),
-            ("tile-count-red",    "ALERTS",     "Local app status"),
+            ("tile-count-green",  "WIFI",      "Linux WLAN scan",        "wifi"),
+            ("tile-count-blue",   "BLUETOOTH", "BT/BLE discovery",       "bluetooth"),
+            ("tile-count-pink",   "NFC",       "Android only",           None),
+            ("tile-count-orange", "CELLULAR",  "Android only",           None),
+            ("tile-count-purple", "SDR RADIO", f"{self._local_ip()}:1234", "sdr_radio"),
+            ("tile-count-red",    "ALERTS",    "Local app status",       None),
         ]
         self._tile_counts: list[Gtk.Label] = []
-        for i, (css, label, sub) in enumerate(tiles):
-            frame, cnt = _scanner_tile(css, label, sub, C["border"])
-            frame.set_hexpand(True)
-            grid.attach(frame, i % 2, i // 2, 1, 1)
+        for i, (css, label, sub, page) in enumerate(tiles):
+            btn, cnt = _scanner_tile(css, label, sub, navigable=(page is not None))
+            if page:
+                btn.connect("clicked", lambda _b, p=page: self._stack.set_visible_child_name(p))
+            else:
+                btn.connect("clicked", lambda _b, lbl=label:
+                    self._toast.add_toast(Adw.Toast(title=f"{lbl}: Android-only scanner", timeout=2)))
+            grid.attach(btn, i % 2, i // 2, 1, 1)
             self._tile_counts.append(cnt)
 
         # ── Detected signals (compact) ────────────────────────────────────
