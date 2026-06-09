@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=SnifferOps
+GenericName=Signal Intelligence Hub
+Comment=Multi-platform RF and wireless signal awareness — syncs with Android and Windows nodes
+Exec=python3 INSTALL_PATH/snifferops_gui.py
+Icon=com.snifferops.linux
+Terminal=false
+Categories=Network;Monitor;Science;
+Keywords=sdr;rtl;wifi;bluetooth;rf;signal;scanner;radar;awareness;
+StartupNotify=true
+StartupWMClass=snifferops
