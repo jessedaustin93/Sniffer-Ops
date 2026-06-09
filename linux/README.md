@@ -1,15 +1,30 @@
-# SnifferOps Linux Companion
+# SnifferOps — Linux Companion
 
-This branch contains the Linux companion version of SnifferOps.
+A GTK4 / Adwaita desktop app for Linux that scans local wireless signals (Wi-Fi, Bluetooth, RTL-SDR), classifies them, and keeps a shared awareness log in sync with the Android and Windows nodes in your SnifferOps mesh.
 
-Run this on any Linux machine (Ubuntu 22.04 / 24.04 recommended) that you want to include in your SnifferOps network. It scans local Wi-Fi and Bluetooth, optionally drives an RTL-SDR dongle, consolidates an awareness map, and syncs bi-directionally with the Android app and Windows companion over LAN or Tailscale.
-
-For the Android phone app, see [`codex/android-mobile-app`](https://github.com/jessedaustin93/Sniffer-Ops/tree/codex/android-mobile-app).  
-For the Windows companion, see [`codex/windows-companion`](https://github.com/jessedaustin93/Sniffer-Ops/tree/codex/windows-companion).
+Companion branches:
+- Android app — [`codex/android-mobile-app`](../../tree/codex/android-mobile-app)
+- Windows companion — [`codex/windows-companion`](../../tree/codex/windows-companion)
 
 ---
 
-## Quick Install
+## Requirements
+
+| Dependency | Version | How to get it |
+|---|---|---|
+| Python | 3.10+ | `python3` from system packages |
+| GTK4 + GLib | 4.0 | `apt-get install python3-gi gir1.2-gtk-4.0` |
+| libadwaita | 1.2+ (1.5 recommended) | `apt-get install gir1.2-adw-1` |
+| BlueZ | 5.50+ | `apt-get install bluez` |
+| NetworkManager | any | `apt-get install network-manager` |
+| RTL-SDR tools | any | `apt-get install rtl-sdr` (optional) |
+| Tailscale | any | `curl -fsSL https://tailscale.com/install.sh \| sh` (optional) |
+
+Tested on Ubuntu 22.04 LTS and 24.04 LTS. Other GNOME / systemd distros should work with minor adjustments.
+
+---
+
+## Install
 
 ```bash
 git clone https://github.com/jessedaustin93/Sniffer-Ops
@@ -19,38 +34,23 @@ cd linux
 bash install.sh
 ```
 
-`install.sh` will:
-- Install system dependencies via `apt-get` (GTK4, Bluetooth, RTL-SDR tools, NetworkManager)
-- Copy the SVG icon into your user icon theme
-- Write a `.desktop` file so SnifferOps appears in the GNOME app menu
-- Create a `snifferops` launcher in `~/.local/bin/`
+`install.sh` does the following in order:
 
-After that, search for **SnifferOps** in the GNOME app grid, or run:
-
-```bash
-snifferops
-```
-
----
-
-## Requirements
-
-| Requirement | Version |
-|---|---|
-| Python | 3.10+ |
-| GTK | 4.0 |
-| libadwaita | 1.2+ (1.5 recommended) |
-| OS | Ubuntu 22.04 LTS or 24.04 LTS (other systemd/GNOME distros should work) |
-
-All GTK/Adwaita bindings are installed from the system package manager by `install.sh` — no pip installs needed for the GUI itself.
+1. Runs `apt-get install` for all system dependencies listed above
+2. Copies the three Spy Agency font files from `assets/fonts/` into `~/.local/share/fonts/snifferops/` and runs `fc-cache` so GTK picks them up
+3. Installs the app icon (`assets/snifferops.svg`) into `~/.local/share/icons/hicolor/scalable/apps/`
+4. Writes a `.desktop` launcher file to `~/.local/share/applications/` so SnifferOps appears in the GNOME app grid
+5. Creates a `snifferops` command in `~/.local/bin/` (make sure `~/.local/bin` is on your `$PATH`)
+6. Writes a GNOME autostart entry to `~/.config/autostart/com.snifferops.linux.desktop`
+7. Writes and enables a systemd user service at `~/.config/systemd/user/snifferops.service`
 
 ---
 
 ## Launch
 
-From the GNOME app menu — search **SnifferOps**.
+From the GNOME app grid — search **SnifferOps**.
 
-From the terminal:
+From a terminal:
 
 ```bash
 snifferops
@@ -58,135 +58,196 @@ snifferops
 python3 /path/to/Sniffer-Ops/linux/snifferops_gui.py
 ```
 
----
-
-## Autostart on Login
-
-`install.sh` writes two autostart entries automatically:
-
-- `~/.config/autostart/com.snifferops.linux.desktop` — GNOME session autostart
-- `~/.config/systemd/user/snifferops.service` — systemd user service (restarts on crash)
-
-To enable/disable:
-
-```bash
-# Disable GNOME autostart
-sed -i 's/X-GNOME-Autostart-enabled=true/X-GNOME-Autostart-enabled=false/' \
-    ~/.config/autostart/com.snifferops.linux.desktop
-
-# Disable systemd service
-systemctl --user disable snifferops.service
-```
+The app registers the D-Bus name `com.snifferops.linux`. If an instance is already running, a second launch exits immediately — the existing window comes to the foreground instead.
 
 ---
 
-## Tabs
+## The GUI
 
-| Tab | What it does |
-|---|---|
-| **Dashboard** | Animated radar scope, live scanner counts, SDR status badge, START/STOP scan button, 2×3 scanner tile grid (click a tile to jump to that scanner's signal list) |
-| **WiFi** | All detected Wi-Fi networks with classification and threat rating |
-| **Bluetooth** | BT Classic + BLE devices |
-| **SDR Radio** | RTL-SDR frequency sweeps classified against 8 signal lenses |
-| **Peers** | Tailscale network discovery, manual peer management, Android/Windows setup info |
-| **Settings** | Toggle scanners, set sync port, configure remote rtl_tcp source, clear log |
+The interface uses a dark tactical theme (Adwaita dark + custom CSS) with the Spy Agency typeface, a radar scope animation, and a grid of scanner tiles on the main dashboard. The bottom bar has six tabs.
 
----
+### Dashboard
 
-## Sync with Other Nodes
+The main screen shows:
 
-SnifferOps uses a simple HTTP API on port **8765** (configurable) that is wire-compatible across all three platforms.
+- **Radar scope** — animated sweep that spins while a scan is active; stops when paused
+- **Scanner counters** — live counts for Wi-Fi networks, Bluetooth devices, SDR signals, and total merged signals across all nodes
+- **SDR badge** — shows `LOCAL`, `REMOTE`, or `OFFLINE` depending on RTL-SDR state
+- **START / STOP SCAN** — toggles active scanning across all enabled scanners
+- **Scanner tile grid** — six tiles (Wi-Fi, Bluetooth, SDR Radio, NFC, Cellular, Alerts); click the Wi-Fi, Bluetooth, or SDR tiles to jump to that scanner's signal list page
 
-### Android app
+### WiFi
 
-In the Android app's settings, point the sync host at this machine's LAN IP or Tailscale IP:
+Detected Wi-Fi access points with SSID, BSSID, signal strength (dBm), channel, frequency band, and security type. Each row is classified (e.g. open network, hidden SSID, known vendor) and assigned a threat level.
 
-```
-Host: 192.168.x.x    (LAN)
-Host: 100.x.x.x      (Tailscale — works across networks)
-Port: 8765
-```
+**How it scans:** calls `nmcli --get-values SSID,BSSID,SIGNAL,CHAN,FREQ,SECURITY dev wifi list` as the primary method. Falls back to `iwlist scanning` if NetworkManager is not available.
 
-The Linux app shows both addresses in the **Peers** tab.
+### Bluetooth
 
-### Windows companion
+Bluetooth Classic and BLE devices with MAC address, device name (if advertised), RSSI, device class, and manufacturer.
 
-In the Windows companion, add this machine's IP and port as a sync peer. Both nodes will push/pull awareness data automatically every 30 seconds.
+**How it scans:** calls `bluetoothctl --timeout 8 scan on` then `bluetoothctl devices` followed by per-device `bluetoothctl info <MAC>` to pull class and manufacturer data. Falls back to `hcitool scan --flush` on systems with older BlueZ.
 
-### Linux ↔ Linux
+### SDR Radio
 
-Open the **Peers** tab → **Scan for SnifferOps** to auto-discover other nodes on your Tailscale network, or click **Add Peer** and enter the host manually.
+Spectrum sweep results classified against eight signal lenses. Each row shows center frequency, signal strength, bandwidth estimate, and the matched lens (e.g. "Broadcast FM", "ADS-B Aircraft Map").
 
-Peer configuration is saved to `~/.snifferops/config.json` and reconnects automatically on every launch.
+**How it scans:** runs `rtl_power -f <start>:<stop>:<step> -g 0 -i 1` and parses the CSV output. Peak detection runs over the power array to identify active signals. Matched peaks are passed to the lens pipeline to assign a signal type.
 
----
+Remote IQ input via `rtl_tcp` is also supported — see [RTL-SDR Remote Feed](#rtl-sdr-remote-feed) below.
 
-## Tailscale (cross-network sync)
+### Peers
 
-Tailscale lets all your nodes sync even when they're on different LANs, VPNs, or mobile data.
+Shows your local Tailscale IP under **This Node**. Lists all online Tailscale devices detected by `tailscale status --json` under **Tailscale Network** with a one-click **Add** button. A separate **Manual Peers** section lists every configured sync peer with:
 
-```bash
-# Install
-curl -fsSL https://tailscale.com/install.sh | sh
-sudo tailscale up
-```
+- Last sync timestamp (updated after each successful sync cycle)
+- Online/offline indicator dot (green = health check passed, red = unreachable)
+- **Sync now** button to force an immediate push/pull cycle with that peer
+- **Remove** button
 
-After authenticating, the Linux app detects your Tailscale IP automatically. The **Peers** tab lists all online Tailscale devices and lets you add them with one click.
+### Settings
+
+- Enable/disable individual scanners (Wi-Fi, Bluetooth, RTL-SDR)
+- Sync port (default 8765)
+- Remote `rtl_tcp` source address (host:port)
+- **Clear Awareness Log** — wipes `awareness.json` after confirmation
 
 ---
 
-## RTL-SDR Setup
+## Scanning in More Detail
 
-### Local USB dongle
+### RTL-SDR Local Dongle
 
-Plug in an RTL2832U-based dongle (RTL-SDR Blog V4 recommended). Enable the scanner in **Settings → RTL-SDR Scanner**. The app calls `rtl_power` under the hood; no extra configuration is needed.
+Plug in an RTL2832U-based dongle. Enable the scanner in **Settings → RTL-SDR Scanner**. The app calls `rtl_power` directly — no SDR# or separate SDR application needed.
 
-If you get a permission error, add yourself to the `plugdev` group:
+If the device shows a permissions error:
 
 ```bash
 sudo usermod -aG plugdev $USER
 # log out and back in
 ```
 
-### Remote rtl_tcp feed (from Windows or another Linux box)
+Modern kernels ship a generic DVB-T driver that conflicts with `librtlsdr`. If `rtl_power` reports the device is in use:
 
-In **Settings → Remote rtl_tcp**, enter `host:port` (e.g., `192.168.x.x:1234`). The Linux app speaks the same binary RTL-TCP protocol as the Android app.
-
-On the Windows side, use the Windows companion's **START WINDOWS RTL SERVER** button, or run:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\start-rtl-tcp.ps1
+```bash
+sudo modprobe -r dvb_usb_rtl28xxu
 ```
+
+### RTL-SDR Remote Feed
+
+If your RTL-SDR dongle is connected to a different machine (e.g. the Windows companion), you can receive its IQ stream over the network. In **Settings → Remote rtl_tcp**, enter the host and port of the `rtl_tcp` server:
+
+```
+192.168.x.x:1234
+```
+
+The Linux app speaks the standard `rtl_tcp` binary protocol, the same one used by the Android app. On the Windows side, the companion's **START WINDOWS RTL SERVER** button starts the server.
 
 ---
 
 ## Signal Lenses
 
-SDR signals are routed through 8 lenses that map frequency ranges to known signal types:
+When a spectrum peak is detected, the app routes it through eight lenses in priority order. The first lens whose frequency range matches wins.
 
-| Lens | Frequency range |
-|---|---|
-| Broadcast FM | 87.5 – 108 MHz |
-| ADS-B (aircraft) | 1090 MHz ± 5 MHz |
-| Aviation Voice | 108 – 137 MHz |
-| Analog Voice | 136 – 174 MHz, 400 – 512 MHz |
-| NOAA Weather | 162.400 – 162.550 MHz |
-| P25 Phase 1 | 136 – 512 MHz (P25 sub-bands) |
-| POCSAG pager | 152.0 / 157.5 / 462 MHz bands |
-| ACARS | 129.125 / 130.025 / 131.550 MHz |
+| Lens | Frequency range | Signal type |
+|---|---|---|
+| ADS-B Aircraft | 1089.5 – 1090.5 MHz | Mode-S transponder frames |
+| Broadcast FM | 87.5 – 108 MHz | Wideband FM radio |
+| Aviation Airband | 118 – 137 MHz | AM voice (aircraft / ATC) |
+| NOAA Weather Radio | 162.40 – 162.55 MHz | NFM weather broadcasts |
+| Analog Voice / Amateur | 144–148, 148–174, 420–450, 450–470 MHz | NFM land mobile / ham |
+| P25 Phase 1 | 136 – 512 MHz P25 sub-bands | Digital trunked voice |
+| POCSAG Pager | 152.0, 157.5, 462 MHz bands | One-way pager protocol |
+| ACARS | 129.125, 130.025, 131.550 MHz | Aircraft data link |
 
 ---
 
-## Data
+## Awareness Network
 
-All data is stored locally in `~/.snifferops/`:
+All three platforms (Linux, Windows, Android) share a common JSON awareness log and a wire-compatible HTTP sync protocol on port **8765**.
 
-| File | Contents |
+### HTTP API
+
+The Linux app starts a local HTTP server on `0.0.0.0:8765` when it launches.
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/snifferops/health` | GET | Returns `{"ok": true, "nodeId": "..."}` — used for peer probing |
+| `/snifferops/awareness` | GET | Returns the full merged signal log as a JSON snapshot |
+| `/snifferops/sync` | POST | Accepts a snapshot from a peer; merges it into the local log; returns the local snapshot so the caller can merge in the other direction |
+
+### Sync cycle
+
+The sync manager (`sync/node_sync.py`) runs a background thread that wakes every 5 seconds and checks each peer:
+
+1. If the peer is due for a sync (based on its backoff timer), it POSTs the local awareness snapshot to `/snifferops/sync`
+2. The peer merges the incoming data and returns its own full snapshot in the response body
+3. The local node merges that response — both sides are now up to date in a single round trip
+4. If the POST fails, the app falls back to a GET on `/snifferops/awareness` to at least pull what the peer has
+
+Failed syncs use exponential backoff: first failure → wait 30s, second → 60s, third → 120s, up to a maximum of 5 minutes. A successful sync resets the backoff to the base interval.
+
+### Tailscale auto-discovery
+
+At startup and every 60 seconds, the app runs `tailscale status --json` to get the list of online Tailscale peers. For each peer, it probes `:8765/snifferops/health`. Any peer that responds is automatically added to the sync list (tagged `via: tailscale`) and saved to `config.json`. No manual entry is needed — as long as both machines are on the same Tailscale network and SnifferOps is running, they will find each other within a minute of launch.
+
+---
+
+## Tailscale Setup
+
+Tailscale lets all three nodes sync across different LANs, VPNs, or cellular connections — no port forwarding needed.
+
+```bash
+# Install
+curl -fsSL https://tailscale.com/install.sh | sh
+
+# Authenticate (opens a browser login)
+sudo tailscale up
+
+# Verify your Tailscale IP (shown in Peers tab as well)
+tailscale ip -4
+```
+
+Once all three devices are authenticated to the same Tailscale account, the **Peers** tab will list them and let you add them with one click. The sync manager will also pick them up automatically at the next discovery pass.
+
+---
+
+## Autostart
+
+`install.sh` sets up two autostart mechanisms:
+
+**GNOME session autostart** (`~/.config/autostart/com.snifferops.linux.desktop`)  
+Launches SnifferOps when your desktop session starts. Controlled from GNOME Tweaks → Startup Applications, or:
+
+```bash
+# Disable
+sed -i 's/X-GNOME-Autostart-enabled=true/X-GNOME-Autostart-enabled=false/' \
+    ~/.config/autostart/com.snifferops.linux.desktop
+```
+
+**systemd user service** (`~/.config/systemd/user/snifferops.service`)  
+Runs after `tailscaled.service` comes up. Restarts automatically if the process crashes (`Restart=on-failure`, 10 second delay). Controlled with:
+
+```bash
+systemctl --user status snifferops
+systemctl --user stop snifferops
+systemctl --user disable snifferops
+```
+
+Both mechanisms use the D-Bus single-instance check, so if one starts SnifferOps and then the other fires, the second launch exits cleanly.
+
+---
+
+## Data and Privacy
+
+All data stays on your machines. Nothing is sent to any external service.
+
+| Path | Contents |
 |---|---|
-| `awareness.json` | Detected signals log (merged from all synced nodes) |
-| `config.json` | Scanner toggles, port, peer list, SDR remote address |
+| `~/.snifferops/awareness.json` | Merged signal log — all signals seen by any synced node |
+| `~/.snifferops/config.json` | Scanner toggles, sync port, peer list, remote SDR address |
 
-No data is sent to any external server. All sync is direct node-to-node HTTP on your local network or Tailscale mesh.
+Sync traffic is direct HTTP between nodes on your LAN or Tailscale mesh. If you use Tailscale, all traffic is end-to-end encrypted by WireGuard. The awareness log stores signal metadata (SSID, MAC, frequency, signal strength, classification) but not payload data — the app does not capture packet contents.
 
 ---
 
@@ -194,34 +255,37 @@ No data is sent to any external server. All sync is direct node-to-node HTTP on 
 
 ```
 linux/
-├── snifferops_gui.py       # GTK4 / Adwaita GUI — main entry point
-├── awareness_log.py        # Awareness log + HTTP sync server (port 8765)
-├── signal_classifier.py    # Wi-Fi / BT / SDR signal classification
-├── install.sh              # Installer (apt deps, icon, .desktop, PATH launcher)
-├── start.sh                # Minimal launcher wrapper
-├── requirements.txt        # pip extras (GTK bindings come from apt, not pip)
+├── snifferops_gui.py        # GTK4 / Adwaita GUI — main entry point
+├── awareness_log.py         # Awareness log + HTTP sync server (port 8765)
+├── signal_classifier.py     # Wi-Fi / Bluetooth / SDR threat classification
+├── install.sh               # Installer: apt deps, fonts, icon, .desktop, autostart
+├── start.sh                 # Thin launcher wrapper
+├── requirements.txt         # pip extras (GTK bindings come from apt, not pip)
 ├── assets/
-│   ├── snifferops.svg      # App icon (radar scope, dark bg)
-│   └── snifferops.desktop  # .desktop template (INSTALL_PATH substituted by install.sh)
-├── lenses/
-│   └── all_lenses.py       # 8 SDR signal lenses
+│   ├── fonts/               # Spy Agency TTF files (loaded at runtime via fontconfig)
+│   ├── snifferops.svg       # App icon
+│   └── snifferops.desktop   # .desktop template (INSTALL_PATH filled by install.sh)
 ├── scanners/
-│   ├── wifi_scanner.py     # nmcli / iwlist
-│   ├── bluetooth_scanner.py# bluetoothctl / hcitool
-│   └── rtl_sdr_scanner.py  # rtl_power (local) + rtl_tcp binary protocol (remote)
+│   ├── wifi_scanner.py      # nmcli primary, iwlist fallback
+│   ├── bluetooth_scanner.py # bluetoothctl primary, hcitool fallback
+│   └── rtl_sdr_scanner.py   # rtl_power (local USB) + rtl_tcp binary protocol (remote)
+├── lenses/
+│   ├── lens_contract.py     # Lens base class and LensDirective
+│   └── all_lenses.py        # Eight signal lenses (FM, ADS-B, aviation, weather, etc.)
 ├── spectrum/
-│   └── power_scan.py       # rtl_power CSV parser + peak finder
+│   └── power_scan.py        # rtl_power CSV parser and peak finder
 ├── adsb/
-│   ├── adsb_decoder.py     # Mode-S / ADS-B frame decoder
-│   └── adsb_map.py         # Aircraft map renderer
+│   ├── adsb_decoder.py      # Mode-S / ADS-B frame decoder
+│   └── adsb_map.py          # Aircraft position map renderer
 └── sync/
-    └── node_sync.py        # Peer push/pull + background sync loop
+    └── node_sync.py         # Background sync manager: discovery, push/pull, backoff
 ```
 
 ---
 
 ## Notes
 
-- The GUI requires a Wayland or X11 display session. It will not run headless.
-- Runtime data, logs, and `__pycache__` directories are gitignored.
-- The app is intended for authorized network auditing, security research, and educational use on networks and devices you own or have explicit permission to inspect.
+- Requires a live Wayland or X11 display session. Does not run headless.
+- The GUI font (Spy Agency) is loaded at runtime from `assets/fonts/` via fontconfig — no system font install required.
+- `__pycache__`, runtime data, and log files are gitignored and will not be committed.
+- This tool is intended for authorized network auditing, security research, and educational use on networks and devices you own or have explicit permission to inspect.
