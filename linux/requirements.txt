@@ -1,1 +1,8 @@
-rich>=13.0.0
+# Python dependencies for SnifferOps Linux Companion
+# GTK4 / Adwaita bindings come from the system package manager, not pip.
+# See install.sh for the apt-get install block.
+#
+# Only pip-installable extras are listed here.
+# Most features work with zero pip installs on a standard Ubuntu 22.04+ desktop.
+
+rich>=13.0.0          # terminal fallback / logging (optional, not required for GUI)
