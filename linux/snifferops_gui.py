@@ -11,13 +11,13 @@ gi.require_version("Adw", "1")
 from gi.repository import Gtk, Adw, GLib, Gio, GObject, Pango
 
 import os
-import sys
 import platform
+import socket
+import sys
 import threading
 import time
 import uuid
 
-# Add the linux/ dir to path when launched from .desktop
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import awareness_log
@@ -25,24 +25,22 @@ import signal_classifier
 from lenses.all_lenses import route
 from sync.node_sync import NodeSyncManager, check_peer_health
 
-DATA_DIR = os.path.expanduser("~/.snifferops")
-LOG_PATH = os.path.join(DATA_DIR, "awareness.json")
-CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
-SYNC_PORT = 8765
-NODE_ID = str(uuid.uuid4())[:16]
+DATA_DIR  = os.path.expanduser("~/.snifferops")
+LOG_PATH  = os.path.join(DATA_DIR, "awareness.json")
+CFG_PATH  = os.path.join(DATA_DIR, "config.json")
+NODE_ID   = str(uuid.uuid4())[:16]
 NODE_NAME = f"linux-{platform.node()}"
 
-_scan_stats = {"wifi": 0, "bt": 0, "sdr": 0, "syncs": 0, "errors": 0}
-_scanner_threads: list = []
+_scan_stats: dict = {"wifi": 0, "bt": 0, "sdr": 0, "syncs": 0}
 _sync_manager: NodeSyncManager | None = None
 
 
-# ── Config helpers ────────────────────────────────────────────────────────────
+# ── Config ────────────────────────────────────────────────────────────────────
 
 def load_config() -> dict:
     import json
     try:
-        with open(CONFIG_PATH) as f:
+        with open(CFG_PATH) as f:
             return json.load(f)
     except Exception:
         return {"port": 8765, "bind": "0.0.0.0",
@@ -53,11 +51,11 @@ def load_config() -> dict:
 def save_config(cfg: dict) -> None:
     import json
     os.makedirs(DATA_DIR, exist_ok=True)
-    with open(CONFIG_PATH, "w") as f:
+    with open(CFG_PATH, "w") as f:
         json.dump(cfg, f, indent=2)
 
 
-# ── Scanner callbacks (run in background threads) ─────────────────────────────
+# ── Scanner callbacks ─────────────────────────────────────────────────────────
 
 def _submit(signals: list[dict], signal_type: str) -> None:
     snapshot = {
@@ -69,7 +67,7 @@ def _submit(signals: list[dict], signal_type: str) -> None:
     _scan_stats["syncs"] += 1
 
 
-def _on_wifi(signals):
+def _on_wifi(signals: list[dict]) -> None:
     for s in signals:
         ex = signal_classifier.classify_wifi(s)
         s["deviceClass"] = ex.specific_type
@@ -77,7 +75,7 @@ def _on_wifi(signals):
     _scan_stats["wifi"] += len(signals)
 
 
-def _on_bt(devices):
+def _on_bt(devices: list[dict]) -> None:
     for d in devices:
         ex = signal_classifier.classify_bluetooth(d)
         d["deviceClass"] = ex.specific_type
@@ -85,30 +83,30 @@ def _on_bt(devices):
     _scan_stats["bt"] += len(devices)
 
 
-def _on_sdr(signals):
+def _on_sdr(signals: list[dict]) -> None:
     for s in signals:
         freq = s.get("frequencyHz") or 0
         ex = signal_classifier.classify_sdr(freq)
         s["deviceClass"] = ex.specific_type
-        directive = route(freq)
-        if directive:
-            s["notes"] = f"Lens: {directive.kind}/{directive.mode or directive.title}"
+        d = route(freq)
+        if d:
+            s["notes"] = f"Lens: {d.kind}/{d.mode or d.title}"
     _submit(signals, "RTL_SDR")
     _scan_stats["sdr"] += len(signals)
 
 
-# ── GObject row model ─────────────────────────────────────────────────────────
+# ── GObject row for ColumnView ────────────────────────────────────────────────
 
 class SignalRow(GObject.Object):
-    __gtype_name__ = "SignalRow"
+    __gtype_name__ = "SnifferSignalRow"
 
-    sig_type    = GObject.Property(type=str, default="")
-    name        = GObject.Property(type=str, default="")
-    address     = GObject.Property(type=str, default="")
-    strength    = GObject.Property(type=str, default="")
-    cls         = GObject.Property(type=str, default="")
-    threat      = GObject.Property(type=str, default="")
-    details     = GObject.Property(type=str, default="")
+    sig_type = GObject.Property(type=str, default="")
+    name     = GObject.Property(type=str, default="")
+    address  = GObject.Property(type=str, default="")
+    strength = GObject.Property(type=str, default="")
+    cls      = GObject.Property(type=str, default="")
+    threat   = GObject.Property(type=str, default="")
+    details  = GObject.Property(type=str, default="")
 
     def __init__(self, row: dict):
         super().__init__()
@@ -117,61 +115,42 @@ class SignalRow(GObject.Object):
         self.address  = str(row.get("AddressOrFrequency") or "")
         self.strength = str(row.get("StrengthOrPower") or "")
         self.cls      = str(row.get("Classification") or "")
-        self.threat   = str(row.get("Confidence") or "")
+        self.threat   = str(row.get("Confidence") or "UNKNOWN")
         self.details  = str(row.get("Details") or "")
-
-
-# ── Peer row model ────────────────────────────────────────────────────────────
-
-class PeerRow(GObject.Object):
-    __gtype_name__ = "PeerRow"
-    host    = GObject.Property(type=str, default="")
-    port    = GObject.Property(type=int, default=8765)
-    name    = GObject.Property(type=str, default="")
-    online  = GObject.Property(type=bool, default=False)
-
-    def __init__(self, d: dict, online: bool = False):
-        super().__init__()
-        self.host   = d.get("host", "")
-        self.port   = d.get("port", 8765)
-        self.name   = d.get("name", self.host)
-        self.online = online
 
 
 # ── Main window ───────────────────────────────────────────────────────────────
 
 class SnifferOpsWindow(Adw.ApplicationWindow):
 
-    def __init__(self, app):
+    def __init__(self, app: "SnifferOpsApp"):
         super().__init__(application=app)
         self.set_title("SnifferOps")
-        self.set_default_size(1280, 760)
+        self.set_default_size(1280, 800)
 
         self._cfg = load_config()
         self._signal_store = Gio.ListStore(item_type=SignalRow)
-        self._peer_store   = Gio.ListStore(item_type=PeerRow)
+        self._peer_status_labels: list[Gtk.Label] = []
 
-        # Top-level layout
+        # ── Outer layout: ToastOverlay → ToolbarView ──────────────────────
+        self._toast_overlay = Adw.ToastOverlay()
+        self.set_content(self._toast_overlay)
+
         toolbar_view = Adw.ToolbarView()
-        self.set_content(toolbar_view)
+        self._toast_overlay.set_child(toolbar_view)
 
-        # Header bar
+        # ── Header bar ────────────────────────────────────────────────────
         header = Adw.HeaderBar()
-        header.set_centering_policy(Adw.CenteringPolicy.STRICT)
         toolbar_view.add_top_bar(header)
 
-        # Title with switcher
-        self._switcher = Adw.ViewSwitcher()
-        self._switcher.set_policy(Adw.ViewSwitcherPolicy.WIDE)
-        header.set_title_widget(self._switcher)
+        title_lbl = Adw.WindowTitle(title="SnifferOps", subtitle=f"Node: {NODE_NAME}")
+        header.set_title_widget(title_lbl)
 
-        # Refresh button
-        refresh_btn = Gtk.Button(icon_name="view-refresh-symbolic")
-        refresh_btn.set_tooltip_text("Force sync now")
+        refresh_btn = Gtk.Button(icon_name="view-refresh-symbolic",
+                                 tooltip_text="Force sync with all peers now")
         refresh_btn.connect("clicked", self._on_force_sync)
         header.pack_end(refresh_btn)
 
-        # Menu button
         menu_btn = Gtk.MenuButton(icon_name="open-menu-symbolic")
         menu = Gio.Menu()
         menu.append("About SnifferOps", "app.about")
@@ -179,84 +158,92 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
         menu_btn.set_menu_model(menu)
         header.pack_end(menu_btn)
 
-        # View stack
+        # ── View stack (3 pages) ──────────────────────────────────────────
         self._stack = Adw.ViewStack()
-        self._switcher.set_stack(self._stack)
         toolbar_view.set_content(self._stack)
 
         self._build_awareness_page()
         self._build_peers_page()
         self._build_settings_page()
 
-        # Status bar
-        self._status_label = Gtk.Label(xalign=0)
-        self._status_label.add_css_class("caption")
-        self._status_label.set_margin_start(12)
-        self._status_label.set_margin_end(12)
-        self._status_label.set_margin_top(4)
-        self._status_label.set_margin_bottom(4)
-        toolbar_view.add_bottom_bar(self._status_label)
+        # ── Tab bar at bottom (ViewSwitcherBar — reliable on all widths) ──
+        switcher_bar = Adw.ViewSwitcherBar()
+        switcher_bar.set_stack(self._stack)
+        switcher_bar.set_reveal(True)
+        toolbar_view.add_bottom_bar(switcher_bar)
 
-        # Refresh timer
-        GLib.timeout_add(2000, self._refresh)
-        self._refresh()
+        # ── Status bar ────────────────────────────────────────────────────
+        self._status = Gtk.Label(xalign=0)
+        self._status.add_css_class("caption")
+        self._status.add_css_class("dim-label")
+        self._status.set_margin_start(12)
+        self._status.set_margin_end(12)
+        self._status.set_margin_top(3)
+        self._status.set_margin_bottom(3)
+        toolbar_view.add_bottom_bar(self._status)
 
-    # ── Awareness page ──────────────────────────────────────────────────────
+        # ── Refresh loop (2 s table, 15 s peer health check) ─────────────
+        self._peer_online: list[bool] = []
+        GLib.timeout_add(2000, self._tick)
+        GLib.timeout_add(15000, self._check_peers_bg)
 
-    def _build_awareness_page(self):
-        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        self._stack.add_titled_with_icon(page, "awareness", "Awareness Map",
-                                         "network-wireless-symbolic")
+    # ── Awareness Map page ────────────────────────────────────────────────────
+
+    def _build_awareness_page(self) -> None:
+        page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self._stack.add_titled_with_icon(
+            page_box, "awareness", "Awareness Map", "network-wireless-symbolic"
+        )
 
         # Search bar
-        search_bar = Gtk.SearchEntry()
-        search_bar.set_placeholder_text("Filter signals…")
-        search_bar.set_margin_start(12)
-        search_bar.set_margin_end(12)
-        search_bar.set_margin_top(8)
-        search_bar.set_margin_bottom(4)
-        search_bar.connect("search-changed", self._on_search_changed)
-        page.append(search_bar)
-        self._search_bar = search_bar
+        search = Gtk.SearchEntry(placeholder_text="Filter by name…")
+        search.set_margin_start(12)
+        search.set_margin_end(12)
+        search.set_margin_top(8)
+        search.set_margin_bottom(4)
+        search.connect("search-changed", self._on_search)
+        page_box.append(search)
 
-        # Filter model
-        self._filter = Gtk.StringFilter(expression=None)
+        # Filter + sort models
         self._filter_model = Gtk.FilterListModel(model=self._signal_store)
-        self._sorted_model = Gtk.SortListModel(model=self._filter_model)
+        sorted_model = Gtk.SortListModel(model=self._filter_model)
 
         # ColumnView
-        self._column_view = Gtk.ColumnView(
-            model=Gtk.NoSelection(model=self._sorted_model),
+        cv = Gtk.ColumnView(
+            model=Gtk.NoSelection(model=sorted_model),
             show_row_separators=True,
-            show_column_separators=True,
+            show_column_separators=False,
+            vexpand=True,
+            hexpand=True,
         )
-        self._column_view.add_css_class("data-table")
+        cv.add_css_class("data-table")
+        self._cv = cv
 
         sw = Gtk.ScrolledWindow(vexpand=True, hexpand=True)
-        sw.set_child(self._column_view)
+        sw.set_child(cv)
         sw.set_margin_start(8)
         sw.set_margin_end(8)
-        sw.set_margin_bottom(8)
-        page.append(sw)
+        sw.set_margin_bottom(4)
+        page_box.append(sw)
 
-        self._add_column("Type",        "sig_type",  120,  False)
-        self._add_column("Signal",      "name",      220,  True)
-        self._add_column("Addr / Freq", "address",   180,  False)
-        self._add_column("Strength",    "strength",   80,  False)
-        self._add_column("Class",       "cls",       220,  True)
-        self._add_column("Threat",      "threat",     80,  False)
-        self._add_column("Details",     "details",   320,  True)
+        self._add_col(cv, "Type",       "sig_type",  110, False)
+        self._add_col(cv, "Signal",     "name",      220, True)
+        self._add_col(cv, "Addr / Freq","address",   180, False)
+        self._add_col(cv, "dBm",        "strength",   60, False)
+        self._add_col(cv, "Class",      "cls",        220, True)
+        self._add_col(cv, "Threat",     "threat",      80, False)
+        self._add_col(cv, "Details",    "details",    300, True)
 
-    def _add_column(self, title: str, prop: str, width: int, expand: bool):
+    def _add_col(self, cv: Gtk.ColumnView, title: str, prop: str,
+                 width: int, expand: bool) -> None:
         factory = Gtk.SignalListItemFactory()
-        factory.connect("setup", lambda f, item: self._col_setup(item))
-        factory.connect("bind", lambda f, item, p=prop: self._col_bind(item, p))
-        col = Gtk.ColumnViewColumn(title=title, factory=factory)
-        col.set_fixed_width(width)
-        col.set_expand(expand)
-        self._column_view.append_column(col)
+        factory.connect("setup",  self._col_setup)
+        factory.connect("bind",   lambda f, item, p=prop: self._col_bind(item, p))
+        col = Gtk.ColumnViewColumn(title=title, factory=factory,
+                                   fixed_width=width, expand=expand)
+        cv.append_column(col)
 
-    def _col_setup(self, item):
+    def _col_setup(self, _factory, item: Gtk.ListItem) -> None:
         lbl = Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.END)
         lbl.set_margin_start(6)
         lbl.set_margin_end(6)
@@ -264,185 +251,178 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
         lbl.set_margin_bottom(4)
         item.set_child(lbl)
 
-    def _col_bind(self, item, prop: str):
+    def _col_bind(self, item: Gtk.ListItem, prop: str) -> None:
         row: SignalRow = item.get_item()
         lbl: Gtk.Label = item.get_child()
         val = row.get_property(prop)
 
-        # Colour-code threat column
         if prop == "threat":
-            colours = {"ALERT": "red", "SUSPICIOUS": "orange",
-                       "SAFE": "green", "UNKNOWN": ""}
-            lbl.set_markup(f'<span foreground="{colours.get(val, "")}">{GLib.markup_escape_text(val)}</span>'
-                           if val in colours and colours[val]
-                           else GLib.markup_escape_text(val))
+            colours = {"ALERT": "#ff4444", "SUSPICIOUS": "#ffaa00",
+                       "SAFE": "#44ff88"}
+            c = colours.get(val.upper(), "")
+            lbl.set_markup(
+                f'<span foreground="{c}">{GLib.markup_escape_text(val)}</span>'
+                if c else GLib.markup_escape_text(val)
+            )
         elif prop == "sig_type":
-            icons = {"WIFI": "📶", "BLUETOOTH": "🔵", "RTL_SDR": "📡",
-                     "CELLULAR": "📱", "NFC": "🔖", "BLE": "🔵"}
-            icon = icons.get(val, "")
-            lbl.set_text(f"{icon} {val}" if icon else val)
+            icons = {"WIFI": "📶 ", "BLUETOOTH": "🔵 ", "BLE": "🔵 ",
+                     "RTL_SDR": "📡 ", "CELLULAR": "📱 ", "NFC": "🔖 "}
+            lbl.set_text(icons.get(val, "") + val)
         else:
             lbl.set_text(val)
 
-    def _on_search_changed(self, entry):
-        txt = entry.get_text().strip().lower()
+    def _on_search(self, entry: Gtk.SearchEntry) -> None:
+        txt = entry.get_text().strip()
         if not txt:
             self._filter_model.set_filter(None)
-        else:
-            expr = Gtk.PropertyExpression.new(SignalRow, None, "name")
-            sf = Gtk.StringFilter(expression=expr)
-            sf.set_search(txt)
-            sf.set_ignore_case(True)
-            sf.set_match_mode(Gtk.StringFilterMatchMode.SUBSTRING)
-            self._filter_model.set_filter(sf)
+            return
+        expr = Gtk.PropertyExpression.new(SignalRow, None, "name")
+        sf = Gtk.StringFilter(expression=expr)
+        sf.set_search(txt)
+        sf.set_ignore_case(True)
+        sf.set_match_mode(Gtk.StringFilterMatchMode.SUBSTRING)
+        self._filter_model.set_filter(sf)
 
-    # ── Peers page ──────────────────────────────────────────────────────────
+    # ── Peers page ────────────────────────────────────────────────────────────
 
-    def _build_peers_page(self):
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        self._stack.add_titled_with_icon(box, "peers", "Peers",
-                                         "network-workgroup-symbolic")
+    def _build_peers_page(self) -> None:
+        scroll = Gtk.ScrolledWindow(vexpand=True)
+        self._stack.add_titled_with_icon(
+            scroll, "peers", "Peers", "network-workgroup-symbolic"
+        )
 
-        clamp = Adw.Clamp(maximum_size=800)
-        inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        inner.set_margin_start(16)
-        inner.set_margin_end(16)
-        inner.set_margin_top(16)
-        inner.set_margin_bottom(16)
-        clamp.set_child(inner)
-        box.append(clamp)
+        clamp = Adw.Clamp(maximum_size=780)
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        outer.set_margin_start(16)
+        outer.set_margin_end(16)
+        outer.set_margin_top(16)
+        outer.set_margin_bottom(16)
+        clamp.set_child(outer)
+        scroll.set_child(clamp)
 
-        # Header row
-        hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        lbl = Gtk.Label(label="<b>Sync Peers</b>", use_markup=True, xalign=0, hexpand=True)
+        # ── This node info ────────────────────────────────────────────────
+        this_grp = Adw.PreferencesGroup(title="This Node",
+                                         description="Android and other nodes sync to this address")
+        this_grp.add(Adw.ActionRow(title="IP Address",  subtitle=self._local_ip()))
+        this_grp.add(Adw.ActionRow(title="Sync Port",   subtitle=str(self._cfg.get("port", 8765))))
+        this_grp.add(Adw.ActionRow(title="Node ID",     subtitle=NODE_ID))
+        this_grp.add(Adw.ActionRow(title="Node Name",   subtitle=NODE_NAME))
+        outer.append(this_grp)
+
+        # ── Peer list ─────────────────────────────────────────────────────
+        hdr = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        hdr_lbl = Gtk.Label(label="<b>Sync Peers</b>", use_markup=True,
+                            xalign=0, hexpand=True)
         add_btn = Gtk.Button(label="Add Peer", icon_name="list-add-symbolic")
         add_btn.add_css_class("suggested-action")
         add_btn.connect("clicked", self._on_add_peer)
-        hbox.append(lbl)
-        hbox.append(add_btn)
-        inner.append(hbox)
+        hdr.append(hdr_lbl)
+        hdr.append(add_btn)
+        outer.append(hdr)
 
-        sub = Gtk.Label(label="Add Windows or Linux nodes. Android connects to this machine directly.",
-                        xalign=0, wrap=True)
-        sub.add_css_class("dim-label")
-        inner.append(sub)
+        self._peer_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        self._peer_list.add_css_class("boxed-list")
+        outer.append(self._peer_list)
+        self._rebuild_peers()
 
-        # Peer list
-        self._peer_list_box = Gtk.ListBox()
-        self._peer_list_box.add_css_class("boxed-list")
-        self._peer_list_box.set_selection_mode(Gtk.SelectionMode.NONE)
-        inner.append(self._peer_list_box)
+        # ── Android instructions ──────────────────────────────────────────
+        info_grp = Adw.PreferencesGroup(title="Android Setup")
+        info_grp.add(Adw.ActionRow(
+            title="Point the Android app at this machine",
+            subtitle=f"Host: {self._local_ip()}   Port: {self._cfg.get('port', 8765)}"
+        ))
+        outer.append(info_grp)
 
-        self._rebuild_peer_list()
-
-        # Info card
-        card = Adw.PreferencesGroup()
-        card.set_title("This Node")
-        card.set_description("Android and other nodes connect to this address")
-
-        ip_row = Adw.ActionRow(title="IP Address", subtitle=self._get_local_ip())
-        port_row = Adw.ActionRow(title="Sync Port", subtitle=str(self._cfg.get("port", 8765)))
-        node_row = Adw.ActionRow(title="Node ID", subtitle=NODE_ID)
-        card.add(ip_row)
-        card.add(port_row)
-        card.add(node_row)
-        inner.append(card)
-
-    def _rebuild_peer_list(self):
-        # Clear
-        while True:
-            child = self._peer_list_box.get_first_child()
-            if child is None:
-                break
-            self._peer_list_box.remove(child)
+    def _rebuild_peers(self) -> None:
+        while self._peer_list.get_first_child():
+            self._peer_list.remove(self._peer_list.get_first_child())
+        self._peer_status_labels.clear()
 
         peers = self._cfg.get("peers", [])
         if not peers:
-            row = Adw.ActionRow(title="No peers configured",
-                                subtitle="Add a Windows or Linux node above")
-            row.add_css_class("dim-label")
-            self._peer_list_box.append(row)
+            placeholder = Adw.ActionRow(
+                title="No peers configured yet",
+                subtitle="Add a Windows or Linux node above to start cross-node sync"
+            )
+            placeholder.add_css_class("dim-label")
+            self._peer_list.append(placeholder)
             return
 
         for i, p in enumerate(peers):
             row = Adw.ActionRow(
                 title=p.get("name", p["host"]),
-                subtitle=f"{p['host']}:{p.get('port', 8765)}",
+                subtitle=f"{p['host']}:{p.get('port', 8765)}"
             )
-            # Status indicator
-            status = Gtk.Label()
-            status.set_markup('<span foreground="gray">●</span>')
-            status.set_name(f"peer-status-{i}")
-            row.add_suffix(status)
+            dot = Gtk.Label()
+            dot.set_markup('<span foreground="#888888" size="large">●</span>')
+            row.add_suffix(dot)
+            self._peer_status_labels.append(dot)
 
-            # Remove button
-            rm = Gtk.Button(icon_name="list-remove-symbolic", valign=Gtk.Align.CENTER)
+            rm = Gtk.Button(icon_name="list-remove-symbolic",
+                            valign=Gtk.Align.CENTER, tooltip_text="Remove peer")
             rm.add_css_class("flat")
-            rm.add_css_class("destructive-action")
             rm.connect("clicked", self._on_remove_peer, i)
             row.add_suffix(rm)
+            self._peer_list.append(row)
 
-            self._peer_list_box.append(row)
+    def _on_add_peer(self, _btn) -> None:
+        dlg = Adw.MessageDialog(transient_for=self,
+                                heading="Add Peer Node",
+                                body="Enter the IP address of a Windows or Linux SnifferOps node.")
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("add",    "Add")
+        dlg.set_response_appearance("add", Adw.ResponseAppearance.SUGGESTED)
 
-    def _on_add_peer(self, _btn):
-        dialog = Adw.MessageDialog(
-            transient_for=self,
-            heading="Add Peer Node",
-            body="Enter the IP address of a Windows or Linux SnifferOps node.",
-        )
-        dialog.add_response("cancel", "Cancel")
-        dialog.add_response("add", "Add")
-        dialog.set_response_appearance("add", Adw.ResponseAppearance.SUGGESTED)
-
-        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        content.set_margin_top(8)
-
+        grp = Adw.PreferencesGroup()
+        grp.set_margin_top(8)
         host_row = Adw.EntryRow(title="Host / IP address")
         port_row = Adw.EntryRow(title="Port")
         port_row.set_text("8765")
         name_row = Adw.EntryRow(title="Nickname (optional)")
-        pref = Adw.PreferencesGroup()
-        pref.add(host_row)
-        pref.add(port_row)
-        pref.add(name_row)
-        content.append(pref)
-        dialog.set_extra_child(content)
+        grp.add(host_row)
+        grp.add(port_row)
+        grp.add(name_row)
+        dlg.set_extra_child(grp)
 
-        def on_response(d, resp):
-            if resp == "add":
-                host = host_row.get_text().strip()
-                if not host:
-                    return
-                try:
-                    port = int(port_row.get_text().strip() or "8765")
-                except ValueError:
-                    port = 8765
-                name = name_row.get_text().strip() or host
-                peer = {"host": host, "port": port, "name": name}
-                self._cfg.setdefault("peers", []).append(peer)
-                save_config(self._cfg)
-                if _sync_manager:
-                    _sync_manager.add_peer(host, port, name)
-                self._rebuild_peer_list()
+        def _resp(d, resp):
+            if resp != "add":
+                return
+            host = host_row.get_text().strip()
+            if not host:
+                return
+            try:
+                port = int(port_row.get_text().strip() or "8765")
+            except ValueError:
+                port = 8765
+            name = name_row.get_text().strip() or host
+            peer = {"host": host, "port": port, "name": name}
+            self._cfg.setdefault("peers", []).append(peer)
+            save_config(self._cfg)
+            if _sync_manager:
+                _sync_manager.add_peer(host, port, name)
+            self._rebuild_peers()
+            self.toast(f"Added peer: {name}")
 
-        dialog.connect("response", on_response)
-        dialog.present()
+        dlg.connect("response", _resp)
+        dlg.present()
 
-    def _on_remove_peer(self, _btn, idx: int):
+    def _on_remove_peer(self, _btn, idx: int) -> None:
         peers = self._cfg.get("peers", [])
         if 0 <= idx < len(peers):
             removed = peers.pop(idx)
             save_config(self._cfg)
             if _sync_manager:
                 _sync_manager.remove_peer(removed["host"], removed.get("port", 8765))
-            self._rebuild_peer_list()
+            self._rebuild_peers()
+            self.toast(f"Removed {removed.get('name', removed['host'])}")
 
-    # ── Settings page ───────────────────────────────────────────────────────
+    # ── Settings page ─────────────────────────────────────────────────────────
 
-    def _build_settings_page(self):
+    def _build_settings_page(self) -> None:
         scroll = Gtk.ScrolledWindow(vexpand=True)
-        self._stack.add_titled_with_icon(scroll, "settings", "Settings",
-                                         "preferences-system-symbolic")
+        self._stack.add_titled_with_icon(
+            scroll, "settings", "Settings", "preferences-system-symbolic"
+        )
 
         clamp = Adw.Clamp(maximum_size=700)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=20)
@@ -453,28 +433,27 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
         clamp.set_child(box)
         scroll.set_child(clamp)
 
-        # Scanners group
-        scan_grp = Adw.PreferencesGroup(title="Scanners",
-                                         description="Enable/disable signal scanning modules")
+        # Scanners
+        scan_grp = Adw.PreferencesGroup(
+            title="Scanners",
+            description="Changes take effect after saving and restarting"
+        )
 
-        self._sw_wifi = Gtk.Switch(valign=Gtk.Align.CENTER,
-                                   active=self._cfg.get("wifi", True))
+        self._sw_wifi = self._make_switch(self._cfg.get("wifi", True))
         wifi_row = Adw.ActionRow(title="WiFi Scanner",
                                  subtitle="Scans for nearby WiFi networks via nmcli")
         wifi_row.add_suffix(self._sw_wifi)
         wifi_row.set_activatable_widget(self._sw_wifi)
 
-        self._sw_bt = Gtk.Switch(valign=Gtk.Align.CENTER,
-                                 active=self._cfg.get("bluetooth", True))
+        self._sw_bt = self._make_switch(self._cfg.get("bluetooth", True))
         bt_row = Adw.ActionRow(title="Bluetooth Scanner",
-                               subtitle="Scans for BT/BLE devices via bluetoothctl")
+                               subtitle="Discovers BT/BLE devices via bluetoothctl")
         bt_row.add_suffix(self._sw_bt)
         bt_row.set_activatable_widget(self._sw_bt)
 
-        self._sw_sdr = Gtk.Switch(valign=Gtk.Align.CENTER,
-                                  active=self._cfg.get("sdr", False))
+        self._sw_sdr = self._make_switch(self._cfg.get("sdr", False))
         sdr_row = Adw.ActionRow(title="RTL-SDR Scanner",
-                                subtitle="Requires rtl-sdr hardware or a remote rtl_tcp server")
+                                subtitle="Requires rtl-sdr hardware or remote rtl_tcp server")
         sdr_row.add_suffix(self._sw_sdr)
         sdr_row.set_activatable_widget(self._sw_sdr)
 
@@ -483,135 +462,136 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
         scan_grp.add(sdr_row)
         box.append(scan_grp)
 
-        # Network group
+        # Network
         net_grp = Adw.PreferencesGroup(title="Network",
-                                        description="HTTP sync server (Android connects here)")
-
-        port_entry = Adw.EntryRow(title="Sync Port")
-        port_entry.set_text(str(self._cfg.get("port", 8765)))
-
-        sdr_remote_entry = Adw.EntryRow(title="Remote rtl_tcp host:port")
-        sdr_remote_entry.set_text(self._cfg.get("sdr_remote", ""))
-        sdr_remote_entry.set_show_apply_button(True)
-
-        net_grp.add(port_entry)
-        net_grp.add(sdr_remote_entry)
+                                        description="HTTP sync server settings")
+        self._port_entry = Adw.EntryRow(title="Sync Port")
+        self._port_entry.set_text(str(self._cfg.get("port", 8765)))
+        self._sdr_remote_entry = Adw.EntryRow(title="Remote rtl_tcp  (host:port)")
+        self._sdr_remote_entry.set_text(self._cfg.get("sdr_remote", ""))
+        net_grp.add(self._port_entry)
+        net_grp.add(self._sdr_remote_entry)
         box.append(net_grp)
 
-        # Save button
-        save_btn = Gtk.Button(label="Save & Restart Scanners")
+        save_btn = Gtk.Button(label="Save Settings")
         save_btn.add_css_class("suggested-action")
         save_btn.set_halign(Gtk.Align.END)
-        save_btn.connect("clicked", lambda _: self._save_settings(
-            port_entry, sdr_remote_entry))
+        save_btn.connect("clicked", self._save_settings)
         box.append(save_btn)
 
-        # Data group
+        # Data management
         data_grp = Adw.PreferencesGroup(title="Data",
-                                         description=f"Awareness log: {LOG_PATH}")
-        clear_row = Adw.ActionRow(title="Clear Awareness Log",
-                                  subtitle="Removes all detected signals from the database")
+                                         description=f"Log: {LOG_PATH}")
         clear_btn = Gtk.Button(label="Clear", valign=Gtk.Align.CENTER)
         clear_btn.add_css_class("destructive-action")
-        clear_btn.connect("clicked", self._on_clear_log)
+        clear_btn.connect("clicked", self._confirm_clear)
+        clear_row = Adw.ActionRow(title="Clear Awareness Log",
+                                  subtitle="Permanently deletes all detected signals")
         clear_row.add_suffix(clear_btn)
         data_grp.add(clear_row)
         box.append(data_grp)
 
-    def _save_settings(self, port_entry, sdr_entry):
+    def _make_switch(self, active: bool) -> Gtk.Switch:
+        sw = Gtk.Switch(valign=Gtk.Align.CENTER, active=active)
+        return sw
+
+    def _save_settings(self, _btn) -> None:
         try:
-            self._cfg["port"] = int(port_entry.get_text().strip())
+            self._cfg["port"] = int(self._port_entry.get_text().strip())
         except ValueError:
             pass
-        self._cfg["wifi"] = self._sw_wifi.get_active()
-        self._cfg["bluetooth"] = self._sw_bt.get_active()
-        self._cfg["sdr"] = self._sw_sdr.get_active()
-        self._cfg["sdr_remote"] = sdr_entry.get_text().strip()
+        self._cfg["wifi"]       = self._sw_wifi.get_active()
+        self._cfg["bluetooth"]  = self._sw_bt.get_active()
+        self._cfg["sdr"]        = self._sw_sdr.get_active()
+        self._cfg["sdr_remote"] = self._sdr_remote_entry.get_text().strip()
         save_config(self._cfg)
-        self._show_toast("Settings saved. Restart the app to apply scanner changes.")
+        self.toast("Settings saved — restart to apply scanner changes")
 
-    def _on_clear_log(self, _btn):
-        dialog = Adw.MessageDialog(
-            transient_for=self,
-            heading="Clear Awareness Log?",
-            body="All detected signals will be permanently deleted.",
-        )
-        dialog.add_response("cancel", "Cancel")
-        dialog.add_response("clear", "Clear")
-        dialog.set_response_appearance("clear", Adw.ResponseAppearance.DESTRUCTIVE)
-        def on_resp(d, resp):
-            if resp == "clear":
+    def _confirm_clear(self, _btn) -> None:
+        dlg = Adw.MessageDialog(transient_for=self,
+                                heading="Clear Awareness Log?",
+                                body="All detected signals will be permanently deleted.")
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("clear",  "Clear")
+        dlg.set_response_appearance("clear", Adw.ResponseAppearance.DESTRUCTIVE)
+
+        def _resp(d, r):
+            if r == "clear":
                 import json
+                from datetime import datetime, timezone
+                now = datetime.now(timezone.utc).isoformat()
                 with open(LOG_PATH, "w") as f:
-                    from datetime import datetime, timezone
-                    f.write(json.dumps({"Schema": 1,
-                                        "CreatedAt": datetime.now(timezone.utc).isoformat(),
-                                        "UpdatedAt": datetime.now(timezone.utc).isoformat(),
-                                        "Signals": {}}, indent=2))
-                self._show_toast("Awareness log cleared.")
-        dialog.connect("response", on_resp)
-        dialog.present()
+                    json.dump({"Schema": 1, "CreatedAt": now,
+                               "UpdatedAt": now, "Signals": {}}, f, indent=2)
+                self.toast("Awareness log cleared")
 
-    # ── Refresh ─────────────────────────────────────────────────────────────
+        dlg.connect("response", _resp)
+        dlg.present()
 
-    def _refresh(self) -> bool:
-        self._refresh_table()
+    # ── Refresh tick ──────────────────────────────────────────────────────────
+
+    def _tick(self) -> bool:
+        try:
+            self._refresh_table()
+        except Exception:
+            pass
         self._refresh_status()
-        self._refresh_peer_status()
+        self._apply_peer_dots()
         return GLib.SOURCE_CONTINUE
 
-    def _refresh_table(self):
+    def _refresh_table(self) -> None:
+        if not awareness_log._log_path:
+            return
         rows = awareness_log.get_rows()
         self._signal_store.remove_all()
         for r in rows:
             self._signal_store.append(SignalRow(r))
 
-    def _refresh_status(self):
-        total = self._signal_store.get_n_items()
-        self._status_label.set_text(
-            f"Node: {NODE_NAME}  |  Port: {self._cfg.get('port', 8765)}  |  "
-            f"Signals: {total}  |  "
-            f"WiFi scans: {_scan_stats['wifi']}  "
-            f"BT scans: {_scan_stats['bt']}  "
-            f"SDR peaks: {_scan_stats['sdr']}  "
+    def _refresh_status(self) -> None:
+        n = self._signal_store.get_n_items()
+        self._status.set_text(
+            f"Signals: {n}  ·  WiFi scans: {_scan_stats['wifi']}  "
+            f"BT scans: {_scan_stats['bt']}  SDR: {_scan_stats['sdr']}  "
             f"Syncs: {_scan_stats['syncs']}"
         )
 
-    def _refresh_peer_status(self):
+    def _check_peers_bg(self) -> bool:
+        """Run peer health checks in a background thread — never blocks the UI."""
         peers = self._cfg.get("peers", [])
-        child = self._peer_list_box.get_first_child()
-        i = 0
-        while child and i < len(peers):
-            if isinstance(child, Adw.ActionRow):
-                p = peers[i]
-                online = check_peer_health(p["host"], p.get("port", 8765))
-                # find the status label by iterating suffixes
-                suffix = child.get_last_child()
-                while suffix:
-                    if isinstance(suffix, Gtk.Label) and suffix.get_name().startswith("peer-status"):
-                        colour = "green" if online else "red"
-                        suffix.set_markup(f'<span foreground="{colour}">●</span>')
-                        break
-                    suffix = suffix.get_prev_sibling()
-                i += 1
-            child = child.get_next_sibling()
+        if not peers:
+            return GLib.SOURCE_CONTINUE
 
-    def _on_force_sync(self, _btn):
+        def _work():
+            results = [
+                check_peer_health(p["host"], p.get("port", 8765))
+                for p in peers
+            ]
+            GLib.idle_add(self._set_peer_online, results)
+
+        threading.Thread(target=_work, daemon=True).start()
+        return GLib.SOURCE_CONTINUE
+
+    def _set_peer_online(self, results: list[bool]) -> bool:
+        self._peer_online = results
+        self._apply_peer_dots()
+        return GLib.SOURCE_REMOVE
+
+    def _apply_peer_dots(self) -> None:
+        for dot, online in zip(self._peer_status_labels, self._peer_online):
+            colour = "#44ff88" if online else "#ff4444"
+            dot.set_markup(f'<span foreground="{colour}" size="large">●</span>')
+
+    def _on_force_sync(self, _btn) -> None:
         if _sync_manager:
             threading.Thread(target=_sync_manager.sync_all_now, daemon=True).start()
-        self._show_toast("Sync triggered")
+        self.toast("Sync triggered")
 
-    def _show_toast(self, msg: str):
-        overlay = Adw.ToastOverlay()
-        toast = Adw.Toast(title=msg, timeout=3)
-        # Find or create overlay — simple fallback: just print
-        try:
-            self.get_content().present_toast(toast)
-        except Exception:
-            pass
+    # ── Helpers ───────────────────────────────────────────────────────────────
 
-    def _get_local_ip(self) -> str:
-        import socket
+    def toast(self, msg: str) -> None:
+        self._toast_overlay.add_toast(Adw.Toast(title=msg, timeout=3))
+
+    def _local_ip(self) -> str:
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.connect(("8.8.8.8", 80))
@@ -630,40 +610,35 @@ class SnifferOpsApp(Adw.Application):
         super().__init__(application_id="com.snifferops.linux",
                          flags=Gio.ApplicationFlags.FLAGS_NONE)
 
-    def do_activate(self):
-        win = self.get_active_window()
-        if not win:
-            win = SnifferOpsWindow(self)
-            self._start_services(win)
-            # Wrap content in ToastOverlay for notifications
-            overlay = Adw.ToastOverlay()
-            overlay.set_child(win.get_content())
-            win.set_content(overlay)
-            win._toast_overlay = overlay
-            win._show_toast = lambda msg, o=overlay: o.add_toast(Adw.Toast(title=msg, timeout=3))
-        win.present()
-
-    def do_startup(self):
+    def do_startup(self) -> None:
         Adw.Application.do_startup(self)
 
-        about_action = Gio.SimpleAction.new("about", None)
-        about_action.connect("activate", self._on_about)
-        self.add_action(about_action)
+        about_act = Gio.SimpleAction.new("about", None)
+        about_act.connect("activate", self._on_about)
+        self.add_action(about_act)
 
-        quit_action = Gio.SimpleAction.new("quit", None)
-        quit_action.connect("activate", lambda *_: self.quit())
-        self.add_action(quit_action)
+        quit_act = Gio.SimpleAction.new("quit", None)
+        quit_act.connect("activate", lambda *_: self.quit())
+        self.add_action(quit_act)
+        self.set_accels_for_action("app.quit", ["<Control>q"])
 
-    def _start_services(self, win):
+    def do_activate(self) -> None:
+        win = self.get_active_window()
+        if not win:
+            # Initialize the log BEFORE the window so _tick() can read it
+            os.makedirs(DATA_DIR, exist_ok=True)
+            awareness_log.initialize(LOG_PATH)
+            win = SnifferOpsWindow(self)
+            self._start_services(win)
+        win.present()
+
+    def _start_services(self, win: SnifferOpsWindow) -> None:
         global _sync_manager
         cfg = win._cfg
-        os.makedirs(DATA_DIR, exist_ok=True)
-        awareness_log.initialize(LOG_PATH)
         awareness_log.start_server("0.0.0.0", cfg.get("port", 8765))
 
         _sync_manager = NodeSyncManager(
-            awareness_log, NODE_ID, NODE_NAME,
-            peers=cfg.get("peers", [])
+            awareness_log, NODE_ID, NODE_NAME, peers=cfg.get("peers", [])
         )
         _sync_manager.start()
 
@@ -676,34 +651,45 @@ class SnifferOpsApp(Adw.Application):
             BluetoothScanner(_on_bt).start()
 
         if cfg.get("sdr", False):
-            sdr_remote = cfg.get("sdr_remote", "").strip()
-            if sdr_remote:
+            remote = cfg.get("sdr_remote", "").strip()
+            if remote:
                 from scanners.rtl_sdr_scanner import NetworkRtlSdrScanner
-                parts = sdr_remote.split(":")
-                NetworkRtlSdrScanner(parts[0], int(parts[1]) if len(parts) > 1 else 1234,
-                                     _on_sdr).start()
+                parts = remote.split(":")
+                NetworkRtlSdrScanner(
+                    parts[0], int(parts[1]) if len(parts) > 1 else 1234, _on_sdr
+                ).start()
             else:
                 from scanners.rtl_sdr_scanner import RtlSdrScanner
                 RtlSdrScanner(_on_sdr).start()
 
-    def _on_about(self, *_):
-        about = Adw.AboutWindow(
+        # Run one WiFi scan immediately so the table has data on launch
+        if cfg.get("wifi", True):
+            def _initial():
+                try:
+                    from scanners.wifi_scanner import scan_once
+                    results = scan_once()
+                    if results:
+                        _on_wifi(results)
+                except Exception:
+                    pass
+            threading.Thread(target=_initial, daemon=True).start()
+
+    def _on_about(self, *_) -> None:
+        Adw.AboutWindow(
             transient_for=self.get_active_window(),
             application_name="SnifferOps",
             application_icon="com.snifferops.linux",
             version="1.0.0",
             developer_name="SnifferOps Project",
-            comments="Multi-platform RF & wireless signal awareness hub.\n"
-                     "Syncs with Android and Windows nodes.",
+            comments="Multi-platform RF and wireless signal awareness hub.\n"
+                     "Syncs with Android and Windows nodes on the same LAN.",
             website="https://github.com/jessedaustin93/Sniffer-Ops",
             license_type=Gtk.License.MIT_X11,
-        )
-        about.present()
+        ).present()
 
 
-def main():
-    app = SnifferOpsApp()
-    app.run(sys.argv)
+def main() -> None:
+    SnifferOpsApp().run(sys.argv)
 
 
 if __name__ == "__main__":
