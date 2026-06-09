@@ -18,6 +18,9 @@ import threading
 import time
 import uuid
 
+import json
+import subprocess
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import awareness_log
@@ -269,6 +272,39 @@ viewswitcherbar button:checked {{
 
 
 # ── Config ────────────────────────────────────────────────────────────────────
+
+def _tailscale_ip() -> str:
+    """Return this machine's Tailscale IPv4 (100.x.x.x) or empty string."""
+    try:
+        r = subprocess.run(["tailscale", "ip", "-4"],
+                           capture_output=True, text=True, timeout=4)
+        return r.stdout.strip()
+    except Exception:
+        return ""
+
+
+def _tailscale_nodes() -> list[dict]:
+    """Return list of {name, ip, os} for all online Tailscale peers."""
+    try:
+        r = subprocess.run(["tailscale", "status", "--json"],
+                           capture_output=True, text=True, timeout=5)
+        data = json.loads(r.stdout)
+        nodes = []
+        for v in data.get("Peer", {}).values():
+            if not v.get("Online"):
+                continue
+            ips = v.get("TailscaleIPs", [])
+            ip4 = next((x for x in ips if "." in x), None)
+            if ip4:
+                nodes.append({
+                    "name": v.get("HostName", ip4),
+                    "ip":   ip4,
+                    "os":   v.get("OS", ""),
+                })
+        return nodes
+    except Exception:
+        return []
+
 
 def load_config() -> dict:
     import json
@@ -674,9 +710,12 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
         sdr_info = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         self._sdr_status_lbl = _label("RTL-SDR LINK IDLE", "sdr-offline")
         self._sdr_sub_lbl    = _label("USB dongle or remote rtl_tcp feed", "sdr-sub")
-        self._endpoint_lbl   = _label(
-            f"{self._local_ip()}:{self._cfg.get('port', 8765)}", "endpoint-label"
-        )
+        ts_ip = _tailscale_ip()
+        port  = self._cfg.get("port", 8765)
+        ep    = f"{self._local_ip()}:{port}"
+        if ts_ip:
+            ep += f"  |  TS {ts_ip}:{port}"
+        self._endpoint_lbl = _label(ep, "endpoint-label")
         sdr_info.append(self._sdr_status_lbl)
         sdr_info.append(self._sdr_sub_lbl)
         sdr_info.append(self._endpoint_lbl)
@@ -782,15 +821,40 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
         clamp.set_child(outer)
         scroll.set_child(clamp)
 
+        ts_ip   = _tailscale_ip()
+        local   = self._local_ip()
+        port    = self._cfg.get("port", 8765)
+
         this_grp = Adw.PreferencesGroup(title="This Node")
-        this_grp.add(Adw.ActionRow(title="IP Address",  subtitle=self._local_ip()))
-        this_grp.add(Adw.ActionRow(title="Sync Port",   subtitle=str(self._cfg.get("port", 8765))))
-        this_grp.add(Adw.ActionRow(title="Node ID",     subtitle=NODE_ID))
-        this_grp.add(Adw.ActionRow(title="Node Name",   subtitle=NODE_NAME))
+        this_grp.add(Adw.ActionRow(title="LAN Address",      subtitle=f"{local}:{port}"))
+        self._ts_row = Adw.ActionRow(
+            title="Tailscale Address",
+            subtitle=f"{ts_ip}:{port}" if ts_ip else "Not connected — run: tailscale up"
+        )
+        this_grp.add(self._ts_row)
+        this_grp.add(Adw.ActionRow(title="Node ID",          subtitle=NODE_ID))
+        this_grp.add(Adw.ActionRow(title="Node Name",        subtitle=NODE_NAME))
         outer.append(this_grp)
 
+        # ── Tailscale discovery ───────────────────────────────────────────
+        ts_grp_hdr = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        ts_grp_hdr.append(_label("<b>Tailscale Network</b>", markup=True, css=""))
+        ts_grp_hdr.get_first_child().set_hexpand(True)
+        scan_ts_btn = Gtk.Button(label="Scan for SnifferOps",
+                                 icon_name="network-wireless-symbolic")
+        scan_ts_btn.add_css_class("btn-secondary")
+        scan_ts_btn.connect("clicked", self._on_scan_tailscale)
+        ts_grp_hdr.append(scan_ts_btn)
+        outer.append(ts_grp_hdr)
+
+        self._ts_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        self._ts_list.add_css_class("boxed-list")
+        outer.append(self._ts_list)
+        self._refresh_ts_list(ts_ip)
+
+        # ── Manual peers ──────────────────────────────────────────────────
         hdr = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        hdr.append(_label("<b>Sync Peers</b>", markup=True, css=""))
+        hdr.append(_label("<b>Manual Peers</b>", markup=True, css=""))
         hdr.get_first_child().set_hexpand(True)
         add_btn = Gtk.Button(label="Add Peer", icon_name="list-add-symbolic")
         add_btn.add_css_class("suggested-action")
@@ -803,11 +867,16 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
         outer.append(self._peer_list)
         self._rebuild_peers()
 
-        info = Adw.PreferencesGroup(title="Android Setup")
+        info = Adw.PreferencesGroup(title="Android / Windows Setup")
         info.add(Adw.ActionRow(
-            title="Point the Android app at this machine",
-            subtitle=f"Host: {self._local_ip()}   Port: {self._cfg.get('port', 8765)}"
+            title="LAN — point the other app at this machine",
+            subtitle=f"Host: {local}   Port: {port}"
         ))
+        if ts_ip:
+            info.add(Adw.ActionRow(
+                title="Tailscale — works across networks",
+                subtitle=f"Host: {ts_ip}   Port: {port}"
+            ))
         outer.append(info)
 
     def _rebuild_peers(self) -> None:
@@ -838,6 +907,52 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
             rm.connect("clicked", self._on_remove_peer, i)
             row.add_suffix(rm)
             self._peer_list.append(row)
+
+    def _refresh_ts_list(self, local_ts_ip: str = "") -> None:
+        while self._ts_list.get_first_child():
+            self._ts_list.remove(self._ts_list.get_first_child())
+        nodes = _tailscale_nodes()
+        if not nodes:
+            placeholder = Adw.ActionRow(
+                title="No Tailscale peers visible",
+                subtitle="Authenticate with 'tailscale up' or click Scan"
+            )
+            self._ts_list.append(placeholder)
+            return
+        port = self._cfg.get("port", 8765)
+        already = {p["host"] for p in self._cfg.get("peers", [])}
+        for node in nodes:
+            ip   = node["ip"]
+            name = node["name"]
+            row  = Adw.ActionRow(title=name,
+                                 subtitle=f"{ip}:{port}  •  {node['os']}")
+            if ip in already:
+                lbl = Gtk.Label(label="Added", xalign=1)
+                lbl.add_css_class("dim-label")
+                row.add_suffix(lbl)
+            else:
+                add_btn = Gtk.Button(label="Add", valign=Gtk.Align.CENTER,
+                                     icon_name="list-add-symbolic")
+                add_btn.add_css_class("suggested-action")
+                add_btn.connect("clicked", self._on_add_ts_peer, ip, name, port)
+                row.add_suffix(add_btn)
+            self._ts_list.append(row)
+
+    def _on_scan_tailscale(self, _btn) -> None:
+        self.toast("Scanning Tailscale network…")
+        def _work():
+            ts_ip = _tailscale_ip()
+            GLib.idle_add(self._refresh_ts_list, ts_ip)
+        threading.Thread(target=_work, daemon=True).start()
+
+    def _on_add_ts_peer(self, _btn, ip: str, name: str, port: int) -> None:
+        peer = {"host": ip, "port": port, "name": name, "via": "tailscale"}
+        self._cfg.setdefault("peers", []).append(peer)
+        save_config(self._cfg)
+        if _sync_manager: _sync_manager.add_peer(ip, port, name)
+        self._rebuild_peers()
+        self._refresh_ts_list()
+        self.toast(f"Added Tailscale peer: {name}")
 
     def _on_add_peer(self, _btn) -> None:
         dlg = Adw.MessageDialog(transient_for=self, heading="Add Peer Node",
