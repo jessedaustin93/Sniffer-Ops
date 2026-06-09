@@ -66,17 +66,68 @@ C = {
     "sdr":          "#8B5CF6",
 }
 
-CSS = f"""
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_FONTS_DIR  = os.path.join(_SCRIPT_DIR, "assets", "fonts")
+
+
+def _load_bundled_fonts() -> bool:
+    """Register the bundled TTF files with fontconfig at runtime so GTK can
+    resolve 'Spy Agency …' by name without a prior fc-cache run.
+    Returns True if the fonts were registered successfully."""
+    import ctypes, ctypes.util, shutil
+    fc_paths = [
+        ctypes.util.find_library("fontconfig"),
+        "libfontconfig.so.1",
+        "libfontconfig.so",
+    ]
+    lib = None
+    for p in fc_paths:
+        if p:
+            try:
+                lib = ctypes.CDLL(p)
+                break
+            except OSError:
+                continue
+    if lib is None:
+        return False
+    try:
+        lib.FcConfigAppFontAddDir.restype  = ctypes.c_bool
+        lib.FcConfigAppFontAddDir.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+        ok = lib.FcConfigAppFontAddDir(None, _FONTS_DIR.encode())
+        return bool(ok)
+    except Exception:
+        return False
+
+
+def _build_css() -> str:
+    """Build the GTK4 CSS string.  Font families are resolved by name after
+    _load_bundled_fonts() has registered them with fontconfig."""
+    have_fonts = _load_bundled_fonts()
+
+    if have_fonts:
+        font_body  = "Spy Agency Italic"
+        font_cond  = "Spy Agency Condensed"
+        font_title = "Spy Agency Gradient Italic"
+    else:
+        font_body  = "Ubuntu Mono, DejaVu Sans Mono, Courier New, monospace"
+        font_cond  = font_body
+        font_title = font_body
+
+    return f"""
 * {{
-    font-family: "Ubuntu Mono", "DejaVu Sans Mono", "Courier New", monospace;
+    font-family: "{font_body}";
     color: {C['text']};
 }}
 label, button > label, entry, textview, columnview, listview,
 headerbar label, viewswitcherbar label {{
-    font-family: "Ubuntu Mono", "DejaVu Sans Mono", "Courier New", monospace;
+    font-family: "{font_body}";
 }}
+.title-font  {{ font-family: "{font_title}"; }}
+.cond-font   {{ font-family: "{font_cond}";  }}
 window, .main-window {{
     background-color: {C['bg']};
+    background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28'><line x1='0' y1='0' x2='28' y2='0' stroke='%230B3A35' stroke-width='0.45'/><line x1='0' y1='0' x2='0' y2='28' stroke='%230B3A35' stroke-width='0.45'/></svg>");
+    background-repeat: repeat;
 }}
 headerbar {{
     background-color: #000000;
@@ -89,13 +140,15 @@ headerbar * {{
 .title-green {{
     color: {C['green']};
     font-weight: bold;
-    font-size: 20px;
+    font-size: 28px;
     letter-spacing: 3px;
+    font-family: "{font_title}";
 }}
 .subtitle-muted {{
-    color: {C['muted']};
-    font-size: 10px;
+    color: #637082;
+    font-size: 14px;
     letter-spacing: 2px;
+    font-family: "{font_body}";
 }}
 .panel {{
     background-color: {C['panel']};
@@ -117,15 +170,16 @@ headerbar * {{
     font-size: 12px;
     letter-spacing: 2px;
     font-weight: bold;
+    font-family: "{font_cond}";
 }}
-.tile-count-green  {{ color: {C['wifi']};   font-size: 28px; font-weight: bold; }}
-.tile-count-blue   {{ color: {C['bt']};     font-size: 28px; font-weight: bold; }}
-.tile-count-pink   {{ color: {C['pink']};   font-size: 28px; font-weight: bold; }}
-.tile-count-orange {{ color: {C['orange']}; font-size: 28px; font-weight: bold; }}
-.tile-count-purple {{ color: {C['purple']}; font-size: 28px; font-weight: bold; }}
-.tile-count-red    {{ color: {C['red']};    font-size: 28px; font-weight: bold; }}
-.tile-label {{ color: {C['muted']}; font-size: 12px; letter-spacing: 1px; }}
-.tile-sub   {{ color: {C['dim']};   font-size: 11px; }}
+.tile-count-green  {{ color: {C['wifi']};   font-size: 28px; font-weight: bold; font-family: "{font_body}"; }}
+.tile-count-blue   {{ color: {C['bt']};     font-size: 28px; font-weight: bold; font-family: "{font_body}"; }}
+.tile-count-pink   {{ color: {C['pink']};   font-size: 28px; font-weight: bold; font-family: "{font_body}"; }}
+.tile-count-orange {{ color: {C['orange']}; font-size: 28px; font-weight: bold; font-family: "{font_body}"; }}
+.tile-count-purple {{ color: {C['purple']}; font-size: 28px; font-weight: bold; font-family: "{font_body}"; }}
+.tile-count-red    {{ color: {C['red']};    font-size: 28px; font-weight: bold; font-family: "{font_body}"; }}
+.tile-label {{ color: {C['muted']}; font-size: 12px; letter-spacing: 1px; font-family: "{font_body}"; }}
+.tile-sub   {{ color: {C['dim']};   font-size: 11px; font-family: "{font_cond}"; }}
 .stat-label {{ color: {C['muted']}; font-size: 13px; }}
 .stat-green  {{ color: {C['wifi']};   font-size: 16px; font-weight: bold; }}
 .stat-blue   {{ color: {C['bt']};     font-size: 16px; font-weight: bold; }}
@@ -227,8 +281,9 @@ entry, .entry {{ background-color: {C['panel2']}; color: {C['green']}; border: 1
 .log-box {{
     background-color: {C['panel2']};
     color: #D1D5DB;
-    border: 1px solid {C['border']};
+    border: 1px solid #374151;
     font-size: 12px;
+    font-family: "{font_cond}";
 }}
 .peer-online  {{ color: {C['green']}; }}
 .peer-offline {{ color: {C['red']};   }}
@@ -1234,7 +1289,7 @@ class SnifferOpsApp(Adw.Application):
 
         # Load CSS
         provider = Gtk.CssProvider()
-        provider.load_from_string(CSS)
+        provider.load_from_string(_build_css())
         Gtk.StyleContext.add_provider_for_display(
             Gdk.Display.get_default(), provider,
             Gtk.STYLE_PROVIDER_PRIORITY_USER
