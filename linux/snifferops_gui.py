@@ -25,13 +25,27 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import awareness_log
 import signal_classifier
+import db
+import map_placement
 from lenses.all_lenses import route
 from sync.node_sync import NodeSyncManager, check_peer_health
+from map_widget import MapWidget
 
 DATA_DIR  = os.path.expanduser("~/.snifferops")
 LOG_PATH  = os.path.join(DATA_DIR, "awareness.json")
 CFG_PATH  = os.path.join(DATA_DIR, "config.json")
-NODE_ID   = str(uuid.uuid4())[:16]
+def _load_node_id() -> str:
+    path = os.path.join(DATA_DIR, "node_id")
+    os.makedirs(DATA_DIR, exist_ok=True)
+    if os.path.exists(path):
+        with open(path) as f:
+            return f.read().strip()
+    nid = str(uuid.uuid4())
+    with open(path, "w") as f:
+        f.write(nid)
+    return nid
+
+NODE_ID = _load_node_id()
 NODE_NAME = f"linux-{platform.node()}"
 
 _scan_stats: dict = {"wifi": 0, "bt": 0, "sdr": 0, "syncs": 0, "alerts": 0}
@@ -406,6 +420,7 @@ def _on_wifi(signals: list[dict]) -> None:
         )
         if alert["level"] != "NONE":
             s["threatLevel"] = _alert_level_to_threat(alert["level"])
+        db.write_detection(s, NODE_ID)
     _submit(signals, "WIFI")
     _scan_stats["wifi"] += len(signals)
 
@@ -420,6 +435,7 @@ def _on_bt(devices: list[dict]) -> None:
         )
         if alert["level"] != "NONE":
             d["threatLevel"] = _alert_level_to_threat(alert["level"])
+        db.write_detection(d, NODE_ID)
     _submit(devices, "BLUETOOTH")
     _scan_stats["bt"] += len(devices)
 
@@ -439,6 +455,7 @@ def _on_sdr(signals: list[dict]) -> None:
         )
         if alert["level"] != "NONE":
             s["threatLevel"] = _alert_level_to_threat(alert["level"])
+        db.write_detection(s, NODE_ID)
     _submit(signals, "RTL_SDR")
     _scan_stats["sdr"] += len(signals)
 
@@ -720,6 +737,7 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
                                 "audio-input-microphone-symbolic", "RTL_SDR")
         self._build_peers_page()
         self._build_settings_page()
+        self._build_map_page()
 
         bar = Adw.ViewSwitcherBar()
         bar.set_stack(self._stack)
@@ -900,6 +918,45 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
         # Store reference by filter_type so _refresh_table can update it
         attr = f"_store_{filter_type.lower()}"
         setattr(self, attr, store)
+
+    # ── Map page ──────────────────────────────────────────────────────────────
+
+    def _build_map_page(self) -> None:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self._stack.add_titled_with_icon(box, "map", "Map", "find-location-symbolic")
+
+        # Toolbar
+        toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        toolbar.set_margin_start(10); toolbar.set_margin_end(10)
+        toolbar.set_margin_top(8);   toolbar.set_margin_bottom(8)
+        box.append(toolbar)
+
+        refresh_map_btn = Gtk.Button(label="Refresh Map")
+        refresh_map_btn.add_css_class("btn-secondary")
+        refresh_map_btn.connect("clicked", lambda _b: self._refresh_map())
+        toolbar.append(refresh_map_btn)
+
+        self._unsynced_lbl = Gtk.Label(label="Unsynced: 0")
+        self._unsynced_lbl.set_margin_start(8)
+        self._unsynced_lbl.set_margin_end(8)
+        toolbar.append(self._unsynced_lbl)
+
+        send_btn = Gtk.Button(label="Send to Windows")
+        send_btn.add_css_class("btn-secondary")
+        send_btn.connect("clicked", self._on_send_history)
+        toolbar.append(send_btn)
+
+        self._compact_btn = Gtk.Button(label="Compact")
+        self._compact_btn.add_css_class("btn-secondary")
+        self._compact_btn.set_sensitive(False)
+        self._compact_btn.connect("clicked", self._on_compact)
+        toolbar.append(self._compact_btn)
+
+        # Map widget
+        self._map_widget = MapWidget()
+        self._map_widget.set_vexpand(True)
+        self._map_widget.set_hexpand(True)
+        box.append(self._map_widget)
 
     # ── Peers page ────────────────────────────────────────────────────────────
 
@@ -1273,16 +1330,48 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
             f"SDR:{_scan_stats['sdr']} Signals:{total}\n"
         )
 
-        # Populate signal stores
-        for store in [self._all_store,
-                      getattr(self, "_store_wifi", None),
-                      getattr(self, "_store_bluetooth", None),
-                      getattr(self, "_store_rtl_sdr", None)]:
-            if store is None:
-                continue
-            store.remove_all()
-            for r in rows:
-                store.append(SignalRow(r))
+        # Populate all_store from awareness_log rows
+        self._all_store.remove_all()
+        for r in rows:
+            self._all_store.append(SignalRow(r))
+
+        # Populate per-type stores from live-presence DB queries
+        PRESENCE_WINDOWS = {"WIFI": 45, "BLUETOOTH": 20, "BLE": 20, "CELLULAR": 45, "RTL_SDR": 600}
+
+        def _profile_class_from_db(p: dict) -> str:
+            return awareness_log._profile_class(p)
+
+        def _profiles_to_rows(profiles: list[dict], sig_type: str) -> list[dict]:
+            result = []
+            for p in profiles:
+                result.append({
+                    "Type": p.get("type", sig_type),
+                    "Signal": p.get("name") or p.get("address", ""),
+                    "AddressOrFrequency": p.get("address") or str(p.get("frequency_hz") or ""),
+                    "StrengthOrPower": str(p.get("last_signal") or ""),
+                    "Classification": p.get("device_class") or "",
+                    "Confidence": _profile_class_from_db(p),
+                    "LastSeen": "",
+                })
+            return result
+
+        store_wifi = getattr(self, "_store_wifi", None)
+        if store_wifi is not None:
+            store_wifi.remove_all()
+            for r in _profiles_to_rows(db.get_live_profiles("WIFI", PRESENCE_WINDOWS["WIFI"]), "WIFI"):
+                store_wifi.append(SignalRow(r))
+
+        store_bt = getattr(self, "_store_bluetooth", None)
+        if store_bt is not None:
+            store_bt.remove_all()
+            for r in _profiles_to_rows(db.get_live_profiles("BLUETOOTH", PRESENCE_WINDOWS["BLUETOOTH"]), "BLUETOOTH"):
+                store_bt.append(SignalRow(r))
+
+        store_sdr = getattr(self, "_store_rtl_sdr", None)
+        if store_sdr is not None:
+            store_sdr.remove_all()
+            for r in _profiles_to_rows(db.get_live_profiles("RTL_SDR", PRESENCE_WINDOWS["RTL_SDR"]), "RTL_SDR"):
+                store_sdr.append(SignalRow(r))
 
     def _append_log(self, text: str) -> None:
         buf = self._log_buf
@@ -1342,6 +1431,52 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
             pass
         self.toast("Refresh triggered")
 
+    # ── Map methods ───────────────────────────────────────────────────────────
+
+    def _refresh_map(self) -> None:
+        def _work():
+            from map_placement import compute_placements
+            profiles = db.get_all_profiles()
+            sightings = db.get_sightings_for_placement()
+            markers, unplaced = compute_placements(profiles, sightings)
+            unsynced = db.count_unsynced()
+            compact_n = db.count_syncable_compact()
+            GLib.idle_add(self._apply_map_data, markers, unplaced, unsynced, compact_n)
+        threading.Thread(target=_work, daemon=True).start()
+
+    def _apply_map_data(self, markers, unplaced, unsynced, compact_n) -> bool:
+        self._map_widget.set_markers(markers)
+        self._unsynced_lbl.set_text(f"Unsynced: {unsynced}")
+        self._compact_btn.set_sensitive(compact_n > 0)
+        return GLib.SOURCE_REMOVE
+
+    def _on_send_history(self, _btn) -> None:
+        self.toast("Sending stored history to Windows peer...")
+        def _work():
+            # Find first Windows-tagged peer
+            peers = self._cfg.get("peers", [])
+            win_peer = next((p for p in peers if "x1" in p.get("name", "").lower()
+                            or p.get("via") == "tailscale"), None)
+            if not win_peer:
+                GLib.idle_add(self.toast, "No Windows peer configured")
+                return
+            if _sync_manager:
+                result = _sync_manager.send_stored_history(win_peer["host"], win_peer.get("port", 8766))
+                acked = result.get("acknowledged", 0)
+                err = result.get("error")
+                if err:
+                    GLib.idle_add(self.toast, f"Send failed: {err}")
+                else:
+                    GLib.idle_add(self.toast, f"Sent — {acked} sightings acknowledged")
+                    GLib.idle_add(self._refresh_map)
+        threading.Thread(target=_work, daemon=True).start()
+
+    def _on_compact(self, _btn) -> None:
+        if _sync_manager:
+            n = _sync_manager.compact_confirmed()
+            self.toast(f"Compacted {n} confirmed sightings")
+            self._refresh_map()
+
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     def toast(self, msg: str) -> None:
@@ -1386,7 +1521,10 @@ class SnifferOpsApp(Adw.Application):
         win = self.get_active_window()
         if not win:
             os.makedirs(DATA_DIR, exist_ok=True)
+            import db as _db_mod
+            _db_mod.initialize(LOG_PATH.replace('.json', '.db'))
             awareness_log.initialize(LOG_PATH)
+            awareness_log.set_node_info(NODE_ID, NODE_NAME)
             win = SnifferOpsWindow(self)
             self._start_services(win)
         win.present()
@@ -1443,6 +1581,9 @@ class SnifferOpsApp(Adw.Application):
                 except Exception:
                     pass
             threading.Thread(target=_initial, daemon=True).start()
+
+        # Periodic map refresh every 60 seconds
+        GLib.timeout_add(60000, lambda: win._refresh_map() or GLib.SOURCE_CONTINUE)
 
     def _on_about(self, *_) -> None:
         Adw.AboutWindow(

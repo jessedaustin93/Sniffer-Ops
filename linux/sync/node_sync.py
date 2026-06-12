@@ -10,6 +10,14 @@ Tailscale auto-discovery:
   On startup and every DISCOVERY_INTERVAL seconds, query `tailscale status --json`,
   probe each peer's :8766 health endpoint, and add any SnifferOps nodes automatically.
   Discovered peers are tagged {"via": "tailscale"} and persisted to config.json.
+
+New in v2 (sighting UUIDs + acknowledgment protocol):
+  - Outgoing payloads built via db.build_sync_payload() include per-sighting UUIDs.
+  - Remote nodes that support the new protocol respond with "acknowledgedSightingIds".
+  - Acknowledged IDs are recorded via db.mark_synced(); no row is ever deleted here.
+  - send_stored_history() is an explicit safe-send that never touches the DB on error.
+  - compact_confirmed() removes journal rows Windows already acknowledged (call only
+    after a successful send).
 """
 
 import json
@@ -20,6 +28,8 @@ import time
 import urllib.request
 from typing import Any
 
+import db
+
 log = logging.getLogger("snifferops.sync")
 
 
@@ -29,6 +39,9 @@ class NodeSyncManager:
     PROBE_TIMEOUT      = 3     # seconds for health probe
     SYNC_TIMEOUT       = 8     # seconds for sync POST/GET
     MAX_BACKOFF        = 300   # max seconds before retrying a failing peer
+
+    _unsynced_count:    int = 0   # updated after each sync cycle; read by UI
+    _compact_eligible:  int = 0   # rows with synced_at IS NOT NULL; read by UI
 
     def __init__(self, awareness_log_module, node_id: str, node_name: str,
                  peers: list[dict] | None = None,
@@ -103,6 +116,95 @@ class NodeSyncManager:
                 self._fail_count[key] = self._fail_count.get(key, 0) + 1
         return results
 
+    # ── Explicit safe-send ─────────────────────────────────────────────────────
+
+    def send_stored_history(self, host: str, port: int = 8766) -> dict:
+        """
+        Explicit safe-send: read unsynced sightings, POST them, mark only
+        acknowledged ones.  Returns {"sent": N, "acknowledged": M, "error": str|None}.
+
+        Contract:
+          - Never deletes any row.
+          - On timeout or any network error, the DB is not touched.
+          - Only rows included in the remote's acknowledgedSightingIds are marked synced.
+        """
+        try:
+            unsynced = db.get_unsynced_sightings(limit=500)
+        except Exception as exc:
+            return {"sent": 0, "acknowledged": 0, "error": f"db read error: {exc}"}
+
+        if not unsynced:
+            return {"sent": 0, "acknowledged": 0, "error": None}
+
+        try:
+            payload = db.build_sync_payload(self._node_id, self._node_name)
+        except Exception as exc:
+            return {"sent": len(unsynced), "acknowledged": 0,
+                    "error": f"payload build error: {exc}"}
+
+        remote = _http_post(host, port, "/snifferops/sync", payload,
+                            timeout=self.SYNC_TIMEOUT)
+
+        if remote is None:
+            return {"sent": len(unsynced), "acknowledged": 0,
+                    "error": f"no response from {host}:{port}"}
+
+        acked_ids: list[str] = remote.get("acknowledgedSightingIds") or []
+        ack_count = 0
+        if acked_ids:
+            try:
+                db.mark_synced(acked_ids)
+                ack_count = len(acked_ids)
+                self._unsynced_count = max(0, len(unsynced) - ack_count)
+            except Exception as exc:
+                return {"sent": len(unsynced), "acknowledged": 0,
+                        "error": f"db mark_synced error: {exc}"}
+
+        # Also merge any signals the peer sent back into the local awareness log
+        if remote.get("signals"):
+            try:
+                remote_snap = {
+                    "schema":        1,
+                    "nodeId":        f"{host}:{port}",
+                    "nodeName":      peer.get("name", host) if False else host,
+                    "capturedAt":    int(time.time() * 1000),
+                    "location":      {},
+                    "completeTypes": [],
+                    "signals":       _to_snapshot_signals(remote.get("signals", [])),
+                }
+                self._log.merge_snapshot(remote_snap)
+            except Exception:
+                pass  # merge failure must not affect the send result
+
+        return {"sent": len(unsynced), "acknowledged": ack_count, "error": None}
+
+    # ── Compact ────────────────────────────────────────────────────────────────
+
+    def compact_confirmed(self) -> int:
+        """
+        Remove journal rows that Windows already acknowledged.
+        Only call after a successful send_stored_history().
+        Returns count removed.
+        """
+        try:
+            synced_ids = db.get_synced_sighting_ids()  # IDs where synced_at IS NOT NULL
+        except Exception as exc:
+            log.warning("compact_confirmed: could not read synced IDs: %s", exc)
+            return 0
+
+        if not synced_ids:
+            self._compact_eligible = 0
+            return 0
+
+        self._compact_eligible = len(synced_ids)
+        try:
+            removed = db.compact_acknowledged(synced_ids)
+            self._compact_eligible = 0
+            return removed
+        except Exception as exc:
+            log.warning("compact_confirmed: compact_acknowledged failed: %s", exc)
+            return 0
+
     # ── Main sync loop ─────────────────────────────────────────────────────────
 
     def _loop(self) -> None:
@@ -169,34 +271,53 @@ class NodeSyncManager:
     def _sync_peer(self, peer: dict) -> str:
         host, port = peer["host"], peer.get("port", 8766)
 
-        # Build our outgoing snapshot
-        payload  = self._log.get_sync_payload()
-        snapshot = {
-            "schema":       1,
-            "nodeId":       self._node_id,
-            "nodeName":     self._node_name,
-            "capturedAt":   int(time.time() * 1000),
-            "location":     {},
-            "completeTypes": list({s.get("type", "") for s in payload.get("signals", [])}),
-            "signals":      _to_snapshot_signals(payload.get("signals", [])),
-        }
+        # Build our outgoing payload using the new UUID-bearing format from db.
+        # Falls back to building from the awareness log if db.build_sync_payload
+        # is unavailable (e.g. during unit tests against a stub log module).
+        try:
+            payload = db.build_sync_payload(self._node_id, self._node_name)
+        except Exception:
+            # Backward-compat fallback: build from awareness log (no UUIDs)
+            raw = self._log.get_sync_payload()
+            payload = {
+                "schema":        1,
+                "nodeId":        self._node_id,
+                "nodeName":      self._node_name,
+                "capturedAt":    int(time.time() * 1000),
+                "location":      {},
+                "completeTypes": list({s.get("type", "") for s in raw.get("signals", [])}),
+                "signals":       _to_snapshot_signals(raw.get("signals", [])),
+            }
 
         # Push our snapshot; the remote returns its own full payload
-        remote = _http_post(host, port, "/snifferops/sync", snapshot,
+        remote = _http_post(host, port, "/snifferops/sync", payload,
                             timeout=self.SYNC_TIMEOUT)
 
         if remote:
+            # Handle acknowledgment of our sightings if the peer supports it
+            acked_ids: list[str] = remote.get("acknowledgedSightingIds") or []
+            ack_count = 0
+            if acked_ids:
+                try:
+                    db.mark_synced(acked_ids)
+                    ack_count = len(acked_ids)
+                except Exception as exc:
+                    log.warning("_sync_peer: mark_synced failed: %s", exc)
+
+            # Merge signals the peer sent back into our local awareness log
             remote_snap = {
-                "schema":       1,
-                "nodeId":       f"{host}:{port}",
-                "nodeName":     peer.get("name", host),
-                "capturedAt":   int(time.time() * 1000),
-                "location":     {},
+                "schema":        1,
+                "nodeId":        f"{host}:{port}",
+                "nodeName":      peer.get("name", host),
+                "capturedAt":    int(time.time() * 1000),
+                "location":      {},
                 "completeTypes": [],
-                "signals":      _to_snapshot_signals(remote.get("signals", [])),
+                "signals":       _to_snapshot_signals(remote.get("signals", [])),
             }
             self._log.merge_snapshot(remote_snap)
             n = remote.get("totalSignals", 0)
+            if ack_count:
+                return f"ok — {n} signals from peer, {ack_count} sightings acked"
             return f"ok — {n} signals from peer"
 
         # POST failed; try a plain GET pull as fallback (older/Windows nodes)
@@ -204,13 +325,13 @@ class NodeSyncManager:
                            timeout=self.SYNC_TIMEOUT)
         if pulled:
             pull_snap = {
-                "schema":       1,
-                "nodeId":       f"{host}:{port}",
-                "nodeName":     peer.get("name", host),
-                "capturedAt":   int(time.time() * 1000),
-                "location":     {},
+                "schema":        1,
+                "nodeId":        f"{host}:{port}",
+                "nodeName":      peer.get("name", host),
+                "capturedAt":    int(time.time() * 1000),
+                "location":      {},
                 "completeTypes": [],
-                "signals":      _to_snapshot_signals(pulled.get("signals", [])),
+                "signals":       _to_snapshot_signals(pulled.get("signals", [])),
             }
             self._log.merge_snapshot(pull_snap)
             n = pulled.get("totalSignals", 0)
@@ -222,21 +343,31 @@ class NodeSyncManager:
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 def _to_snapshot_signals(signals: list[dict]) -> list[dict]:
+    """
+    Normalise a list of raw signal dicts into the snapshot wire shape.
+    Accepts both the new UUID-bearing format from db.build_sync_payload and
+    the legacy shape from the awareness log — the extra fields are ignored
+    by older nodes and harmlessly passed through by newer ones.
+    """
     out = []
     for s in signals:
-        out.append({
-            "name":         s.get("name", ""),
-            "address":      s.get("address", ""),
-            "type":         s.get("type", "UNKNOWN"),
+        entry: dict[str, Any] = {
+            "name":           s.get("name", ""),
+            "address":        s.get("address", ""),
+            "type":           s.get("type", "UNKNOWN"),
             "signalStrength": s.get("signalStrength") or s.get("strongestSignal"),
-            "frequencyHz":  s.get("frequencyHz"),
-            "manufacturer": s.get("manufacturer", ""),
-            "deviceClass":  s.get("deviceClass", ""),
-            "threatLevel":  s.get("threatLevel", "UNKNOWN"),
-            "channel":      s.get("channel"),
+            "frequencyHz":    s.get("frequencyHz"),
+            "manufacturer":   s.get("manufacturer", ""),
+            "deviceClass":    s.get("deviceClass", ""),
+            "threatLevel":    s.get("threatLevel", "UNKNOWN"),
+            "channel":        s.get("channel"),
             "notes": (f"synced; seen {s.get('seenCount', 0)}x "
                       f"from {s.get('nodeCount', 0)} node(s)"),
-        })
+        }
+        # Preserve sighting UUID if present (new protocol)
+        if "sightingId" in s:
+            entry["sightingId"] = s["sightingId"]
+        out.append(entry)
     return out
 
 
