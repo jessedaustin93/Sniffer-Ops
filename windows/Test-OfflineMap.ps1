@@ -130,6 +130,17 @@ $bt3 = @($weightedPlacements | Where-Object { $_.Key -eq "BT3" })[0]
 Assert "two sightings both link"            ($bt3.PlacementTier -eq "linked")
 Assert "linked position is between fixes"   ($bt3.Latitude -gt 40.0 -and $bt3.Latitude -lt 41.0)
 
+# Web Mercator helpers used by the tile renderer.
+$origin = Get-OfflineMapWorldPixel -Lat 0.0 -Lon 0.0 -Zoom 0.0
+Assert "mercator origin centers at z0"      ([Math]::Abs($origin[0] - 128) -lt 0.001 -and [Math]::Abs($origin[1] - 128) -lt 0.001)
+$z1 = Get-OfflineMapWorldPixel -Lat 0.0 -Lon 0.0 -Zoom 1.0
+Assert "world doubles per zoom level"       ([Math]::Abs($z1[0] - 256) -lt 0.001)
+$px = Get-OfflineMapWorldPixel -Lat 40.0 -Lon -75.0 -Zoom 12.0
+$rt = Get-OfflineMapLatLon -X $px[0] -Y $px[1] -Zoom 12.0
+Assert "mercator roundtrip is stable"       ([Math]::Abs($rt[0] - 40.0) -lt 0.000001 -and [Math]::Abs($rt[1] - (-75.0)) -lt 0.000001)
+Assert "meters/pixel at equator z0"         ([Math]::Abs((Get-OfflineMapMetersPerPixel -Lat 0.0 -Zoom 0.0) - 156543.03392) -lt 0.01)
+Assert "tile path under data\map-tiles"     ((Get-OfflineMapTilePath -Z 12 -X 5 -Y 7) -like "*data\map-tiles\dark\12\5\7.png")
+
 # Type colors stay distinct for the legend.
 Assert "wifi color"                         ((Get-OfflineMapTypeColor -Type "WIFI") -eq "#39FF14")
 Assert "unknown type gets default color"    ((Get-OfflineMapTypeColor -Type "MYSTERY") -eq "#E5E7EB")

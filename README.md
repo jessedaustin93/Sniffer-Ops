@@ -59,7 +59,7 @@ powershell -ExecutionPolicy Bypass -File scripts\test-rtl-sdr.ps1
 
 ## Offline Awareness Map
 
-The awareness panel in the header is a live miniature of the offline map; clicking it opens the full map window. The map is fully offline - a coordinate grid with a scale bar drawn on a WPF canvas, no map tiles, no internet. Drag to pan, scroll to zoom, click a dot for the signal's profile.
+The awareness panel in the header is a live miniature of the offline map; clicking it opens the full map window. The map draws a real map background from standard slippy tiles (dark CARTO / OpenStreetMap style): tiles download automatically the first time you view an area while online and are cached under the ignored `data\map-tiles\` folder, after which that area renders fully offline. With no cached tiles for an area it falls back to a plain coordinate grid, so the map never needs the internet to function. Drag to pan, scroll to zoom, click a dot for the signal's profile.
 
 Signals synced from the phone (`/snifferops/sync`) are placed in tiers:
 

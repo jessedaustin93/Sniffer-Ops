@@ -1,7 +1,12 @@
 # In-app offline awareness map.
 #
-# Renders awareness-log signals on a tile-free WPF canvas (no internet, no map
-# downloads). Placement is tiered:
+# Renders awareness-log signals over a real map background: standard slippy
+# tiles (dark CARTO/OpenStreetMap style) downloaded once when online and
+# cached under data\map-tiles\, then rendered from disk forever after - the
+# map keeps working fully offline wherever you have already looked. With no
+# cached tiles at all it falls back to a plain coordinate grid.
+#
+# Signal placement is tiered:
 #   gps    - the signal itself has GPS-located sightings (phone GPS).
 #   linked - no own GPS, but the same node reported GPS fixes for other signals
 #            close in time; the signal is placed from those co-seen fixes.
@@ -10,11 +15,15 @@
 #            node also sees).
 #   unplaced - nothing GPS-related ever observed alongside it.
 #
-# Get-OfflineMapPlacements is pure (no WPF) so Test-OfflineMap.ps1 can verify
-# the placement rules headlessly.
+# Get-OfflineMapPlacements and the Web Mercator helpers are pure (no WPF) so
+# Test-OfflineMap.ps1 can verify them headlessly.
 
 $script:OfflineMapWindow = $null
 $script:OfflineMapLinkWindowMinutes = 20.0
+$script:OfflineMapTileUrlTemplate = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
+$script:OfflineMapTileCacheRoot = Join-Path (Split-Path -Parent $PSScriptRoot) "data\map-tiles\dark"
+$script:OfflineMapAttributionText = "(c) OpenStreetMap contributors (c) CARTO - tiles cached for offline use"
+$script:OfflineMapHttpClient = $null
 
 function ConvertTo-OfflineMapTime {
     param([object] $Value)
@@ -235,6 +244,80 @@ function Get-OfflineMapTypeColor {
 }
 
 # ---------------------------------------------------------------------------
+# Web Mercator math (standard slippy-tile projection). Pure and testable.
+# ---------------------------------------------------------------------------
+
+function Get-OfflineMapWorldPixel {
+    # Lat/lon -> absolute pixel position in the world map at a (possibly
+    # fractional) zoom level, using 256 px tiles.
+    param([double] $Lat, [double] $Lon, [double] $Zoom)
+
+    $n = 256.0 * [Math]::Pow(2.0, $Zoom)
+    $clampedLat = [Math]::Max(-85.05112878, [Math]::Min(85.05112878, $Lat))
+    $latRad = $clampedLat * [Math]::PI / 180.0
+    $x = ($Lon + 180.0) / 360.0 * $n
+    $y = (1.0 - [Math]::Log([Math]::Tan($latRad) + 1.0 / [Math]::Cos($latRad)) / [Math]::PI) / 2.0 * $n
+    return @($x, $y)
+}
+
+function Get-OfflineMapLatLon {
+    # Inverse of Get-OfflineMapWorldPixel.
+    param([double] $X, [double] $Y, [double] $Zoom)
+
+    $n = 256.0 * [Math]::Pow(2.0, $Zoom)
+    $lon = $X / $n * 360.0 - 180.0
+    $lat = [Math]::Atan([Math]::Sinh([Math]::PI * (1.0 - 2.0 * $Y / $n))) * 180.0 / [Math]::PI
+    return @($lat, $lon)
+}
+
+function Get-OfflineMapMetersPerPixel {
+    param([double] $Lat, [double] $Zoom)
+    return 156543.03392 * [Math]::Cos($Lat * [Math]::PI / 180.0) / [Math]::Pow(2.0, $Zoom)
+}
+
+# ---------------------------------------------------------------------------
+# Tile cache: download once when online, serve from disk afterwards.
+# ---------------------------------------------------------------------------
+
+function Get-OfflineMapTilePath {
+    param([int] $Z, [int] $X, [int] $Y)
+    return Join-Path $script:OfflineMapTileCacheRoot "$Z\$X\$Y.png"
+}
+
+function Request-OfflineMapTile {
+    # Ensures the tile is cached on disk. Returns $true when the file exists
+    # afterwards. Never throws; a download failure just returns $false so the
+    # caller can back off into offline mode.
+    param([int] $Z, [int] $X, [int] $Y)
+
+    $path = Get-OfflineMapTilePath -Z $Z -X $X -Y $Y
+    if (Test-Path -LiteralPath $path) { return $true }
+
+    try {
+        if (-not $script:OfflineMapHttpClient) {
+            [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+            Add-Type -AssemblyName System.Net.Http -ErrorAction SilentlyContinue
+            $client = New-Object System.Net.Http.HttpClient
+            $client.Timeout = [TimeSpan]::FromSeconds(4)
+            $client.DefaultRequestHeaders.UserAgent.ParseAdd("SnifferOps-Windows/1.0 (personal offline tile cache)")
+            $script:OfflineMapHttpClient = $client
+        }
+        $sub = @("a", "b", "c", "d")[(($X + $Y) % 4)]
+        $url = $script:OfflineMapTileUrlTemplate.Replace("{s}", $sub).Replace("{z}", [string]$Z).Replace("{x}", [string]$X).Replace("{y}", [string]$Y)
+        $bytes = $script:OfflineMapHttpClient.GetByteArrayAsync($url).Result
+        if (-not $bytes -or $bytes.Length -lt 100) { return $false }
+        $dir = Split-Path -Parent $path
+        if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+        $temp = "$path.tmp"
+        [System.IO.File]::WriteAllBytes($temp, $bytes)
+        Move-Item -LiteralPath $temp -Destination $path -Force
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+# ---------------------------------------------------------------------------
 # Map window (WPF). Everything below is render-only; no placement logic here.
 # All mutable view state lives in the $view hashtable so the GetNewClosure'd
 # handlers share it by reference after this function returns.
@@ -249,10 +332,11 @@ function Show-OfflineMapWindow {
         $script:OfflineMapWindow = $null
     }
 
-    # Local copy: $script: variables do not resolve inside the GetNewClosure'd
-    # event handlers below (they look in the closure's own module scope), so
-    # everything the closures need must be a captured local.
+    # Local copies: $script: variables do not resolve inside the
+    # GetNewClosure'd event handlers below (they look in the closure's own
+    # module scope), so everything the closures need must be a captured local.
     $brush = $script:BrushConverter
+    $attributionText = $script:OfflineMapAttributionText
 
     $win = New-Object System.Windows.Window
     $win.Title = "SnifferOps - Offline Awareness Map"
@@ -346,7 +430,7 @@ function Show-OfflineMapWindow {
     $legend.FontSize = 11
     $legend.TextWrapping = "Wrap"
     $legend.Foreground = $brush.ConvertFromString("#9CA3AF")
-    $legend.Text = "WIFI green / BT blue / CELL amber / SDR purple   |   solid = phone GPS, dashed = inferred from co-seen GPS, hollow = node usual area   |   drag to pan, wheel to zoom, click a dot for details"
+    $legend.Text = "WIFI green / BT blue / CELL amber / SDR purple   |   solid = phone GPS, dashed = inferred from co-seen GPS, hollow = node usual area   |   drag to pan, wheel to zoom, click a dot for details. Map tiles download once when online and are cached for offline use."
     [System.Windows.Controls.Grid]::SetRow($legend, 2)
     [void]$root.Children.Add($legend)
 
@@ -355,12 +439,14 @@ function Show-OfflineMapWindow {
     $view = @{
         CenterLat = 0.0
         CenterLon = 0.0
-        MetersPerPixel = 2.0
+        Zoom = 16.0
         HasFit = $false
         Placements = @()
         DragStart = $null
-        DragOrigin = $null
+        DragOriginWorld = $null
         Panning = $false
+        OfflineUntil = [datetime]::MinValue
+        TileStatus = ""
     }
 
     $fitView = {
@@ -372,52 +458,107 @@ function Show-OfflineMapWindow {
         $maxLon = ($located | Measure-Object -Property Longitude -Maximum).Maximum
         $view.CenterLat = ($minLat + $maxLat) / 2.0
         $view.CenterLon = ($minLon + $maxLon) / 2.0
-        $latSpanM = [Math]::Max(60.0, ($maxLat - $minLat) * 111320.0)
-        $lonSpanM = [Math]::Max(60.0, ($maxLon - $minLon) * 111320.0 * [Math]::Cos($view.CenterLat * [Math]::PI / 180.0))
-        $w = [Math]::Max(200.0, $canvas.ActualWidth - 80)
-        $h = [Math]::Max(150.0, $canvas.ActualHeight - 80)
-        $view.MetersPerPixel = [Math]::Max($lonSpanM / $w, $latSpanM / $h)
+        # World-pixel span at zoom 0, then pick the zoom that fits the canvas.
+        $pxMin = Get-OfflineMapWorldPixel -Lat $maxLat -Lon $minLon -Zoom 0.0
+        $pxMax = Get-OfflineMapWorldPixel -Lat $minLat -Lon $maxLon -Zoom 0.0
+        $dx = [Math]::Max(0.0000001, [Math]::Abs($pxMax[0] - $pxMin[0]))
+        $dy = [Math]::Max(0.0000001, [Math]::Abs($pxMax[1] - $pxMin[1]))
+        $w = [Math]::Max(200.0, $canvas.ActualWidth - 100)
+        $h = [Math]::Max(150.0, $canvas.ActualHeight - 100)
+        $zoom = [Math]::Min([Math]::Log($w / $dx, 2.0), [Math]::Log($h / $dy, 2.0))
+        $view.Zoom = [Math]::Max(3.0, [Math]::Min(18.0, $zoom))
         $view.HasFit = $true
     }.GetNewClosure()
 
     $project = {
         param([double] $Lat, [double] $Lon)
-        $kLat = 111320.0
-        $kLon = 111320.0 * [Math]::Cos($view.CenterLat * [Math]::PI / 180.0)
-        $x = ($Lon - $view.CenterLon) * $kLon / $view.MetersPerPixel + $canvas.ActualWidth / 2.0
-        $y = ($view.CenterLat - $Lat) * $kLat / $view.MetersPerPixel + $canvas.ActualHeight / 2.0
-        return @($x, $y)
+        $center = Get-OfflineMapWorldPixel -Lat $view.CenterLat -Lon $view.CenterLon -Zoom $view.Zoom
+        $world = Get-OfflineMapWorldPixel -Lat $Lat -Lon $Lon -Zoom $view.Zoom
+        return @(
+            ($world[0] - $center[0] + $canvas.ActualWidth / 2.0),
+            ($world[1] - $center[1] + $canvas.ActualHeight / 2.0)
+        )
     }.GetNewClosure()
 
-    $redraw = {
-        $canvas.Children.Clear()
+    $drawTiles = {
+        # Draws cached tiles; downloads missing ones (capped per pass) unless
+        # panning or in offline backoff. Returns @(drawnCount, missingCount).
         $w = $canvas.ActualWidth
         $h = $canvas.ActualHeight
-        if ($w -lt 40 -or $h -lt 40) { return }
+        $tileZ = [int][Math]::Max(2, [Math]::Min(19, [Math]::Round($view.Zoom)))
+        $scale = [Math]::Pow(2.0, $view.Zoom - $tileZ)
+        $tileSize = 256.0 * $scale
+        $center = Get-OfflineMapWorldPixel -Lat $view.CenterLat -Lon $view.CenterLon -Zoom $view.Zoom
+        $maxTile = [int]([Math]::Pow(2, $tileZ)) - 1
+        $txMin = [Math]::Max(0, [int][Math]::Floor(($center[0] - $w / 2.0) / $tileSize))
+        $txMax = [Math]::Min($maxTile, [int][Math]::Floor(($center[0] + $w / 2.0) / $tileSize))
+        $tyMin = [Math]::Max(0, [int][Math]::Floor(($center[1] - $h / 2.0) / $tileSize))
+        $tyMax = [Math]::Min($maxTile, [int][Math]::Floor(($center[1] + $h / 2.0) / $tileSize))
 
-        $located = @($view.Placements | Where-Object { $null -ne $_.Latitude -and $null -ne $_.Longitude })
-        if ($located.Count -eq 0) {
-            $msg = New-Object System.Windows.Controls.TextBlock
-            $msg.Text = "No placeable signals yet.`nSync the phone with GPS enabled to seed the map."
-            $msg.Foreground = $brush.ConvertFromString("#637082")
-            $msg.FontFamily = "Consolas"
-            $msg.FontSize = 14
-            [System.Windows.Controls.Canvas]::SetLeft($msg, 24)
-            [System.Windows.Controls.Canvas]::SetTop($msg, 24)
-            [void]$canvas.Children.Add($msg)
-            return
+        # Fetch a capped batch of missing tiles first (skip while panning so
+        # dragging stays smooth; back off for a while after a failure).
+        $canFetch = (-not $view.Panning) -and ((Get-Date) -ge $view.OfflineUntil)
+        $fetched = 0
+        if ($canFetch) {
+            for ($ty = $tyMin; $ty -le $tyMax -and $fetched -lt 12; $ty++) {
+                for ($tx = $txMin; $tx -le $txMax -and $fetched -lt 12; $tx++) {
+                    $path = Get-OfflineMapTilePath -Z $tileZ -X $tx -Y $ty
+                    if (Test-Path -LiteralPath $path) { continue }
+                    if (Request-OfflineMapTile -Z $tileZ -X $tx -Y $ty) {
+                        $fetched++
+                    } else {
+                        $view.OfflineUntil = (Get-Date).AddSeconds(90)
+                        $ty = $tyMax + 1
+                        break
+                    }
+                }
+            }
         }
-        if (-not $view.HasFit) { & $fitView }
 
-        # Graticule: pick a degree step that lands at >= 70 px spacing.
+        $drawn = 0
+        $missing = 0
+        for ($ty = $tyMin; $ty -le $tyMax; $ty++) {
+            for ($tx = $txMin; $tx -le $txMax; $tx++) {
+                $path = Get-OfflineMapTilePath -Z $tileZ -X $tx -Y $ty
+                if (-not (Test-Path -LiteralPath $path)) { $missing++; continue }
+                try {
+                    $bmp = New-Object System.Windows.Media.Imaging.BitmapImage
+                    $bmp.BeginInit()
+                    $bmp.UriSource = New-Object System.Uri($path)
+                    $bmp.CacheOption = [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad
+                    $bmp.EndInit()
+                    $bmp.Freeze()
+                    $img = New-Object System.Windows.Controls.Image
+                    $img.Source = $bmp
+                    $img.Width = $tileSize + 0.7    # tiny overlap hides seams
+                    $img.Height = $tileSize + 0.7
+                    $img.Stretch = "Fill"
+                    $img.IsHitTestVisible = $false
+                    [System.Windows.Media.RenderOptions]::SetBitmapScalingMode($img, [System.Windows.Media.BitmapScalingMode]::HighQuality)
+                    [System.Windows.Controls.Canvas]::SetLeft($img, $tx * $tileSize - $center[0] + $w / 2.0)
+                    [System.Windows.Controls.Canvas]::SetTop($img, $ty * $tileSize - $center[1] + $h / 2.0)
+                    [void]$canvas.Children.Add($img)
+                    $drawn++
+                } catch {
+                    $missing++
+                }
+            }
+        }
+        return @($drawn, $missing)
+    }.GetNewClosure()
+
+    $drawGrid = {
+        # Fallback when no tiles are cached for this view: plain lat/lon grid.
+        $w = $canvas.ActualWidth
+        $h = $canvas.ActualHeight
+        $mpp = Get-OfflineMapMetersPerPixel -Lat $view.CenterLat -Zoom $view.Zoom
         $kLat = 111320.0
-        $kLon = 111320.0 * [Math]::Cos($view.CenterLat * [Math]::PI / 180.0)
         $step = 5.0
         foreach ($candidate in @(0.00005, 0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0)) {
-            if (($candidate * $kLat / $view.MetersPerPixel) -ge 70) { $step = $candidate; break }
+            if (($candidate * $kLat / $mpp) -ge 70) { $step = $candidate; break }
         }
-        $latSpan = $h * $view.MetersPerPixel / $kLat
-        $lonSpan = $w * $view.MetersPerPixel / $kLon
+        $latSpan = $h * $mpp / $kLat
+        $lonSpan = $w * $mpp / ($kLat * [Math]::Max(0.05, [Math]::Cos($view.CenterLat * [Math]::PI / 180.0)))
         $latStart = [Math]::Floor(($view.CenterLat - $latSpan) / $step) * $step
         $lonStart = [Math]::Floor(($view.CenterLon - $lonSpan) / $step) * $step
         for ($lat = $latStart; $lat -le $view.CenterLat + $latSpan; $lat += $step) {
@@ -457,6 +598,42 @@ function Show-OfflineMapWindow {
             [System.Windows.Controls.Canvas]::SetLeft($label, $pt[0] + 3)
             [System.Windows.Controls.Canvas]::SetTop($label, $h - 16)
             [void]$canvas.Children.Add($label)
+        }
+    }.GetNewClosure()
+
+    $redraw = {
+        $canvas.Children.Clear()
+        $w = $canvas.ActualWidth
+        $h = $canvas.ActualHeight
+        if ($w -lt 40 -or $h -lt 40) { return }
+
+        $located = @($view.Placements | Where-Object { $null -ne $_.Latitude -and $null -ne $_.Longitude })
+        if ($located.Count -eq 0) {
+            $msg = New-Object System.Windows.Controls.TextBlock
+            $msg.Text = "No placeable signals yet.`nSync the phone with GPS enabled to seed the map."
+            $msg.Foreground = $brush.ConvertFromString("#637082")
+            $msg.FontFamily = "Consolas"
+            $msg.FontSize = 14
+            [System.Windows.Controls.Canvas]::SetLeft($msg, 24)
+            [System.Windows.Controls.Canvas]::SetTop($msg, 24)
+            [void]$canvas.Children.Add($msg)
+            return
+        }
+        if (-not $view.HasFit) { & $fitView }
+
+        # Map background: cached tiles, or the plain grid if none exist here.
+        $tileResult = & $drawTiles
+        $tilesDrawn = $tileResult[0]
+        $tilesMissing = $tileResult[1]
+        if ($tilesDrawn -eq 0) { & $drawGrid }
+        $view.TileStatus = if ($tilesMissing -eq 0 -and $tilesDrawn -gt 0) {
+            "tiles cached"
+        } elseif ((Get-Date) -lt $view.OfflineUntil) {
+            "tiles: $tilesMissing missing (offline - showing cache)"
+        } elseif ($tilesMissing -gt 0) {
+            "tiles: downloading $tilesMissing more"
+        } else {
+            "no tiles cached for this area yet"
         }
 
         # Spread markers that land in the same pixel cell into a small fan so
@@ -501,8 +678,8 @@ function Show-OfflineMapWindow {
                 switch ($placement.PlacementTier) {
                     "gps" {
                         $dot.Fill = $brush.ConvertFromString($color)
-                        $dot.Stroke = $brush.ConvertFromString("#E5E7EB")
-                        $dot.StrokeThickness = 1
+                        $dot.Stroke = $brush.ConvertFromString("#0B1120")
+                        $dot.StrokeThickness = 1.2
                     }
                     "linked" {
                         $dot.Fill = $brush.ConvertFromString($color)
@@ -512,7 +689,7 @@ function Show-OfflineMapWindow {
                         $dot.Opacity = 0.85
                     }
                     default {
-                        $dot.Fill = $brush.ConvertFromString("#220B1120")
+                        $dot.Fill = $brush.ConvertFromString("#660B1120")
                         $dot.Stroke = $brush.ConvertFromString($color)
                         $dot.StrokeThickness = 1.6
                         $dot.StrokeDashArray = [System.Windows.Media.DoubleCollection]::Parse("2,2")
@@ -554,16 +731,27 @@ function Show-OfflineMapWindow {
             }
         }
 
-        # Scale bar: a round meter length close to a fifth of the width.
-        $targetMeters = $w * $view.MetersPerPixel / 5.0
+        # Scale bar: a round meter length close to a fifth of the width, on a
+        # translucent backing so it stays readable over tiles.
+        $mpp = Get-OfflineMapMetersPerPixel -Lat $view.CenterLat -Zoom $view.Zoom
+        $targetMeters = $w * $mpp / 5.0
         $magnitude = [Math]::Pow(10, [Math]::Floor([Math]::Log10([Math]::Max(1.0, $targetMeters))))
         $barMeters = $magnitude
         foreach ($mult in @(1, 2, 5)) {
             if ($mult * $magnitude -le $targetMeters) { $barMeters = $mult * $magnitude }
         }
-        $barPx = $barMeters / $view.MetersPerPixel
+        $barPx = $barMeters / $mpp
+        $barBack = New-Object System.Windows.Shapes.Rectangle
+        $barBack.Width = $barPx + 16
+        $barBack.Height = 34
+        $barBack.Fill = $brush.ConvertFromString("#B0020617")
+        $barBack.RadiusX = 4; $barBack.RadiusY = 4
+        $barBack.IsHitTestVisible = $false
+        [System.Windows.Controls.Canvas]::SetLeft($barBack, 10)
+        [System.Windows.Controls.Canvas]::SetTop($barBack, $h - 46)
+        [void]$canvas.Children.Add($barBack)
         $bar = New-Object System.Windows.Shapes.Line
-        $bar.X1 = 16; $bar.X2 = 16 + $barPx; $bar.Y1 = $h - 22; $bar.Y2 = $h - 22
+        $bar.X1 = 18; $bar.X2 = 18 + $barPx; $bar.Y1 = $h - 20; $bar.Y2 = $h - 20
         $bar.Stroke = $brush.ConvertFromString("#E5E7EB")
         $bar.StrokeThickness = 2
         $bar.IsHitTestVisible = $false
@@ -574,19 +762,24 @@ function Show-OfflineMapWindow {
         $barText.FontFamily = "Consolas"
         $barText.FontSize = 11
         $barText.IsHitTestVisible = $false
-        [System.Windows.Controls.Canvas]::SetLeft($barText, 18)
+        [System.Windows.Controls.Canvas]::SetLeft($barText, 20)
         [System.Windows.Controls.Canvas]::SetTop($barText, $h - 40)
         [void]$canvas.Children.Add($barText)
 
-        $offline = New-Object System.Windows.Controls.TextBlock
-        $offline.Text = "OFFLINE GRID - no map tiles"
-        $offline.Foreground = $brush.ConvertFromString("#2E5560")
-        $offline.FontFamily = "Consolas"
-        $offline.FontSize = 10
-        $offline.IsHitTestVisible = $false
-        [System.Windows.Controls.Canvas]::SetLeft($offline, $w - 190)
-        [System.Windows.Controls.Canvas]::SetTop($offline, $h - 20)
-        [void]$canvas.Children.Add($offline)
+        $attribution = New-Object System.Windows.Controls.TextBlock
+        $attribution.Text = $(if ($tilesDrawn -gt 0) { $attributionText } else { "OFFLINE GRID - no cached tiles for this area" })
+        $attribution.Foreground = $brush.ConvertFromString("#8390A1")
+        $attribution.Background = $brush.ConvertFromString("#B0020617")
+        $attribution.Padding = "4,1,4,1"
+        $attribution.FontFamily = "Consolas"
+        $attribution.FontSize = 10
+        $attribution.IsHitTestVisible = $false
+        $attribution.Add_Loaded({ param($sender, $e)
+            [System.Windows.Controls.Canvas]::SetLeft($sender, $sender.Parent.ActualWidth - $sender.ActualWidth - 8)
+        })
+        [System.Windows.Controls.Canvas]::SetLeft($attribution, [Math]::Max(8, $w - 420))
+        [System.Windows.Controls.Canvas]::SetTop($attribution, $h - 18)
+        [void]$canvas.Children.Add($attribution)
     }.GetNewClosure()
 
     $refresh = {
@@ -595,30 +788,39 @@ function Show-OfflineMapWindow {
         $linked = @($view.Placements | Where-Object { $_.PlacementTier -eq "linked" }).Count
         $anchored = @($view.Placements | Where-Object { $_.PlacementTier -eq "anchor" }).Count
         $unplaced = @($view.Placements | Where-Object { $_.PlacementTier -eq "unplaced" }).Count
-        $statusText.Text = "$gps GPS / $linked co-seen / $anchored node-area / $unplaced unplaced - updated $(Get-Date -Format 'HH:mm:ss')"
         & $redraw
+        $tileNote = if ($view.TileStatus) { " | $($view.TileStatus)" } else { "" }
+        $statusText.Text = "$gps GPS / $linked co-seen / $anchored node-area / $unplaced unplaced$tileNote - $(Get-Date -Format 'HH:mm:ss')"
     }.GetNewClosure()
 
     $refreshButton.Add_Click({
-        Invoke-AppAction -Context "Refresh offline map" -Action { & $refresh }
+        Invoke-AppAction -Context "Refresh offline map" -Action {
+            $view.OfflineUntil = [datetime]::MinValue   # manual refresh retries downloads
+            & $refresh
+        }
     }.GetNewClosure())
     $fitButton.Add_Click({
-        Invoke-AppAction -Context "Fit offline map" -Action { & $fitView; & $redraw }
+        Invoke-AppAction -Context "Fit offline map" -Action { & $fitView; & $refresh }
     }.GetNewClosure())
 
     $canvas.Add_SizeChanged({ & $redraw }.GetNewClosure())
     $canvas.Add_MouseWheel({
         param($sender, $eventArgs)
-        $factor = $(if ($eventArgs.Delta -gt 0) { 1.0 / 1.3 } else { 1.3 })
-        $pos = $eventArgs.GetPosition($canvas)
+        $zoomStep = $(if ($eventArgs.Delta -gt 0) { 0.5 } else { -0.5 })
+        $newZoom = [Math]::Max(3.0, [Math]::Min(19.0, $view.Zoom + $zoomStep))
+        if ($newZoom -eq $view.Zoom) { return }
         # Keep the geographic point under the cursor fixed while zooming.
-        $kLat = 111320.0
-        $kLon = 111320.0 * [Math]::Cos($view.CenterLat * [Math]::PI / 180.0)
-        $cursorLat = $view.CenterLat - ($pos.Y - $canvas.ActualHeight / 2.0) * $view.MetersPerPixel / $kLat
-        $cursorLon = $view.CenterLon + ($pos.X - $canvas.ActualWidth / 2.0) * $view.MetersPerPixel / $kLon
-        $view.MetersPerPixel = [Math]::Min(50000.0, [Math]::Max(0.05, $view.MetersPerPixel * $factor))
-        $view.CenterLat = $cursorLat + ($pos.Y - $canvas.ActualHeight / 2.0) * $view.MetersPerPixel / $kLat
-        $view.CenterLon = $cursorLon - ($pos.X - $canvas.ActualWidth / 2.0) * $view.MetersPerPixel / $kLon
+        $pos = $eventArgs.GetPosition($canvas)
+        $center = Get-OfflineMapWorldPixel -Lat $view.CenterLat -Lon $view.CenterLon -Zoom $view.Zoom
+        $cursorWorldX = $center[0] + ($pos.X - $canvas.ActualWidth / 2.0)
+        $cursorWorldY = $center[1] + ($pos.Y - $canvas.ActualHeight / 2.0)
+        $factor = [Math]::Pow(2.0, $newZoom - $view.Zoom)
+        $newCenterX = $cursorWorldX * $factor - ($pos.X - $canvas.ActualWidth / 2.0)
+        $newCenterY = $cursorWorldY * $factor - ($pos.Y - $canvas.ActualHeight / 2.0)
+        $latLon = Get-OfflineMapLatLon -X $newCenterX -Y $newCenterY -Zoom $newZoom
+        $view.Zoom = $newZoom
+        $view.CenterLat = $latLon[0]
+        $view.CenterLon = $latLon[1]
         & $redraw
     }.GetNewClosure())
     # Pan starts only after a small movement threshold so single clicks still
@@ -626,7 +828,7 @@ function Show-OfflineMapWindow {
     $canvas.Add_MouseLeftButtonDown({
         param($sender, $eventArgs)
         $view.DragStart = $eventArgs.GetPosition($canvas)
-        $view.DragOrigin = @($view.CenterLat, $view.CenterLon)
+        $view.DragOriginWorld = Get-OfflineMapWorldPixel -Lat $view.CenterLat -Lon $view.CenterLon -Zoom $view.Zoom
         $view.Panning = $false
     }.GetNewClosure())
     $canvas.Add_MouseMove({
@@ -641,16 +843,17 @@ function Show-OfflineMapWindow {
             $view.Panning = $true
             [void]$canvas.CaptureMouse()
         }
-        $kLat = 111320.0
-        $kLon = 111320.0 * [Math]::Cos($view.DragOrigin[0] * [Math]::PI / 180.0)
-        $view.CenterLat = $view.DragOrigin[0] + $dy * $view.MetersPerPixel / $kLat
-        $view.CenterLon = $view.DragOrigin[1] - $dx * $view.MetersPerPixel / $kLon
+        $latLon = Get-OfflineMapLatLon -X ($view.DragOriginWorld[0] - $dx) -Y ($view.DragOriginWorld[1] - $dy) -Zoom $view.Zoom
+        $view.CenterLat = $latLon[0]
+        $view.CenterLon = $latLon[1]
         & $redraw
     }.GetNewClosure())
     $canvas.Add_PreviewMouseLeftButtonUp({
+        $wasPanning = $view.Panning
         $view.DragStart = $null
         $view.Panning = $false
         if ($canvas.IsMouseCaptured) { $canvas.ReleaseMouseCapture() }
+        if ($wasPanning) { & $redraw }   # fetch pass for newly exposed tiles
     }.GetNewClosure())
 
     $timer = New-Object Windows.Threading.DispatcherTimer
@@ -663,7 +866,7 @@ function Show-OfflineMapWindow {
         Invoke-AppAction -Context "Load offline map" -Action {
             & $refresh
             & $fitView
-            & $redraw
+            & $refresh
             $timer.Start()
         }
     }.GetNewClosure())
