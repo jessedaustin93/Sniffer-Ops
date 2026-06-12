@@ -621,12 +621,6 @@ function Invoke-PendingAwarenessSdrDeepScan {
         if (-not $result.Completed) { return $false }
         if ($result.Error) { throw $result.Error }
         $hits = @($result.Signals)
-        if (Get-Command Sync-LocalAwarenessSnapshot -ErrorAction SilentlyContinue) {
-            [void](Sync-LocalAwarenessSnapshot)
-        }
-        if (Get-Command Refresh-ScannerCounts -ErrorAction SilentlyContinue) {
-            Refresh-ScannerCounts
-        }
         $script:AwarenessSdrDeepScan.SdrSignals = $hits
         $script:AwarenessSdrDeepScan.State = "completed"
         $script:AwarenessSdrDeepScan.Message = "PC SDR deep scan completed with $($hits.Count) RF peak(s)."
@@ -648,7 +642,7 @@ function Invoke-PendingAwarenessSdrDeepScan {
 function Start-AwarenessSyncServer {
     param(
         [string] $BindAddress = "0.0.0.0",
-        [int] $Port = 8765,
+        [int] $Port = 8766,
         [string] $LogPath
     )
 
@@ -752,32 +746,47 @@ function Receive-AwarenessSyncRequests {
 function Read-AwarenessHttpRequest {
     param([System.Net.Sockets.TcpClient] $Client)
 
+    $Client.ReceiveTimeout = 15000
+    $Client.SendTimeout = 15000
     $stream = $Client.GetStream()
-    $buffer = New-Object byte[] 65536
-    $bytes = New-Object System.Collections.Generic.List[byte]
-    $contentLength = 0
-    $headerText = $null
-
-    while ($true) {
-        $read = $stream.Read($buffer, 0, $buffer.Length)
-        if ($read -le 0) { break }
-        for ($i = 0; $i -lt $read; $i++) { $bytes.Add($buffer[$i]) | Out-Null }
-        $text = [System.Text.Encoding]::UTF8.GetString($bytes.ToArray())
-        $headerEnd = $text.IndexOf("`r`n`r`n")
-        if ($headerEnd -ge 0) {
-            $headerText = $text.Substring(0, $headerEnd)
-            foreach ($line in $headerText -split "`r`n") {
-                if ($line -match '^Content-Length:\s*(\d+)') { $contentLength = [int]$Matches[1] }
-            }
-            $bodyBytesAlready = $bytes.Count - ($headerEnd + 4)
-            if ($bodyBytesAlready -ge $contentLength) { break }
+    $headerBytes = New-Object System.Collections.Generic.List[byte]
+    $headerEnd = -1
+    while ($headerEnd -lt 0) {
+        $value = $stream.ReadByte()
+        if ($value -lt 0) { break }
+        $headerBytes.Add([byte]$value)
+        $count = $headerBytes.Count
+        if ($count -ge 4 -and
+            $headerBytes[$count - 4] -eq 13 -and
+            $headerBytes[$count - 3] -eq 10 -and
+            $headerBytes[$count - 2] -eq 13 -and
+            $headerBytes[$count - 1] -eq 10) {
+            $headerEnd = $count - 4
         }
+        if ($count -gt 65536) { throw "HTTP request headers are too large" }
     }
 
-    if (-not $headerText) { throw "Invalid HTTP request" }
-    $allText = [System.Text.Encoding]::UTF8.GetString($bytes.ToArray())
-    $headerEnd = $allText.IndexOf("`r`n`r`n")
-    $body = if ($contentLength -gt 0) { $allText.Substring($headerEnd + 4, $contentLength) } else { "" }
+    if ($headerEnd -lt 0) { throw "Invalid HTTP request" }
+    $headerText = [System.Text.Encoding]::ASCII.GetString($headerBytes.ToArray(), 0, $headerEnd)
+    $contentLength = 0
+    foreach ($line in $headerText -split "`r`n") {
+        if ($line -match '^Content-Length:\s*(\d+)') { $contentLength = [int]$Matches[1] }
+    }
+    if ($contentLength -gt 32MB) { throw "HTTP request body is too large" }
+
+    $bodyBytes = [byte[]]::new($contentLength)
+    $offset = 0
+    while ($offset -lt $contentLength) {
+        $read = $stream.Read($bodyBytes, $offset, $contentLength - $offset)
+        if ($read -le 0) { throw "HTTP request body ended early" }
+        $offset += $read
+    }
+
+    $body = if ($contentLength -gt 0) {
+        [System.Text.Encoding]::UTF8.GetString($bodyBytes)
+    } else {
+        ""
+    }
     $firstLine = ($headerText -split "`r`n")[0]
     $parts = $firstLine -split "\s+"
     return [pscustomobject]@{

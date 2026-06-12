@@ -80,7 +80,7 @@ powershell -ExecutionPolicy Bypass -File windows\Test-OfflineMap.ps1
 
 ## Awareness Sync Endpoints
 
-The companion listens on the sync port (default 8765) for the phone app:
+The companion listens on the sync port (default 8766) for the phone app:
 
 - `GET /snifferops/health` - reachability check.
 - `GET /snifferops/awareness` - the merged signal awareness state.

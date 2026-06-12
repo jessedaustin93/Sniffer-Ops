@@ -509,7 +509,7 @@ $OutLog = Join-Path $RepoRoot "rtl_tcp.out.log"
 $ErrLog = Join-Path $RepoRoot "rtl_tcp.err.log"
 $AppLog = Join-Path $RepoRoot "snifferops-windows.log"
 $AwarenessLog = Join-Path $RepoRoot "data\signal-awareness.json"
-$AwarenessSyncPort = 8765
+$AwarenessSyncPort = 8766
 $script:BindAddress = $BindAddress
 $script:RtlTcpPort = $Port
 $script:AwarenessSyncPort = $AwarenessSyncPort
@@ -3804,7 +3804,6 @@ $script:ScanTimer.Interval = [TimeSpan]::FromSeconds(4)
 $script:ScanTimer.Add_Tick({
     Invoke-AppAction -Context "Auto refresh" -Action {
         [void](Invoke-PendingAwarenessSdrDeepScan -LogPath $AppLog)
-        Refresh-ScannerCounts
     }
 })
 $script:ScanTimer.Start()
@@ -3843,7 +3842,6 @@ Invoke-AppAction -Context "Startup refresh" -Action {
     } catch {
         Add-LogLine "Awareness sync unavailable: $($_.Exception.Message)"
     }
-    Refresh-ScannerCounts
     Add-LogLine "SnifferOps Windows ready."
     Add-LogLine "Click START WINDOWS RTL SERVER when the Android app needs RTL data."
 }
