@@ -4,6 +4,8 @@ This branch contains the Windows companion version of SnifferOps.
 
 Use this branch on the Windows machine that hosts the RTL-SDR dongle. The companion can start `rtl_tcp` so the Android app can use Network SDR data over the local network, and it also includes Windows-side SDR testing, scanning, ADS-B helpers, and radio listening tools.
 
+The Android phone remains the standalone recorder. This companion receives durable copies later, compiles them into awareness profiles, and acknowledges exactly which phone sightings were safely assimilated.
+
 For the Samsung-focused Android phone app and Samsung watch monitor companion, use the `codex/android-mobile-app` branch.
 
 ## Launch
@@ -63,7 +65,7 @@ The awareness panel in the header is a live miniature of the offline map; clicki
 
 Signals synced from the phone (`/snifferops/sync`) are placed in tiers:
 
-1. **GPS** (solid dot) - the signal has phone-GPS located sightings; it plots at their average.
+1. **GPS** (solid dot) - each distinct detection-time phone GPS position is retained as a route marker. Points within 25 meters are collapsed to keep the map readable.
 2. **Inferred, co-seen GPS** (dashed dot) - the signal has no GPS of its own, but the node that saw it reported GPS fixes for other signals close in time. It is placed from those fixes, weighted toward the nearest in time.
 3. **Inferred, node area** (hollow dashed dot) - no time-correlated fix exists, so the signal lands at its observing node's usual area: the average of that node's own GPS fixes, or - for a node that never has GPS, like this PC - the average position of GPS-placed signals the node also sees.
 4. **Unplaced** - nothing GPS-related was ever observed alongside the signal; it is counted in the status bar but not drawn.
@@ -82,8 +84,14 @@ The companion listens on the sync port (default 8765) for the phone app:
 
 - `GET /snifferops/health` - reachability check.
 - `GET /snifferops/awareness` - the merged signal awareness state.
-- `POST /snifferops/sync` - merge a phone snapshot (signals plus GPS location) into the awareness log.
+- `POST /snifferops/sync` - merge durable phone journal rows using their original detection timestamps and GPS coordinates.
 - `POST /snifferops/sdr/deep-scan` and `GET /snifferops/sdr/deep-scan/status` - ask the PC to run an SDR spectrum sweep and poll its result.
+
+### Confirmed Compaction
+
+The sync response includes `acknowledgedSightingIds`. Windows returns an ID only after the sighting has been assimilated and the awareness state has been saved. Duplicate retries are acknowledged but not counted twice.
+
+The phone keeps acknowledged rows until the user presses `COMPACT PHONE`. This separates transfer from deletion: a timeout, failed save, missing acknowledgment, or partial response cannot erase phone evidence.
 
 ## Icon
 

@@ -104,14 +104,24 @@ function Get-OfflineMapPlacements {
     $nodeFixes = Get-OfflineMapNodeFixes -Profiles $profiles
     $placements = @()
 
-    # Pass 1: own GPS, then time-correlated fixes from the same node.
+    # Pass 1: retain distinct own-GPS sightings so movement stays visible,
+    # then place signals without GPS from time-correlated fixes.
     foreach ($profile in $profiles) {
         $geo = @()
         foreach ($sighting in @($profile.Sightings)) {
             $lat = ConvertTo-AwarenessNumber $sighting.Latitude
             $lon = ConvertTo-AwarenessNumber $sighting.Longitude
             if ($null -ne $lat -and $null -ne $lon) {
-                $geo += [pscustomobject]@{ Latitude = $lat; Longitude = $lon }
+                $existingPoint = @($geo | Where-Object {
+                    (Get-AwarenessDistanceMeters -Lat1 $_.Latitude -Lon1 $_.Longitude -Lat2 $lat -Lon2 $lon) -lt 25.0
+                } | Select-Object -First 1)
+                if ($existingPoint.Count -eq 0) {
+                    $geo += [pscustomobject]@{
+                        Latitude = $lat
+                        Longitude = $lon
+                        At = $sighting.At
+                    }
+                }
             }
         }
 
@@ -121,10 +131,27 @@ function Get-OfflineMapPlacements {
         $note = "No GPS data was ever synced alongside this signal."
 
         if ($geo.Count -gt 0) {
-            $tier = "gps"
-            $lat = (@($geo) | Measure-Object -Property Latitude -Average).Average
-            $lon = (@($geo) | Measure-Object -Property Longitude -Average).Average
-            $note = "Phone GPS: average of $($geo.Count) located sighting(s)."
+            $pointNumber = 0
+            foreach ($point in $geo) {
+                $pointNumber++
+                $placements += [pscustomobject][ordered]@{
+                    Key = "$($profile.Key)|gps-$pointNumber"
+                    ProfileKey = $profile.Key
+                    Name = $profile.Name
+                    Type = $profile.Type
+                    SpecificType = $profile.SpecificType
+                    Class = $profile.Class
+                    LastSeen = $profile.LastSeen
+                    SeenCount = $profile.SeenCount
+                    LastSignal = $profile.LastSignal
+                    NodeIds = @(Get-OfflineMapProfileNodeIds -Profile $profile)
+                    PlacementTier = "gps"
+                    Latitude = $point.Latitude
+                    Longitude = $point.Longitude
+                    PlacementNote = "Phone GPS sighting $pointNumber of $($geo.Count), recorded $($point.At)."
+                }
+            }
+            continue
         } else {
             # Correlate each sighting with the nearest-in-time GPS fix that the
             # same node reported for any other signal.
@@ -165,6 +192,7 @@ function Get-OfflineMapPlacements {
 
         $placements += [pscustomobject][ordered]@{
             Key = $profile.Key
+            ProfileKey = $profile.Key
             Name = $profile.Name
             Type = $profile.Type
             SpecificType = $profile.SpecificType

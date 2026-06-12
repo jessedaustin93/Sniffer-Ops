@@ -71,31 +71,36 @@ $profiles = @(
 
 $placements = @(Get-OfflineMapPlacements -Profiles $profiles -LinkWindowMinutes 20)
 $byKey = @{}
-foreach ($p in $placements) { $byKey[$p.Key] = $p }
+foreach ($p in $placements) {
+    $profileKey = if ($p.ProfileKey) { $p.ProfileKey } else { $p.Key }
+    if (-not $byKey.ContainsKey($profileKey)) { $byKey[$profileKey] = @() }
+    $byKey[$profileKey] = @($byKey[$profileKey]) + $p
+}
 
-Assert "all profiles got a placement row"   ($placements.Count -eq 4)
+Assert "route GPS creates an extra marker"  ($placements.Count -eq 5)
 
-# Tier 1: own GPS -> averaged position.
-$gps = $byKey["AP-GPS"]
-Assert "GPS signal uses gps tier"           ($gps.PlacementTier -eq "gps")
-Assert "GPS latitude is sighting average"   ([Math]::Abs($gps.Latitude - 40.01) -lt 0.0001)
-Assert "GPS longitude is sighting average"  ([Math]::Abs($gps.Longitude - (-74.99)) -lt 0.0001)
+# Tier 1: own GPS -> one marker at each distinct route position.
+$gps = @($byKey["AP-GPS"])
+Assert "GPS signal keeps two route markers" ($gps.Count -eq 2)
+Assert "GPS markers use gps tier"           (@($gps | Where-Object { $_.PlacementTier -eq "gps" }).Count -eq 2)
+Assert "first GPS marker keeps its fix"      (@($gps | Where-Object { [Math]::Abs($_.Latitude - 40.00) -lt 0.0001 -and [Math]::Abs($_.Longitude - (-75.00)) -lt 0.0001 }).Count -eq 1)
+Assert "second GPS marker keeps its fix"     (@($gps | Where-Object { [Math]::Abs($_.Latitude - 40.02) -lt 0.0001 -and [Math]::Abs($_.Longitude - (-74.98)) -lt 0.0001 }).Count -eq 1)
 
 # Tier 2: no own GPS, placed from the nearest-in-time fix of the same node.
 # BT-LINKED at 12:05 sits between phone fixes at 12:00 and 12:10 (both 5 min
 # away) - the implementation keeps the first equally-near fix (12:00).
-$linked = $byKey["BT-LINKED"]
+$linked = @($byKey["BT-LINKED"])[0]
 Assert "co-seen signal uses linked tier"    ($linked.PlacementTier -eq "linked")
 Assert "linked position from nearest fix"   ([Math]::Abs($linked.Latitude - 40.00) -lt 0.0001 -and [Math]::Abs($linked.Longitude - (-75.00)) -lt 0.0001)
 
 # Tier 3: PC-only device, PC never had GPS. The PC co-sees AP-GPS (placed), so
 # the PC node anchors to AP-GPS's position and WIFI-ANCHOR lands there.
-$anchored = $byKey["WIFI-ANCHOR"]
+$anchored = @($byKey["WIFI-ANCHOR"])[0]
 Assert "PC-only signal uses anchor tier"    ($anchored.PlacementTier -eq "anchor")
 Assert "anchor borrows co-seen GPS area"    ([Math]::Abs($anchored.Latitude - 40.01) -lt 0.0001 -and [Math]::Abs($anchored.Longitude - (-74.99)) -lt 0.0001)
 
 # Tier 4: nothing GPS-related anywhere near it.
-$ghost = $byKey["GHOST"]
+$ghost = @($byKey["GHOST"])[0]
 Assert "isolated signal stays unplaced"     ($ghost.PlacementTier -eq "unplaced")
 Assert "unplaced has no coordinates"        ($null -eq $ghost.Latitude -and $null -eq $ghost.Longitude)
 

@@ -3744,12 +3744,20 @@ $script:ScanTimer = New-Object Windows.Threading.DispatcherTimer
 $script:ScanTimer.Interval = [TimeSpan]::FromSeconds(4)
 $script:ScanTimer.Add_Tick({
     Invoke-AppAction -Context "Auto refresh" -Action {
-        [void](Receive-AwarenessSyncRequests -LogPath $AppLog)
         [void](Invoke-PendingAwarenessSdrDeepScan -LogPath $AppLog)
         Refresh-ScannerCounts
     }
 })
 $script:ScanTimer.Start()
+
+$script:SyncTimer = New-Object Windows.Threading.DispatcherTimer
+$script:SyncTimer.Interval = [TimeSpan]::FromMilliseconds(250)
+$script:SyncTimer.Add_Tick({
+    Invoke-AppAction -Context "Awareness sync pump" -Action {
+        [void](Receive-AwarenessSyncRequests -LogPath $AppLog)
+    }
+})
+$script:SyncTimer.Start()
 
 $script:SweepTimer = New-Object Windows.Threading.DispatcherTimer
 $script:SweepTimer.Interval = [TimeSpan]::FromMilliseconds(40)
@@ -3763,6 +3771,7 @@ $script:SweepTimer.Start()
 
 $Window.Add_Closed({
     if ($script:ScanTimer) { $script:ScanTimer.Stop() }
+    if ($script:SyncTimer) { $script:SyncTimer.Stop() }
     if ($script:SweepTimer) { $script:SweepTimer.Stop() }
     Stop-AwarenessSyncServer
     Stop-SdrAudio -RestoreServer:$false
