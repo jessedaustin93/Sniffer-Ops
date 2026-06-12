@@ -63,6 +63,8 @@ Windows sync is optional replication, not required operation.
 
 A failed, partial, or interrupted send deletes nothing. Confirmed rows also survive an app restart until the user explicitly presses `COMPACT PHONE`.
 
+PC transfer and compaction controls live on the dedicated `PC Sync` screen. The SDR screen only manages SDR connection and measured RF scans. High-rate Bluetooth callbacks are coalesced before batched Room writes while the journal keeps its 10-second per-signal sighting cadence.
+
 ## RTL-SDR
 
 SnifferOps works without an SDR dongle. Wi-Fi, Bluetooth, NFC, and cellular scanning use built-in phone hardware.

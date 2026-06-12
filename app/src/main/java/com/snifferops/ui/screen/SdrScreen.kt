@@ -29,14 +29,6 @@ fun SdrScreen(
     networkConnected: Boolean,
     networkHost: String,
     networkPort: String,
-    awarenessSyncHost: String,
-    awarenessSyncPort: String,
-    awarenessSyncEnabled: Boolean,
-    awarenessSyncConnected: Boolean,
-    awarenessSyncInProgress: Boolean,
-    awarenessSyncStatus: String,
-    awarenessCompactionReadyCount: Int,
-    awarenessSignalCount: Int,
     deviceName: String,
     scanning: Boolean,
     onStartScan: () -> Unit,
@@ -44,11 +36,6 @@ fun SdrScreen(
     onNetworkEndpointChange: (String, String) -> Unit,
     onConnectNetwork: () -> Unit,
     onDisconnectNetwork: () -> Unit,
-    onAwarenessEndpointChange: (String, String) -> Unit,
-    onAwarenessSyncEnabledChange: (Boolean) -> Unit,
-    onConnectAwarenessSync: () -> Unit,
-    onSyncAwarenessNow: () -> Unit,
-    onCompactAwareness: () -> Unit,
     onBack: () -> Unit
 ) {
     val sdrColor = Color(0xFF8B5CF6)
@@ -82,17 +69,13 @@ fun SdrScreen(
                 onStop = onStopScan
             )
 
-            WindowsSyncCompactPanel(
-                host = awarenessSyncHost.ifBlank { networkHost },
-                port = awarenessSyncPort,
-                connected = awarenessSyncConnected,
-                syncing = awarenessSyncInProgress,
-                status = awarenessSyncStatus,
-                compactionReadyCount = awarenessCompactionReadyCount,
-                onEndpointChange = onAwarenessEndpointChange,
-                onConnect = onConnectAwarenessSync,
-                onSyncNow = onSyncAwarenessNow,
-                onCompact = onCompactAwareness
+            NetworkSdrPanel(
+                host = networkHost,
+                port = networkPort,
+                connected = networkConnected,
+                onEndpointChange = onNetworkEndpointChange,
+                onConnect = onConnectNetwork,
+                onDisconnect = onDisconnectNetwork
             )
 
             if (signals.isEmpty()) {

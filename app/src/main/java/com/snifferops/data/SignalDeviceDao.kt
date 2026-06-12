@@ -20,6 +20,9 @@ interface SignalDeviceDao {
     @Query("SELECT * FROM signal_devices WHERE id = :id LIMIT 1")
     suspend fun getDeviceById(id: String): SignalDevice?
 
+    @Query("SELECT * FROM signal_devices WHERE id IN (:ids)")
+    suspend fun getDevicesByIds(ids: List<String>): List<SignalDevice>
+
     @Query("SELECT * FROM signal_devices WHERE threatLevel IN ('UNKNOWN','SUSPICIOUS','ALERT') ORDER BY lastSeen DESC")
     fun getAlerts(): Flow<List<SignalDevice>>
 

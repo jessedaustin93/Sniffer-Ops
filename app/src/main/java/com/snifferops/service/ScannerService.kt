@@ -19,8 +19,11 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.launch
 
+@OptIn(kotlinx.coroutines.FlowPreview::class)
 class ScannerService : Service() {
 
     companion object {
@@ -28,6 +31,7 @@ class ScannerService : Service() {
         const val NOTIFICATION_ID = 1001
         const val ACTION_START = "com.snifferops.START_SCAN"
         const val ACTION_STOP = "com.snifferops.STOP_SCAN"
+        private const val RADIO_PERSIST_INTERVAL_MS = 2_000L
     }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -65,10 +69,18 @@ class ScannerService : Service() {
                 wifi.scan().catch { }.collect { store.record(it) }
             }
             launch {
-                bluetooth.scanClassic().catch { }.collect { store.record(it) }
+                bluetooth.scanClassic()
+                    .conflate()
+                    .sample(RADIO_PERSIST_INTERVAL_MS)
+                    .catch { }
+                    .collect { store.record(it) }
             }
             launch {
-                bluetooth.scanBle().catch { }.collect { store.record(it) }
+                bluetooth.scanBle()
+                    .conflate()
+                    .sample(RADIO_PERSIST_INTERVAL_MS)
+                    .catch { }
+                    .collect { store.record(it) }
             }
             launch {
                 cellular.scan().catch { }.collect { towers ->

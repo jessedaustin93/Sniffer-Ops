@@ -17,9 +17,10 @@ class SignalDetectionStore(context: Context) {
         val location = locationProvider.bestLastKnownLocation()
         val profiles = ArrayList<SignalDevice>(devices.size)
         val sightings = ArrayList<SignalSighting>()
+        val existingById = dao.getDevicesByIds(devices.map { it.id }.distinct()).associateBy { it.id }
 
         devices.forEach { incoming ->
-            val existing = dao.getDeviceById(incoming.id)
+            val existing = existingById[incoming.id]
             profiles += incoming.mergeWith(existing, now, location)
             val lastRecordedAt = recordedAtById[incoming.id] ?: existing?.lastSeen ?: 0L
             if (now - lastRecordedAt >= SIGHTING_INTERVAL_MS) {

@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Nfc
 import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Badge
@@ -501,6 +502,7 @@ private fun ScannerGrid(state: AppState, onNavigate: (Screen) -> Unit) {
         ScannerTile("NFC", Icons.Default.Nfc, Screen.Nfc, if (state.lastNfcTag != null) 1 else 0, false, Color(0xFFEC4899)),
         ScannerTile("Cellular", Icons.Default.CellTower, Screen.Cellular, summary.cellCount, state.cellScanActive, WarningOrange),
         ScannerTile("SDR Radio", Icons.Default.Radio, Screen.Sdr, summary.sdrCount, state.sdrScanActive, Color(0xFF8B5CF6)),
+        ScannerTile("PC Sync", Icons.Default.Sync, Screen.Sync, state.awarenessCompactionReadyCount, state.awarenessSyncInProgress, Color(0xFF22D3EE)),
         ScannerTile("Alerts", Icons.Default.Warning, Screen.Alerts, alertTotal, false, AlertRed)
     )
 
@@ -567,5 +569,6 @@ private fun ScannerTile.subtitle(): String = when (screen) {
     Screen.Nfc -> "Samsung NFC reader"
     Screen.Cellular -> "Radio info"
     Screen.Sdr -> "Measured RF peaks"
+    Screen.Sync -> "Stored history transfer"
     Screen.Alerts -> "App status"
 }

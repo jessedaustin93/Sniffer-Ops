@@ -156,6 +156,10 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun startWifiScan() {
+        if (_state.value.scanActive) {
+            _state.update { it.copy(wifiScanActive = true) }
+            return
+        }
         wifiJob?.cancel()
         _state.update { it.copy(wifiScanActive = true) }
         wifiJob = viewModelScope.launch {
@@ -175,6 +179,10 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun startBluetoothScan() {
+        if (_state.value.scanActive) {
+            _state.update { it.copy(btScanActive = true) }
+            return
+        }
         btJob?.cancel()
         _state.update { it.copy(btScanActive = true) }
         btJob = viewModelScope.launch {
@@ -190,6 +198,10 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun startBleScan() {
+        if (_state.value.scanActive) {
+            _state.update { it.copy(bleScanActive = true) }
+            return
+        }
         bleJob?.cancel()
         _state.update { it.copy(bleScanActive = true) }
         bleJob = viewModelScope.launch {
@@ -205,6 +217,10 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun startCellularScan() {
+        if (_state.value.scanActive) {
+            _state.update { it.copy(cellScanActive = true) }
+            return
+        }
         cellJob?.cancel()
         _state.update { it.copy(cellScanActive = true) }
         cellJob = viewModelScope.launch {
@@ -602,9 +618,10 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
     private fun loadPersistedSignals() {
         viewModelScope.launch {
-            db.signalDeviceDao().getAllDevices().collect { devices ->
-                applyPersistedSignalsToState(devices)
-            }
+            db.signalDeviceDao().getAllDevices()
+                .conflate()
+                .debounce(250)
+                .collect { devices -> applyPersistedSignalsToState(devices) }
         }
     }
 

@@ -15,6 +15,7 @@ sealed class Screen(val route: String) {
     object Nfc : Screen("nfc")
     object Cellular : Screen("cellular")
     object Sdr : Screen("sdr")
+    object Sync : Screen("sync")
     object Alerts : Screen("alerts")
 }
 
@@ -85,14 +86,6 @@ fun SnifferOpsNavHost(
                 networkConnected = state.networkSdrConnected,
                 networkHost = state.networkSdrHost,
                 networkPort = state.networkSdrPort,
-                awarenessSyncHost = state.awarenessSyncHost,
-                awarenessSyncPort = state.awarenessSyncPort,
-                awarenessSyncEnabled = state.awarenessSyncEnabled,
-                awarenessSyncConnected = state.awarenessSyncConnected,
-                awarenessSyncInProgress = state.awarenessSyncInProgress,
-                awarenessSyncStatus = state.awarenessSyncStatus,
-                awarenessCompactionReadyCount = state.awarenessCompactionReadyCount,
-                awarenessSignalCount = state.awarenessSignalCount,
                 deviceName = state.sdrDeviceName,
                 scanning = state.sdrScanActive,
                 onStartScan = { viewModel.startSdrScan() },
@@ -100,8 +93,19 @@ fun SnifferOpsNavHost(
                 onNetworkEndpointChange = { host, port -> viewModel.setNetworkSdrEndpoint(host, port) },
                 onConnectNetwork = { viewModel.connectNetworkSdr() },
                 onDisconnectNetwork = { viewModel.disconnectNetworkSdr() },
+                onBack = { navController.popBackStack() }
+            )
+        }
+        composable(Screen.Sync.route) {
+            SyncScreen(
+                host = state.awarenessSyncHost.ifBlank { state.networkSdrHost },
+                port = state.awarenessSyncPort,
+                connected = state.awarenessSyncConnected,
+                syncing = state.awarenessSyncInProgress,
+                status = state.awarenessSyncStatus,
+                compactionReadyCount = state.awarenessCompactionReadyCount,
+                knownSignalCount = state.awarenessSignalCount,
                 onAwarenessEndpointChange = { host, port -> viewModel.setAwarenessSyncEndpoint(host, port) },
-                onAwarenessSyncEnabledChange = { viewModel.setAwarenessSyncEnabled(it) },
                 onConnectAwarenessSync = { viewModel.connectAwarenessSyncServer() },
                 onSyncAwarenessNow = { viewModel.syncSavedAwarenessToWindows() },
                 onCompactAwareness = { viewModel.compactConfirmedPhoneHistory() },
