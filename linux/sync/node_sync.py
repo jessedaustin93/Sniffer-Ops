@@ -45,12 +45,14 @@ class NodeSyncManager:
 
     def __init__(self, awareness_log_module, node_id: str, node_name: str,
                  peers: list[dict] | None = None,
-                 on_peer_update: "callable | None" = None):
+                 on_peer_update: "callable | None" = None,
+                 on_sync_complete: "callable | None" = None):
         self._log        = awareness_log_module
         self._node_id    = node_id
         self._node_name  = node_name
         self._peers: list[dict] = list(peers or [])
-        self._on_update  = on_peer_update   # called with updated peer list on discovery
+        self._on_update  = on_peer_update    # called with updated peer list on discovery
+        self._on_sync_complete = on_sync_complete  # called after each successful sync
         self._running    = False
         self._lock       = threading.Lock()
         self._thread: threading.Thread | None = None
@@ -104,6 +106,7 @@ class NodeSyncManager:
         results = {}
         with self._lock:
             peers = list(self._peers)
+        any_ok = False
         for peer in peers:
             key = f"{peer['host']}:{peer['port']}"
             try:
@@ -111,9 +114,11 @@ class NodeSyncManager:
                 results[peer.get("name", key)] = status
                 self._last_sync[key] = time.time()
                 self._fail_count[key] = 0
+                any_ok = True
             except Exception as exc:
                 results[peer.get("name", key)] = f"error: {exc}"
                 self._fail_count[key] = self._fail_count.get(key, 0) + 1
+        # _sync_peer already fires on_sync_complete per peer; no extra call needed
         return results
 
     # ── Explicit safe-send ─────────────────────────────────────────────────────
@@ -304,26 +309,46 @@ class NodeSyncManager:
                 except Exception as exc:
                     log.warning("_sync_peer: mark_synced failed: %s", exc)
 
-            # Merge signals the peer sent back into our local awareness log
-            remote_snap = {
-                "schema":        1,
-                "nodeId":        f"{host}:{port}",
-                "nodeName":      peer.get("name", host),
-                "capturedAt":    int(time.time() * 1000),
-                "location":      {},
-                "completeTypes": [],
-                "signals":       _to_snapshot_signals(remote.get("signals", [])),
-            }
-            self._log.merge_snapshot(remote_snap)
-            n = remote.get("totalSignals", 0)
+            # If the POST response has no signals (Windows/Android return signals:[] in
+            # the ack response), follow up with a GET to pull their full compiled
+            # awareness — this is how GPS-tagged sightings from Android reach Linux.
+            signals_in_response = remote.get("signals") or []
+            if not signals_in_response:
+                pulled = _http_get(host, port, "/snifferops/awareness",
+                                   timeout=self.SYNC_TIMEOUT)
+                if pulled:
+                    signals_in_response = pulled.get("signals") or []
+                    remote = pulled  # use full payload for totalSignals count
+
+            # Merge signals into local awareness DB (GPS coords and sightings preserved)
+            if signals_in_response:
+                remote_snap = {
+                    "schema":        1,
+                    "nodeId":        f"{host}:{port}",
+                    "nodeName":      peer.get("name", host),
+                    "capturedAt":    int(time.time() * 1000),
+                    "location":      {},
+                    "completeTypes": remote.get("completeTypes", []),
+                    "signals":       _to_snapshot_signals(signals_in_response),
+                }
+                self._log.merge_snapshot(remote_snap)
+
+            n = remote.get("totalSignals", len(signals_in_response))
+
+            if self._on_sync_complete:
+                try:
+                    self._on_sync_complete()
+                except Exception:
+                    pass
+
             if ack_count:
                 return f"ok — {n} signals from peer, {ack_count} sightings acked"
             return f"ok — {n} signals from peer"
 
-        # POST failed; try a plain GET pull as fallback (older/Windows nodes)
+        # POST failed entirely; try a plain GET pull
         pulled = _http_get(host, port, "/snifferops/awareness",
                            timeout=self.SYNC_TIMEOUT)
-        if pulled:
+        if pulled and (pulled.get("signals") or pulled.get("Signals")):
             pull_snap = {
                 "schema":        1,
                 "nodeId":        f"{host}:{port}",
@@ -331,10 +356,19 @@ class NodeSyncManager:
                 "capturedAt":    int(time.time() * 1000),
                 "location":      {},
                 "completeTypes": [],
-                "signals":       _to_snapshot_signals(pulled.get("signals", [])),
+                "signals":       _to_snapshot_signals(
+                    pulled.get("signals") or pulled.get("Signals") or []
+                ),
             }
             self._log.merge_snapshot(pull_snap)
             n = pulled.get("totalSignals", 0)
+
+            if self._on_sync_complete:
+                try:
+                    self._on_sync_complete()
+                except Exception:
+                    pass
+
             return f"ok (pull) — {n} signals from peer"
 
         raise ConnectionError(f"no response from {host}:{port}")
@@ -344,14 +378,13 @@ class NodeSyncManager:
 
 def _to_snapshot_signals(signals: list[dict]) -> list[dict]:
     """
-    Normalise a list of raw signal dicts into the snapshot wire shape.
-    Accepts both the new UUID-bearing format from db.build_sync_payload and
-    the legacy shape from the awareness log — the extra fields are ignored
-    by older nodes and harmlessly passed through by newer ones.
+    Pass through all wire-format signal fields, preserving GPS coordinates,
+    sighting UUID arrays, and timestamps so the map placement engine has real data.
     """
     out = []
     for s in signals:
         entry: dict[str, Any] = {
+            "id":             s.get("id", ""),
             "name":           s.get("name", ""),
             "address":        s.get("address", ""),
             "type":           s.get("type", "UNKNOWN"),
@@ -359,14 +392,19 @@ def _to_snapshot_signals(signals: list[dict]) -> list[dict]:
             "frequencyHz":    s.get("frequencyHz"),
             "manufacturer":   s.get("manufacturer", ""),
             "deviceClass":    s.get("deviceClass", ""),
-            "threatLevel":    s.get("threatLevel", "UNKNOWN"),
+            "isEncrypted":    s.get("isEncrypted", False),
             "channel":        s.get("channel"),
-            "notes": (f"synced; seen {s.get('seenCount', 0)}x "
-                      f"from {s.get('nodeCount', 0)} node(s)"),
+            # GPS — compiled estimate from the source node
+            "latitude":       s.get("latitude") or s.get("estimatedLatitude"),
+            "longitude":      s.get("longitude") or s.get("estimatedLongitude"),
+            "threatLevel":    s.get("threatLevel", "UNKNOWN"),
+            "notes":          s.get("notes", ""),
+            "firstSeen":      s.get("firstSeen"),
+            "lastSeen":       s.get("lastSeen"),
+            "seenCount":      s.get("seenCount", 0),
+            # Per-sighting journal with UUIDs and individual GPS fixes
+            "sightings":      s.get("sightings") or [],
         }
-        # Preserve sighting UUID if present (new protocol)
-        if "sightingId" in s:
-            entry["sightingId"] = s["sightingId"]
         out.append(entry)
     return out
 

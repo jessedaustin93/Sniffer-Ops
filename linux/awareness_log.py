@@ -412,6 +412,15 @@ class _SyncHandler(BaseHTTPRequestHandler):
                 result = merge_snapshot(snapshot)
                 payload = get_sync_payload()
                 payload["merged"] = result.get("merged", 0)
+                # Return the UUIDs of every sighting we successfully assimilated
+                # so the sending node (Windows/Android/Linux) can compact its journal
+                acked = [
+                    s.get("id")
+                    for sig in snapshot.get("signals", [])
+                    for s in (sig.get("sightings") or [])
+                    if s.get("id")
+                ]
+                payload["acknowledgedSightingIds"] = acked
                 self._send_json(payload)
             except Exception as exc:
                 self._send_json({"error": str(exc)}, 500)

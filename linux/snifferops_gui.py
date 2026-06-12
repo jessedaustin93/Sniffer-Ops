@@ -1545,10 +1545,15 @@ class SnifferOpsApp(Adw.Application):
             GLib.idle_add(win.toast,
                 f"Auto-connected {len(new_peers)} Tailscale node(s)")
 
+        def _on_sync_done():
+            """Called from sync thread after each successful peer sync."""
+            GLib.idle_add(win._refresh_map)
+
         _sync_manager = NodeSyncManager(
             awareness_log, NODE_ID, NODE_NAME,
             peers=cfg.get("peers", []),
             on_peer_update=_on_peers_discovered,
+            on_sync_complete=_on_sync_done,
         )
         _sync_manager.start()
 
