@@ -471,6 +471,17 @@ def mark_synced(sighting_ids: list[str]) -> None:
             conn.commit()
 
 
+def get_synced_sighting_ids() -> list[str]:
+    """Return all sighting IDs that have been acknowledged (synced_at IS NOT NULL)."""
+    if not _DB_PATH:
+        return []
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT id FROM signal_sightings WHERE synced_at IS NOT NULL"
+        ).fetchall()
+        return [r[0] for r in rows]
+
+
 def compact_acknowledged(sighting_ids: list[str]) -> int:
     """
     Delete synced sightings to reclaim space.  Only rows with

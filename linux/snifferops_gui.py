@@ -953,7 +953,7 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
         toolbar.append(self._compact_btn)
 
         # Map widget
-        self._map_widget = MapWidget()
+        self._map_widget = MapWidget(os.path.join(DATA_DIR, "map-tiles"))
         self._map_widget.set_vexpand(True)
         self._map_widget.set_hexpand(True)
         box.append(self._map_widget)
@@ -1284,6 +1284,7 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
         bt_n   = type_counts.get("BLUETOOTH", 0) + type_counts.get("BLE", 0)
         cell_n = type_counts.get("CELLULAR", 0)
         sdr_n  = type_counts.get("RTL_SDR", 0)
+        total  = sum(type_counts.values())
 
         # Awareness display profiles for classified counts
         profiles = awareness_log.get_display_profiles()
