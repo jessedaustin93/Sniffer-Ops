@@ -1272,48 +1272,49 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
     def _refresh_all(self) -> None:
         if not awareness_log._log_path:
             return
-        rows = awareness_log.get_rows()
 
-        # Counts per type
-        type_counts: dict[str, int] = {}
-        for r in rows:
-            t = r.get("Type", "")
-            type_counts[t] = type_counts.get(t, 0) + 1
+        # Live-presence windows (seconds) — signals outside these windows
+        # disappear from all lists; they remain in history and on the map.
+        PWIN = {"WIFI": 45, "BLUETOOTH": 20, "BLE": 20, "CELLULAR": 45, "RTL_SDR": 600}
 
-        wifi_n = type_counts.get("WIFI", 0)
-        bt_n   = type_counts.get("BLUETOOTH", 0) + type_counts.get("BLE", 0)
-        cell_n = type_counts.get("CELLULAR", 0)
-        sdr_n  = type_counts.get("RTL_SDR", 0)
-        total  = sum(type_counts.values())
+        # Fetch live profiles once per type; reused for counts, stores, and log.
+        live_wifi  = db.get_live_profiles("WIFI",      PWIN["WIFI"])
+        live_bt    = db.get_live_profiles("BLUETOOTH", PWIN["BLUETOOTH"])
+        live_ble   = db.get_live_profiles("BLE",       PWIN["BLE"])
+        live_cell  = db.get_live_profiles("CELLULAR",  PWIN["CELLULAR"])
+        live_sdr   = db.get_live_profiles("RTL_SDR",   PWIN["RTL_SDR"])
 
-        # Awareness display profiles for classified counts
-        profiles = awareness_log.get_display_profiles()
-        alert_n  = sum(1 for p in profiles if p["Class"] == "Alert")
-        watch_n  = sum(1 for p in profiles if p["Class"] == "Watch")
-        noticed_n = sum(1 for p in profiles if p["Class"] == "Noticed")
-        normal_n  = sum(1 for p in profiles if p["Class"] in ("Normal", "Learning"))
-        total_dp  = len(profiles)
+        wifi_n = len(live_wifi)
+        bt_n   = len(live_bt) + len(live_ble)
+        cell_n = len(live_cell)
+        sdr_n  = len(live_sdr)
+        total  = wifi_n + bt_n + cell_n + sdr_n
 
-        # Stat counters
+        # Awareness strip — classified counts come from ALL known profiles
+        # (history), not just currently-active ones.
+        disp_profiles = awareness_log.get_display_profiles()
+        alert_n   = sum(1 for p in disp_profiles if p["Class"] == "Alert")
+        watch_n   = sum(1 for p in disp_profiles if p["Class"] == "Watch")
+        noticed_n = sum(1 for p in disp_profiles if p["Class"] == "Noticed")
+        normal_n  = sum(1 for p in disp_profiles if p["Class"] in ("Normal", "Learning"))
+        total_dp  = len(disp_profiles)
+
+        # Tile counts (active signals only)
         self._cnt_wifi.set_text(str(wifi_n))
         self._cnt_bt.set_text(str(bt_n))
         self._cnt_cell.set_text(str(cell_n))
         self._cnt_sdr.set_text(str(sdr_n))
         self._cnt_alert.set_text(str(alert_n + watch_n))
-
-        # Tile counts
         tile_vals = [wifi_n, bt_n, 0, cell_n, sdr_n, alert_n + watch_n]
         for lbl, val in zip(self._tile_counts, tile_vals):
             lbl.set_text(str(val))
 
-        # Awareness strip — use display profiles for accurate class counts
+        # Awareness strip
         self._aw_summary.set_text(f"{total_dp} known / {_scan_stats['syncs']} syncs")
         self._aw_normal.set_text(f"Normal: {normal_n}")
-        self._aw_odd.set_text(
-            f"Alert: {alert_n}  Watch: {watch_n}  Noticed: {noticed_n}"
-        )
+        self._aw_odd.set_text(f"Alert: {alert_n}  Watch: {watch_n}  Noticed: {noticed_n}")
 
-        # SDR link status
+        # SDR badge
         sdr_on = self._cfg.get("sdr", False)
         if sdr_on:
             self._sdr_status_lbl.set_text("RTL-SDR LINK ONLINE")
@@ -1324,55 +1325,48 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
             self._sdr_status_lbl.remove_css_class("sdr-online")
             self._sdr_status_lbl.add_css_class("sdr-offline")
 
-        # Log line
+        # Activity log
         self._append_log(
             f"[{time.strftime('%H:%M:%S')}] "
             f"WiFi:{_scan_stats['wifi']} BT:{_scan_stats['bt']} "
-            f"SDR:{_scan_stats['sdr']} Signals:{total}\n"
+            f"SDR:{_scan_stats['sdr']} Active:{total}\n"
         )
 
-        # Populate all_store from awareness_log rows
+        # Helper: convert a DB profile dict to a SignalRow dict
+        def _p2row(p: dict, fallback_type: str) -> dict:
+            return {
+                "Type":               p.get("type") or fallback_type,
+                "Signal":             p.get("name") or p.get("address") or "",
+                "AddressOrFrequency": p.get("address") or str(p.get("frequency_hz") or ""),
+                "StrengthOrPower":    str(p.get("last_signal") or ""),
+                "Classification":     p.get("device_class") or "",
+                "Confidence":         awareness_log._profile_class(p),
+                "LastSeen":           "",
+            }
+
+        # Dashboard "DETECTED SIGNALS" — active signals only, all types combined
         self._all_store.remove_all()
-        for r in rows:
-            self._all_store.append(SignalRow(r))
+        for p in live_wifi + live_bt + live_ble + live_cell + live_sdr:
+            self._all_store.append(SignalRow(_p2row(p, p.get("type", ""))))
 
-        # Populate per-type stores from live-presence DB queries
-        PRESENCE_WINDOWS = {"WIFI": 45, "BLUETOOTH": 20, "BLE": 20, "CELLULAR": 45, "RTL_SDR": 600}
-
-        def _profile_class_from_db(p: dict) -> str:
-            return awareness_log._profile_class(p)
-
-        def _profiles_to_rows(profiles: list[dict], sig_type: str) -> list[dict]:
-            result = []
-            for p in profiles:
-                result.append({
-                    "Type": p.get("type", sig_type),
-                    "Signal": p.get("name") or p.get("address", ""),
-                    "AddressOrFrequency": p.get("address") or str(p.get("frequency_hz") or ""),
-                    "StrengthOrPower": str(p.get("last_signal") or ""),
-                    "Classification": p.get("device_class") or "",
-                    "Confidence": _profile_class_from_db(p),
-                    "LastSeen": "",
-                })
-            return result
-
+        # Per-type signal pages — already scoped to live profiles
         store_wifi = getattr(self, "_store_wifi", None)
         if store_wifi is not None:
             store_wifi.remove_all()
-            for r in _profiles_to_rows(db.get_live_profiles("WIFI", PRESENCE_WINDOWS["WIFI"]), "WIFI"):
-                store_wifi.append(SignalRow(r))
+            for p in live_wifi:
+                store_wifi.append(SignalRow(_p2row(p, "WIFI")))
 
         store_bt = getattr(self, "_store_bluetooth", None)
         if store_bt is not None:
             store_bt.remove_all()
-            for r in _profiles_to_rows(db.get_live_profiles("BLUETOOTH", PRESENCE_WINDOWS["BLUETOOTH"]), "BLUETOOTH"):
-                store_bt.append(SignalRow(r))
+            for p in live_bt + live_ble:
+                store_bt.append(SignalRow(_p2row(p, "BLUETOOTH")))
 
         store_sdr = getattr(self, "_store_rtl_sdr", None)
         if store_sdr is not None:
             store_sdr.remove_all()
-            for r in _profiles_to_rows(db.get_live_profiles("RTL_SDR", PRESENCE_WINDOWS["RTL_SDR"]), "RTL_SDR"):
-                store_sdr.append(SignalRow(r))
+            for p in live_sdr:
+                store_sdr.append(SignalRow(_p2row(p, "RTL_SDR")))
 
     def _append_log(self, text: str) -> None:
         buf = self._log_buf
