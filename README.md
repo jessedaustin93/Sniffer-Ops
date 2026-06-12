@@ -87,6 +87,8 @@ The companion listens on the sync port (default 8765) for the phone app:
 - `POST /snifferops/sync` - merge durable phone journal rows using their original detection timestamps and GPS coordinates.
 - `POST /snifferops/sdr/deep-scan` and `GET /snifferops/sdr/deep-scan/status` - ask the PC to run an SDR spectrum sweep and poll its result.
 
+RTL deep scans run outside the WPF UI loop, so the app and sync endpoint remain responsive while `rtl_power` works. Peak parsing uses a linear rolling noise floor, and dashboard consumers share short-lived Wi-Fi/Bluetooth discovery snapshots instead of rerunning hardware enumeration several times per refresh.
+
 ### Confirmed Compaction
 
 The sync response includes `acknowledgedSightingIds`. Windows returns an ID only after the sighting has been assimilated and the awareness state has been saved. Duplicate retries are acknowledged but not counted twice.

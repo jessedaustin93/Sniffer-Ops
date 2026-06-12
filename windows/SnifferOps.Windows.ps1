@@ -580,6 +580,20 @@ Initialize-AwarenessLog -Path $AwarenessLog
 . (Join-Path $PSScriptRoot "spectrum\PowerScan.ps1")
 $script:PowerScanRange = "88M:1000M:50k"   # rtl_power -f range
 $script:PowerScanThresholdDb = 10.0         # dB above local noise floor to count as a hit
+$script:SdrPowerScanRuntime = [ordered]@{
+    State = "idle"
+    Process = $null
+    Deadline = $null
+    ServerWasRunning = $false
+    CsvPath = ""
+    ErrorPath = ""
+    Signals = @()
+    Error = ""
+}
+$script:WifiDetailsCache = @()
+$script:WifiDetailsCachedAt = [datetime]::MinValue
+$script:BluetoothDetailsCache = @()
+$script:BluetoothDetailsCachedAt = [datetime]::MinValue
 
 # Fixed tuner gain (dB). "auto" lets the tuner AGC hunt, which causes a surging /
 # pumping sound on broadcast FM. A fixed value keeps the level steady. Bump up if
@@ -913,15 +927,14 @@ function Invoke-SdrFrequencySweep {
 # Real wideband power sweep with rtl_power: measures actual power-vs-frequency and
 # detects peaks above the noise floor, so hits are genuine RF energy rather than
 # fixed band guesses. Needs exclusive dongle access, so rtl_tcp is paused.
-function Invoke-SdrPowerScan {
+function Start-SdrPowerScan {
+    if ($script:SdrPowerScanRuntime.State -eq "running") { return $false }
     if (-not (Test-Path $RtlPowerPath)) {
-        Add-LogLine "Missing rtl_power.exe in $ToolRoot."
-        return @()
+        throw "Missing rtl_power.exe in $ToolRoot."
     }
 
     $csvPath = Join-Path $RepoRoot "rtl_power.out.csv"
     $errPath = Join-Path $RepoRoot "rtl_power.err.log"
-
     $serverWasRunning = [bool](Get-Process rtl_tcp -ErrorAction SilentlyContinue)
     if ($serverWasRunning) {
         Add-LogLine "Pausing rtl_tcp for wideband power scan..."
@@ -941,21 +954,49 @@ function Invoke-SdrPowerScan {
         -WindowStyle Hidden `
         -PassThru
 
-    try {
-        $deadline = (Get-Date).AddSeconds(90)
-        while ((Get-Date) -lt $deadline -and -not $proc.HasExited) {
-            Start-Sleep -Milliseconds 500
-        }
-    } finally {
-        if (-not $proc.HasExited) { try { $proc.Kill() } catch {} }
+    $script:SdrPowerScanRuntime = [ordered]@{
+        State = "running"
+        Process = $proc
+        Deadline = (Get-Date).AddSeconds(180)
+        ServerWasRunning = $serverWasRunning
+        CsvPath = $csvPath
+        ErrorPath = $errPath
+        Signals = @()
+        Error = ""
     }
-    Start-Sleep -Milliseconds 300
+    return $true
+}
+
+function Complete-SdrPowerScan {
+    if ($script:SdrPowerScanRuntime.State -eq "completed") {
+        return [pscustomobject]@{
+            Completed = $true
+            Signals = @($script:SdrPowerScanRuntime.Signals)
+            Error = $script:SdrPowerScanRuntime.Error
+        }
+    }
+    if ($script:SdrPowerScanRuntime.State -ne "running") {
+        return [pscustomobject]@{ Completed = $false; Signals = @(); Error = "" }
+    }
+
+    $proc = $script:SdrPowerScanRuntime.Process
+    $timedOut = (Get-Date) -ge $script:SdrPowerScanRuntime.Deadline
+    if (-not $proc.HasExited -and -not $timedOut) {
+        return [pscustomobject]@{ Completed = $false; Signals = @(); Error = "" }
+    }
+    if ($timedOut -and -not $proc.HasExited) {
+        try { $proc.Kill() } catch {}
+        try { $proc.WaitForExit(2000) | Out-Null } catch {}
+    }
 
     $signals = @()
+    $scanError = ""
     try {
+        $csvPath = $script:SdrPowerScanRuntime.CsvPath
+        $errPath = $script:SdrPowerScanRuntime.ErrorPath
         if (-not (Test-Path $csvPath)) {
-            $errText = if (Test-Path $errPath) { (Get-Content $errPath -Raw).Trim() } else { "rtl_power produced no output" }
-            Add-LogLine "Power scan failed: $errText"
+            $scanError = if (Test-Path $errPath) { (Get-Content $errPath -Raw).Trim() } else { "rtl_power produced no output" }
+            Add-LogLine "Power scan failed: $scanError"
         } else {
             $lines = @(Get-Content -Path $csvPath -ErrorAction SilentlyContinue)
             $bins = ConvertFrom-RtlPowerCsv -Lines $lines
@@ -986,13 +1027,17 @@ function Invoke-SdrPowerScan {
             }
         }
     } catch {
-        Add-LogLine "Power scan parse error: $($_.Exception.Message)"
+        $scanError = $_.Exception.Message
+        Add-LogLine "Power scan parse error: $scanError"
     }
 
-    if ($serverWasRunning) { Start-RtlTcpServer }
-
+    if ($script:SdrPowerScanRuntime.ServerWasRunning) { Start-RtlTcpServer }
     $script:SdrSignals = $signals
-    return $signals
+    $script:SdrPowerScanRuntime.State = "completed"
+    $script:SdrPowerScanRuntime.Process = $null
+    $script:SdrPowerScanRuntime.Signals = $signals
+    $script:SdrPowerScanRuntime.Error = $scanError
+    return [pscustomobject]@{ Completed = $true; Signals = $signals; Error = $scanError }
 }
 
 function Get-LanIpAddress {
@@ -1063,24 +1108,17 @@ function Get-PrimaryPcHost {
 }
 
 function Get-WifiCount {
-    try {
-        $output = netsh wlan show networks mode=bssid 2>$null
-        return @($output | Where-Object { $_ -match '^\s*SSID\s+\d+\s+:' }).Count
-    } catch {
-        return 0
-    }
+    return @(Get-WifiDetails | Where-Object { $_.Name -notmatch "failed" }).Count
 }
 
 function Get-BluetoothCount {
-    try {
-        return @(Get-PnpDevice -Class Bluetooth -ErrorAction SilentlyContinue |
-            Where-Object { $_.Status -eq "OK" }).Count
-    } catch {
-        return 0
-    }
+    return @(Get-BluetoothDetails | Where-Object { $_.Status -eq "OK" }).Count
 }
 
 function Get-WifiDetails {
+    if (((Get-Date) - $script:WifiDetailsCachedAt).TotalSeconds -lt 3) {
+        return @($script:WifiDetailsCache)
+    }
     $items = @()
     try {
         $output = netsh wlan show networks mode=bssid 2>$null
@@ -1152,15 +1190,21 @@ function Get-WifiDetails {
         }
     }
 
-    return $items
+    $script:WifiDetailsCache = @($items)
+    $script:WifiDetailsCachedAt = Get-Date
+    return @($script:WifiDetailsCache)
 }
 
 function Get-BluetoothDetails {
+    if (((Get-Date) - $script:BluetoothDetailsCachedAt).TotalSeconds -lt 3) {
+        return @($script:BluetoothDetailsCache)
+    }
+    $items = @()
     try {
         $devices = Get-PnpDevice -Class Bluetooth -ErrorAction SilentlyContinue |
             Sort-Object -Property FriendlyName
 
-        return @($devices | ForEach-Object {
+        $items = @($devices | ForEach-Object {
             $row = [pscustomobject][ordered]@{
                 Name = if ($_.FriendlyName) { $_.FriendlyName } else { $_.Name }
                 Address = $_.InstanceId
@@ -1178,7 +1222,7 @@ function Get-BluetoothDetails {
             $row
         })
     } catch {
-        return @([pscustomobject][ordered]@{
+        $items = @([pscustomobject][ordered]@{
             Name = "Bluetooth scan failed"
             Address = ""
             Status = ""
@@ -1187,6 +1231,9 @@ function Get-BluetoothDetails {
             Notes = $_.Exception.Message
         })
     }
+    $script:BluetoothDetailsCache = @($items)
+    $script:BluetoothDetailsCachedAt = Get-Date
+    return @($script:BluetoothDetailsCache)
 }
 
 function Get-SdrDetails {
@@ -2839,17 +2886,29 @@ function Show-DetailWindow {
         $deepScanButton.Add_Click({
             Invoke-AppAction -Context "Deep spectrum scan" -Action {
                 $deepScanButton.IsEnabled = $false
-                try {
-                    $hits = @(Invoke-SdrPowerScan)
+                if (-not (Start-SdrPowerScan)) {
+                    Add-LogLine "A deep spectrum scan is already running."
+                    $deepScanButton.IsEnabled = $true
+                    return
+                }
+                $deepScanTimer = New-Object Windows.Threading.DispatcherTimer
+                $deepScanTimer.Interval = [TimeSpan]::FromMilliseconds(250)
+                $deepScanTimer.Add_Tick({
+                    $result = Complete-SdrPowerScan
+                    if (-not $result.Completed) { return }
+                    $deepScanTimer.Stop()
+                    $hits = @($result.Signals)
                     if ($hits.Count -gt 0) {
                         $grid.ItemsSource = $hits
+                    } elseif ($result.Error) {
+                        Add-LogLine "Deep scan failed: $($result.Error)"
                     } else {
                         Add-LogLine "Deep scan found no peaks above the noise floor."
                     }
                     Refresh-ScannerCounts
-                } finally {
                     $deepScanButton.IsEnabled = $true
-                }
+                }.GetNewClosure())
+                $deepScanTimer.Start()
             }
         }.GetNewClosure())
     }

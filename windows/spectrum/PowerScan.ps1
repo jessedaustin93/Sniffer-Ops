@@ -31,15 +31,15 @@ function ConvertFrom-RtlPowerCsv {
 function Get-Median {
     param([double[]] $Values)
     if ($Values.Count -eq 0) { return 0.0 }
-    $sorted = $Values | Sort-Object
+    $sorted = [double[]]$Values.Clone()
+    [Array]::Sort($sorted)
     $mid = [int][math]::Floor($sorted.Count / 2)
     if ($sorted.Count % 2 -eq 1) { return [double]$sorted[$mid] }
     return ([double]$sorted[$mid - 1] + [double]$sorted[$mid]) / 2.0
 }
 
-# Detect peaks: bins that stand above both the whole-sweep median and their
-# local neighborhood floor, grouped into runs. This avoids counting a smooth
-# receiver/antenna noise ramp as hundreds of "signals."
+# Detect peaks above both the whole-sweep median and a rolling local floor.
+# Prefix sums keep this linear instead of sorting a new neighborhood per bin.
 function Find-SpectrumPeaks {
     param(
         [object[]] $Bins,
@@ -49,8 +49,21 @@ function Find-SpectrumPeaks {
     )
     if (@($Bins).Count -eq 0) { return @() }
 
-    $sorted = @($Bins | Sort-Object Hz)
-    $globalFloor = Get-Median -Values @($sorted | ForEach-Object { [double]$_.Db })
+    $sorted = @($Bins)
+    for ($i = 1; $i -lt $sorted.Count; $i++) {
+        if ([long]$sorted[$i].Hz -lt [long]$sorted[$i - 1].Hz) {
+            $sorted = @($sorted | Sort-Object Hz)
+            break
+        }
+    }
+
+    $dbValues = [double[]]::new($sorted.Count)
+    $prefix = [double[]]::new($sorted.Count + 1)
+    for ($i = 0; $i -lt $sorted.Count; $i++) {
+        $dbValues[$i] = [double]$sorted[$i].Db
+        $prefix[$i + 1] = $prefix[$i] + $dbValues[$i]
+    }
+    $globalFloor = Get-Median -Values $dbValues
 
     # Estimate the bin spacing to know what "contiguous" means.
     $step = 1
@@ -67,12 +80,16 @@ function Find-SpectrumPeaks {
         $bin = $sorted[$i]
         $start = [Math]::Max(0, $i - $WindowBins)
         $end = [Math]::Min($sorted.Count - 1, $i + $WindowBins)
-        $neighbors = New-Object System.Collections.Generic.List[double]
-        for ($j = $start; $j -le $end; $j++) {
-            if ([Math]::Abs($j - $i) -le 2) { continue }
-            $neighbors.Add([double]$sorted[$j].Db) | Out-Null
+        $excludeStart = [Math]::Max($start, $i - 2)
+        $excludeEnd = [Math]::Min($end, $i + 2)
+        $windowSum = $prefix[$end + 1] - $prefix[$start]
+        $excludedSum = $prefix[$excludeEnd + 1] - $prefix[$excludeStart]
+        $neighborCount = ($end - $start + 1) - ($excludeEnd - $excludeStart + 1)
+        $localFloor = if ($neighborCount -gt 0) {
+            ($windowSum - $excludedSum) / $neighborCount
+        } else {
+            $globalFloor
         }
-        $localFloor = if ($neighbors.Count -gt 0) { Get-Median -Values $neighbors.ToArray() } else { $globalFloor }
         $floor = [Math]::Max($globalFloor, $localFloor)
         $above = ([double]$bin.Db -ge ($floor + $ThresholdDb))
         $contiguous = ($null -ne $prevHz) -and (($bin.Hz - $prevHz) -le $gapLimit)
