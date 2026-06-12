@@ -3,6 +3,16 @@
 $script:AwarenessLogPath = $null
 $script:AwarenessSyncListener = $null
 $script:AwarenessSyncAsyncResult = $null
+$script:AwarenessSdrDeepScan = [ordered]@{
+    Id = ""
+    State = "idle"
+    RequestedAt = ""
+    StartedAt = ""
+    FinishedAt = ""
+    Message = "No PC SDR scan has been requested."
+    Error = ""
+    SdrSignals = @()
+}
 
 function Initialize-AwarenessLog {
     param([string] $Path)
@@ -476,6 +486,98 @@ function Get-AwarenessSyncPayload {
     }
 }
 
+function ConvertTo-AwarenessSdrSignalPayload {
+    param([object[]] $Signals)
+
+    return @($Signals | ForEach-Object {
+        [ordered]@{
+            frequencyHz = $_.FrequencyHz
+            frequency = $_.Frequency
+            powerDb = $_.PowerDb
+            bandwidth = $_.Bandwidth
+            label = $_.Label
+            modulation = $_.Modulation
+            possibleUse = $_.PossibleUse
+            confidence = $_.Confidence
+            evidence = $_.Evidence
+            description = $_.Description
+            nextStep = $_.NextStep
+            source = $_.Source
+        }
+    })
+}
+
+function Get-AwarenessSdrDeepScanPayload {
+    $payload = Get-AwarenessSyncPayload
+    $signals = @($script:AwarenessSdrDeepScan.SdrSignals)
+    $payload["ok"] = ($script:AwarenessSdrDeepScan.State -ne "failed")
+    $payload["sdrScan"] = [ordered]@{
+        id = $script:AwarenessSdrDeepScan.Id
+        state = $script:AwarenessSdrDeepScan.State
+        requestedAt = $script:AwarenessSdrDeepScan.RequestedAt
+        startedAt = $script:AwarenessSdrDeepScan.StartedAt
+        finishedAt = $script:AwarenessSdrDeepScan.FinishedAt
+        message = $script:AwarenessSdrDeepScan.Message
+        error = $script:AwarenessSdrDeepScan.Error
+        running = @("queued", "running") -contains $script:AwarenessSdrDeepScan.State
+        completed = ($script:AwarenessSdrDeepScan.State -eq "completed")
+    }
+    $payload["sdrSignals"] = ConvertTo-AwarenessSdrSignalPayload -Signals $signals
+    return $payload
+}
+
+function Request-AwarenessSdrDeepScan {
+    if (@("queued", "running") -contains $script:AwarenessSdrDeepScan.State) {
+        return $script:AwarenessSdrDeepScan.Id
+    }
+
+    $script:AwarenessSdrDeepScan = [ordered]@{
+        Id = [guid]::NewGuid().ToString("N")
+        State = "queued"
+        RequestedAt = (Get-Date).ToUniversalTime().ToString("o")
+        StartedAt = ""
+        FinishedAt = ""
+        Message = "PC SDR deep scan queued."
+        Error = ""
+        SdrSignals = @()
+    }
+    return $script:AwarenessSdrDeepScan.Id
+}
+
+function Invoke-PendingAwarenessSdrDeepScan {
+    param([string] $LogPath)
+
+    if ($script:AwarenessSdrDeepScan.State -ne "queued") { return $false }
+    $script:AwarenessSdrDeepScan.State = "running"
+    $script:AwarenessSdrDeepScan.StartedAt = (Get-Date).ToUniversalTime().ToString("o")
+    $script:AwarenessSdrDeepScan.Message = "PC SDR deep scan running."
+    try {
+        if (-not (Get-Command Invoke-SdrPowerScan -ErrorAction SilentlyContinue)) {
+            throw "SDR deep scan is not available"
+        }
+        $hits = @(Invoke-SdrPowerScan)
+        if (Get-Command Sync-LocalAwarenessSnapshot -ErrorAction SilentlyContinue) {
+            [void](Sync-LocalAwarenessSnapshot)
+        }
+        if (Get-Command Refresh-ScannerCounts -ErrorAction SilentlyContinue) {
+            Refresh-ScannerCounts
+        }
+        $script:AwarenessSdrDeepScan.SdrSignals = $hits
+        $script:AwarenessSdrDeepScan.State = "completed"
+        $script:AwarenessSdrDeepScan.Message = "PC SDR deep scan completed with $($hits.Count) RF peak(s)."
+    } catch {
+        $script:AwarenessSdrDeepScan.State = "failed"
+        $script:AwarenessSdrDeepScan.Error = $_.Exception.Message
+        $script:AwarenessSdrDeepScan.Message = "PC SDR deep scan failed."
+        if ($LogPath) {
+            Add-Content -LiteralPath $LogPath -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SDR deep scan error: $($_.Exception.Message)" -ErrorAction SilentlyContinue
+        }
+    } finally {
+        $script:AwarenessSdrDeepScan.FinishedAt = (Get-Date).ToUniversalTime().ToString("o")
+    }
+    return $true
+}
+
 function Start-AwarenessSyncServer {
     param(
         [string] $BindAddress = "0.0.0.0",
@@ -520,7 +622,7 @@ function Receive-AwarenessSyncRequests {
             $client = $script:AwarenessSyncListener.EndAcceptTcpClient($script:AwarenessSyncAsyncResult)
             $script:AwarenessSyncAsyncResult = $script:AwarenessSyncListener.BeginAcceptTcpClient($null, $null)
             $request = Read-AwarenessHttpRequest -Client $client
-            $path = $request.Path.ToLowerInvariant()
+            $path = (($request.Path -split '\?')[0]).ToLowerInvariant()
             if ($request.Method -eq "GET" -and $path -eq "/snifferops/health") {
                 Send-AwarenessTcpJsonResponse -Client $client -Body @{ ok = $true; service = "snifferops-awareness" }
                 $handled++
@@ -537,6 +639,22 @@ function Receive-AwarenessSyncRequests {
                 $payload = Get-AwarenessSyncPayload
                 $payload["merged"] = $merge.Merged
                 Send-AwarenessTcpJsonResponse -Client $client -Body $payload
+                $handled++
+                continue
+            }
+            if ($request.Method -eq "GET" -and $path -eq "/snifferops/sdr/deep-scan/status") {
+                Send-AwarenessTcpJsonResponse -Client $client -Body (Get-AwarenessSdrDeepScanPayload)
+                $handled++
+                continue
+            }
+            if ($request.Method -eq "POST" -and $path -eq "/snifferops/sdr/deep-scan") {
+                if (-not (Get-Command Invoke-SdrPowerScan -ErrorAction SilentlyContinue)) {
+                    Send-AwarenessTcpJsonResponse -Client $client -StatusCode 503 -Body @{ error = "SDR deep scan is not available" }
+                    $handled++
+                    continue
+                }
+                [void](Request-AwarenessSdrDeepScan)
+                Send-AwarenessTcpJsonResponse -Client $client -StatusCode 202 -Body (Get-AwarenessSdrDeepScanPayload)
                 $handled++
                 continue
             }
@@ -605,6 +723,8 @@ function Send-AwarenessTcpJsonResponse {
 
     $reason = switch ($StatusCode) {
         200 { "OK" }
+        202 { "Accepted" }
+        503 { "Service Unavailable" }
         404 { "Not Found" }
         500 { "Internal Server Error" }
         default { "OK" }

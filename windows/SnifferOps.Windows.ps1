@@ -510,6 +510,9 @@ $ErrLog = Join-Path $RepoRoot "rtl_tcp.err.log"
 $AppLog = Join-Path $RepoRoot "snifferops-windows.log"
 $AwarenessLog = Join-Path $RepoRoot "data\signal-awareness.json"
 $AwarenessSyncPort = 8765
+$script:BindAddress = $BindAddress
+$script:RtlTcpPort = $Port
+$script:AwarenessSyncPort = $AwarenessSyncPort
 $script:RtlTcpProcess = $null
 $script:ScanTimer = $null
 $script:SweepTimer = $null
@@ -568,6 +571,10 @@ $script:AdsbCaptureChunkSeconds = 15
 # Durable signal awareness log + optional LAN sync with Android nodes.
 . (Join-Path $PSScriptRoot "AwarenessLog.ps1")
 Initialize-AwarenessLog -Path $AwarenessLog
+
+# In-app offline map: places awareness signals from phone GPS, inferring
+# positions for non-GPS signals from co-seen GPS fixes (no internet tiles).
+. (Join-Path $PSScriptRoot "OfflineMap.ps1")
 
 # Real spectrum scan (rtl_power): pure CSV parsing + peak detection live here.
 . (Join-Path $PSScriptRoot "spectrum\PowerScan.ps1")
@@ -837,9 +844,9 @@ function Invoke-SdrFrequencySweep {
 
     try {
         $client = New-Object System.Net.Sockets.TcpClient
-        $connect = $client.BeginConnect("127.0.0.1", $Port, $null, $null)
+        $connect = $client.BeginConnect("127.0.0.1", $script:RtlTcpPort, $null, $null)
         if (-not $connect.AsyncWaitHandle.WaitOne(1500, $false)) {
-            throw "Could not connect to rtl_tcp on 127.0.0.1:$Port"
+            throw "Could not connect to rtl_tcp on 127.0.0.1:$($script:RtlTcpPort)"
         }
         $client.EndConnect($connect)
         $client.ReceiveTimeout = 1600
@@ -1003,6 +1010,56 @@ function Get-LanIpAddress {
     }
 
     return $ip
+}
+
+function Get-TailscaleCliPath {
+    $cmd = Get-Command tailscale.exe -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    $default = Join-Path $env:ProgramFiles "Tailscale\tailscale.exe"
+    if (Test-Path -LiteralPath $default) { return $default }
+    return $null
+}
+
+function Get-TailscaleConnectionInfo {
+    $cli = Get-TailscaleCliPath
+    if (-not $cli) {
+        return [pscustomobject][ordered]@{
+            Installed = $false
+            Running = $false
+            HostName = ""
+            DNSName = ""
+            IPv4 = ""
+            State = "Not installed"
+        }
+    }
+
+    try {
+        $json = & $cli status --json 2>$null | ConvertFrom-Json
+        $ipv4 = @($json.TailscaleIPs | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } | Select-Object -First 1)
+        return [pscustomobject][ordered]@{
+            Installed = $true
+            Running = ($json.BackendState -eq "Running")
+            HostName = [string]$json.Self.HostName
+            DNSName = ([string]$json.Self.DNSName).TrimEnd(".")
+            IPv4 = [string]$ipv4
+            State = [string]$json.BackendState
+        }
+    } catch {
+        return [pscustomobject][ordered]@{
+            Installed = $true
+            Running = $false
+            HostName = ""
+            DNSName = ""
+            IPv4 = ""
+            State = "Unavailable"
+        }
+    }
+}
+
+function Get-PrimaryPcHost {
+    $tail = Get-TailscaleConnectionInfo
+    if ($tail.Running -and $tail.IPv4) { return $tail.IPv4 }
+    return Get-LanIpAddress
 }
 
 function Get-WifiCount {
@@ -1364,6 +1421,7 @@ function Get-AwarenessProfiles {
                 FrequencyHz = $profile.FrequencyHz
                 SeenCount = [int]$profile.SeenCount
                 NodeCount = @($profile.NodeIds).Count
+                NodeIds = @($profile.NodeIds)
                 LastSignal = $profile.LastSignal
                 StrongestSignal = $profile.StrongestSignal
                 ThreatLevel = $profile.ThreatLevel
@@ -1550,54 +1608,55 @@ function Show-AwarenessLocationWindow {
 function Update-AwarenessMapPanel {
     if (-not $AwarenessMapCanvas) { return }
 
-    $profiles = @(Get-AwarenessDisplayProfiles -Profiles @(Get-AwarenessProfiles))
-    $locations = @(Get-AwarenessScanLocations)
-    $normal = @($profiles | Where-Object { $_.Class -eq "Normal" }).Count
-    $oneOff = @($profiles | Where-Object { $_.Class -in @("One-off", "Noticed", "Watch", "Alert") }).Count
-    $changes = @($profiles | Where-Object { $_.TimelineCount -gt 1 }).Count
+    $profiles = @(Get-AwarenessProfiles)
+    $displayProfiles = @(Get-AwarenessDisplayProfiles -Profiles $profiles)
+    $placements = @(Get-OfflineMapPlacements -Profiles $profiles)
+    $located = @($placements | Where-Object { $null -ne $_.Latitude -and $null -ne $_.Longitude })
+    $gpsCount = @($placements | Where-Object { $_.PlacementTier -eq "gps" }).Count
+    $inferredCount = @($placements | Where-Object { $_.PlacementTier -in @("linked", "anchor") }).Count
+    $unplacedCount = @($placements | Where-Object { $_.PlacementTier -eq "unplaced" }).Count
+    $oneOff = @($displayProfiles | Where-Object { $_.Class -in @("One-off", "Noticed", "Watch", "Alert") }).Count
 
-    $AwarenessMapSummary.Text = "$($profiles.Count) known  /  $($locations.Count) scan spots"
-    $AwarenessMapNormal.Text = "Normal: $normal"
-    $AwarenessMapOdd.Text = "Noticed / changes: $oneOff / $changes"
-    $latest = @($profiles | Sort-Object LastSeen -Descending | Select-Object -First 1)
-    $AwarenessMapLast.Text = if ($latest.Count -gt 0) { "Latest: $($latest[0].Name) - $($latest[0].Class)" } else { "Click for timeline" }
+    $AwarenessMapSummary.Text = "$($displayProfiles.Count) known  /  $($located.Count) on map"
+    $AwarenessMapNormal.Text = "GPS: $gpsCount  Inferred: $inferredCount  Unplaced: $unplacedCount"
+    $AwarenessMapOdd.Text = "Noticed / watch / alert: $oneOff"
+    $latest = @($displayProfiles | Sort-Object Last -Descending | Select-Object -First 1)
+    $AwarenessMapLast.Text = if ($latest.Count -gt 0) { "Latest: $($latest[0].Signal) - $($latest[0].Class). Click to open the offline map." } else { "Click to open the offline map" }
 
     $AwarenessMapCanvas.Children.Clear()
     Draw-AwarenessMapGrid
-    if ($locations.Count -eq 0) {
+    if ($located.Count -eq 0) {
         Add-AwarenessMapText -Text "No GPS scan dots yet" -X 18 -Y 42 -Color "#637082" -Size 13
         Add-AwarenessMapText -Text "Sync phone GPS to populate" -X 18 -Y 62 -Color "#637082" -Size 11
         return
     }
 
-    $minLat = ($locations | Measure-Object Latitude -Minimum).Minimum
-    $maxLat = ($locations | Measure-Object Latitude -Maximum).Maximum
-    $minLon = ($locations | Measure-Object Longitude -Minimum).Minimum
-    $maxLon = ($locations | Measure-Object Longitude -Maximum).Maximum
+    $minLat = ($located | Measure-Object Latitude -Minimum).Minimum
+    $maxLat = ($located | Measure-Object Latitude -Maximum).Maximum
+    $minLon = ($located | Measure-Object Longitude -Minimum).Minimum
+    $maxLon = ($located | Measure-Object Longitude -Maximum).Maximum
     if ($maxLat -eq $minLat) { $maxLat += 0.001; $minLat -= 0.001 }
     if ($maxLon -eq $minLon) { $maxLon += 0.001; $minLon -= 0.001 }
     $width = [Math]::Max(220.0, $AwarenessMapCanvas.ActualWidth)
     $height = [Math]::Max(110.0, $AwarenessMapCanvas.ActualHeight)
 
-    foreach ($loc in $locations) {
-        $x = 16 + (($loc.Longitude - $minLon) / ($maxLon - $minLon)) * ($width - 32)
-        $y = 16 + (($maxLat - $loc.Latitude) / ($maxLat - $minLat)) * ($height - 32)
-        $radius = [Math]::Min(14, 5 + [Math]::Sqrt($loc.SignalCount))
+    foreach ($placement in $located) {
+        $x = 12 + (($placement.Longitude - $minLon) / ($maxLon - $minLon)) * ($width - 24)
+        $y = 12 + (($maxLat - $placement.Latitude) / ($maxLat - $minLat)) * ($height - 24)
         $dot = New-Object System.Windows.Shapes.Ellipse
-        $dot.Width = $radius * 2
-        $dot.Height = $radius * 2
-        $dot.Fill = $script:BrushConverter.ConvertFromString($(if ($loc.InterestingCount -gt 0) { "#F59E0B" } else { "#21F982" }))
-        $dot.Stroke = $script:BrushConverter.ConvertFromString("#E5E7EB")
-        $dot.StrokeThickness = 1
-        $dot.ToolTip = "$($loc.SignalCount) signal(s), $($loc.InterestingCount) one-off/change at $($loc.Key)"
-        $dot.Tag = $loc.Key
-        $dot.Add_MouseLeftButtonUp({
-            param($sender, $eventArgs)
-            Show-AwarenessTimelineWindow -LocationKey ([string]$sender.Tag)
-            $eventArgs.Handled = $true
-        })
-        [System.Windows.Controls.Canvas]::SetLeft($dot, $x - $radius)
-        [System.Windows.Controls.Canvas]::SetTop($dot, $y - $radius)
+        $dot.Width = 7
+        $dot.Height = 7
+        $color = Get-OfflineMapTypeColor -Type $placement.Type
+        if ($placement.PlacementTier -eq "gps") {
+            $dot.Fill = $script:BrushConverter.ConvertFromString($color)
+        } else {
+            $dot.Fill = $script:BrushConverter.ConvertFromString("#220B1120")
+            $dot.Stroke = $script:BrushConverter.ConvertFromString($color)
+            $dot.StrokeThickness = 1.2
+        }
+        $dot.IsHitTestVisible = $false
+        [System.Windows.Controls.Canvas]::SetLeft($dot, $x - 3.5)
+        [System.Windows.Controls.Canvas]::SetTop($dot, $y - 3.5)
         [void]$AwarenessMapCanvas.Children.Add($dot)
     }
 }
@@ -2848,6 +2907,162 @@ function Set-UiStatus {
     $script:ScanActive = $Active
 }
 
+function Show-ConnectionSettingsWindow {
+    $tail = Get-TailscaleConnectionInfo
+    $pcHost = Get-PrimaryPcHost
+
+    $win = New-Object System.Windows.Window
+    $win.Title = "SnifferOps - PC Connection Settings"
+    $win.Width = 560
+    $win.Height = 520
+    $win.Background = $script:BrushConverter.ConvertFromString("#020617")
+    $win.Foreground = $script:BrushConverter.ConvertFromString("#E5E7EB")
+    $win.WindowStartupLocation = "CenterOwner"
+    if ($Window) { $win.Owner = $Window }
+    Set-SnifferOpsWindowIcon -TargetWindow $win
+
+    $root = New-Object System.Windows.Controls.StackPanel
+    $root.Margin = "18"
+    $root.Orientation = "Vertical"
+    $win.Content = $root
+
+    $title = New-Object System.Windows.Controls.TextBlock
+    $title.Text = "PC CONNECTION"
+    $title.Foreground = $script:BrushConverter.ConvertFromString("#22D3EE")
+    $title.FontFamily = "Consolas"
+    $title.FontSize = 20
+    $title.FontWeight = "Bold"
+    $title.Margin = "0,0,0,12"
+    [void]$root.Children.Add($title)
+
+    $summary = New-Object System.Windows.Controls.TextBlock
+    $summary.Text = "Use this host and sync port in the phone or Linux build. Tailscale is preferred when available."
+    $summary.Foreground = $script:BrushConverter.ConvertFromString("#9CA3AF")
+    $summary.TextWrapping = "Wrap"
+    $summary.FontSize = 12
+    $summary.Margin = "0,0,0,14"
+    [void]$root.Children.Add($summary)
+
+    $info = New-Object System.Windows.Controls.TextBlock
+    $info.FontFamily = "Consolas"
+    $info.FontSize = 13
+    $info.Foreground = $script:BrushConverter.ConvertFromString("#E5E7EB")
+    $info.Margin = "0,0,0,14"
+    $info.Text = @(
+        "Preferred host: $pcHost",
+        "Tailscale IP: $($tail.IPv4)",
+        "Tailscale DNS: $($tail.DNSName)",
+        "LAN IP: $(Get-LanIpAddress)",
+        "Tailscale state: $($tail.State)"
+    ) -join "`r`n"
+    [void]$root.Children.Add($info)
+
+    function Add-ConnectionInput {
+        param([string] $Label, [string] $Value)
+        $labelBlock = New-Object System.Windows.Controls.TextBlock
+        $labelBlock.Text = $Label
+        $labelBlock.Foreground = $script:BrushConverter.ConvertFromString("#9CA3AF")
+        $labelBlock.FontFamily = "Consolas"
+        $labelBlock.FontSize = 12
+        $labelBlock.Margin = "0,8,0,4"
+        [void]$root.Children.Add($labelBlock)
+
+        $box = New-Object System.Windows.Controls.TextBox
+        $box.Text = $Value
+        $box.Background = $script:BrushConverter.ConvertFromString("#0B1120")
+        $box.Foreground = $script:BrushConverter.ConvertFromString("#E5E7EB")
+        $box.BorderBrush = $script:BrushConverter.ConvertFromString("#255866")
+        $box.FontFamily = "Consolas"
+        $box.FontSize = 14
+        $box.Padding = "8"
+        [void]$root.Children.Add($box)
+        return $box
+    }
+
+    $bindBox = Add-ConnectionInput -Label "Listen/bind address (0.0.0.0 accepts LAN + Tailscale)" -Value $script:BindAddress
+    $syncPortBox = Add-ConnectionInput -Label "PC sync/deep-scan port" -Value ([string]$script:AwarenessSyncPort)
+    $rtlPortBox = Add-ConnectionInput -Label "RTL_TCP port" -Value ([string]$script:RtlTcpPort)
+
+    $status = New-Object System.Windows.Controls.TextBlock
+    $status.Text = "Ready"
+    $status.Foreground = $script:BrushConverter.ConvertFromString("#9CA3AF")
+    $status.FontFamily = "Consolas"
+    $status.Margin = "0,12,0,10"
+    [void]$root.Children.Add($status)
+
+    $buttons = New-Object System.Windows.Controls.WrapPanel
+    $buttons.Margin = "0,8,0,0"
+    [void]$root.Children.Add($buttons)
+
+    function Add-ConnectionButton {
+        param([string] $Text, [string] $Color)
+        $button = New-Object System.Windows.Controls.Button
+        $button.Content = $Text
+        $button.Height = 36
+        $button.MinWidth = 128
+        $button.Margin = "0,0,8,8"
+        $button.Background = $script:BrushConverter.ConvertFromString($Color)
+        $button.Foreground = $script:BrushConverter.ConvertFromString("White")
+        $button.BorderThickness = 0
+        $button.FontFamily = "Consolas"
+        $button.FontWeight = "Bold"
+        [void]$buttons.Children.Add($button)
+        return $button
+    }
+
+    $saveButton = Add-ConnectionButton -Text "SAVE + RESTART SYNC" -Color "#2563EB"
+    $copyButton = Add-ConnectionButton -Text "COPY PHONE HOST" -Color "#0EA5E9"
+    $testButton = Add-ConnectionButton -Text "TEST HEALTH" -Color "#16A34A"
+    $closeButton = Add-ConnectionButton -Text "CLOSE" -Color "#374151"
+
+    $saveButton.Add_Click({
+        $newSyncPort = 0
+        $newRtlPort = 0
+        if (-not [int]::TryParse($syncPortBox.Text, [ref]$newSyncPort) -or $newSyncPort -lt 1 -or $newSyncPort -gt 65535) {
+            $status.Text = "Invalid sync port."
+            $status.Foreground = $script:BrushConverter.ConvertFromString("#EF4444")
+            return
+        }
+        if (-not [int]::TryParse($rtlPortBox.Text, [ref]$newRtlPort) -or $newRtlPort -lt 1 -or $newRtlPort -gt 65535) {
+            $status.Text = "Invalid RTL_TCP port."
+            $status.Foreground = $script:BrushConverter.ConvertFromString("#EF4444")
+            return
+        }
+
+        $script:BindAddress = if ([string]::IsNullOrWhiteSpace($bindBox.Text)) { "0.0.0.0" } else { $bindBox.Text.Trim() }
+        $script:AwarenessSyncPort = $newSyncPort
+        $script:RtlTcpPort = $newRtlPort
+        Stop-AwarenessSyncServer
+        Start-AwarenessSyncServer -BindAddress $script:BindAddress -Port $script:AwarenessSyncPort -LogPath $AppLog
+        Refresh-ScannerCounts
+        Add-LogLine "PC sync settings updated. Listening on $($script:BindAddress):$($script:AwarenessSyncPort)."
+        $status.Text = "Saved. Phone host: $(Get-PrimaryPcHost)  Port: $($script:AwarenessSyncPort)"
+        $status.Foreground = $script:BrushConverter.ConvertFromString("#21F982")
+    })
+
+    $copyButton.Add_Click({
+        [System.Windows.Clipboard]::SetText("$(Get-PrimaryPcHost):$($script:AwarenessSyncPort)")
+        $status.Text = "Copied $(Get-PrimaryPcHost):$($script:AwarenessSyncPort)"
+        $status.Foreground = $script:BrushConverter.ConvertFromString("#22D3EE")
+    })
+
+    $testButton.Add_Click({
+        try {
+            $uri = "http://127.0.0.1:$($script:AwarenessSyncPort)/snifferops/health"
+            $response = Invoke-WebRequest -Uri $uri -UseBasicParsing -TimeoutSec 3
+            $status.Text = "Health OK: $($response.Content)"
+            $status.Foreground = $script:BrushConverter.ConvertFromString("#21F982")
+        } catch {
+            $status.Text = "Health failed: $($_.Exception.Message)"
+            $status.Foreground = $script:BrushConverter.ConvertFromString("#EF4444")
+        }
+    })
+
+    $closeButton.Add_Click({ $win.Close() })
+    Apply-SnifferOpsFont -Root $win
+    [void]$win.ShowDialog()
+}
+
 function Refresh-ScannerCounts {
     [void](Sync-LocalAwarenessSnapshot)
     $wifi = Get-WifiCount
@@ -2870,8 +3085,9 @@ function Refresh-ScannerCounts {
     $SdrTileCount.Text = [string]$sdr
     $AlertTileCount.Text = [string]$alertCountValue
 
-    $LocalIpText.Text = "$(Get-LanIpAddress):$Port"
-    $EndpointText.Text = "SDR $(Get-LanIpAddress):$Port  |  SYNC $(Get-LanIpAddress):$AwarenessSyncPort"
+    $pcHost = Get-PrimaryPcHost
+    $LocalIpText.Text = "${pcHost}:$($script:RtlTcpPort)"
+    $EndpointText.Text = "SDR ${pcHost}:$($script:RtlTcpPort)  |  SYNC ${pcHost}:$($script:AwarenessSyncPort)"
     if ($MainSignalGrid) {
         $MainSignalGrid.ItemsSource = @(Get-MainSignalRows)
     }
@@ -2879,7 +3095,7 @@ function Refresh-ScannerCounts {
 
     if ($running) {
         $hitText = if ($sdr -gt 0) { " - $sdr measured RF peak(s)" } else { " - no measured peaks yet" }
-        Set-UiStatus "LIVE" "Network SDR: rtl_tcp on $(Get-LanIpAddress):$Port$hitText" $true
+        Set-UiStatus "LIVE" "Network SDR: rtl_tcp on ${pcHost}:$($script:RtlTcpPort)$hitText" $true
     } else {
         Set-UiStatus "IDLE" (Get-RtlStatusText) $false
     }
@@ -2898,7 +3114,7 @@ function Start-RtlTcpServer {
     if (Test-Path $OutLog) { Remove-Item -LiteralPath $OutLog -Force }
     if (Test-Path $ErrLog) { Remove-Item -LiteralPath $ErrLog -Force }
 
-    $args = "-a $BindAddress -p $Port"
+    $args = "-a $($script:BindAddress) -p $($script:RtlTcpPort)"
     $script:RtlTcpProcess = Start-Process -FilePath $RtlTcpPath `
         -ArgumentList $args `
         -WorkingDirectory $ToolRoot `
@@ -2917,9 +3133,9 @@ function Start-RtlTcpServer {
         return
     }
 
-    Set-UiStatus "LIVE" "Network SDR: rtl_tcp on $(Get-LanIpAddress):$Port" $true
-    Add-LogLine "Started rtl_tcp on ${BindAddress}:$Port"
-    Add-LogLine "Use $(Get-LanIpAddress) and port $Port from the phone app, or leave this Windows app running standalone."
+    Set-UiStatus "LIVE" "Network SDR: rtl_tcp on $(Get-PrimaryPcHost):$($script:RtlTcpPort)" $true
+    Add-LogLine "Started rtl_tcp on $($script:BindAddress):$($script:RtlTcpPort)"
+    Add-LogLine "Use $(Get-PrimaryPcHost) and port $($script:RtlTcpPort) from the phone app, or leave this PC app running standalone."
     Refresh-ScannerCounts
 }
 
@@ -2935,7 +3151,7 @@ function Start-RemoteRtlServerFromScript {
         -WorkingDirectory $RepoRoot `
         -WindowStyle Normal | Out-Null
 
-    Add-LogLine "Started Windows RTL server script for mobile app data."
+    Add-LogLine "Started PC RTL server script for mobile app data."
     Add-LogLine "Command: powershell -ExecutionPolicy Bypass -File `"$StartRtlTcpScript`""
     Start-Sleep -Milliseconds 500
     Refresh-ScannerCounts
@@ -3239,7 +3455,7 @@ function Test-RtlSdrDongle {
                             </Grid.ColumnDefinitions>
                             <Canvas x:Name="AwarenessMapCanvas" Background="#0B1120" ClipToBounds="True"/>
                             <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
-                                <TextBlock x:Name="AwarenessMapTitle" Text="AWARENESS TIMELINE" Foreground="#22D3EE"
+                                <TextBlock x:Name="AwarenessMapTitle" Text="OFFLINE AWARENESS MAP" Foreground="#22D3EE"
                                            FontFamily="Consolas" FontSize="14" FontWeight="Bold"/>
                                 <TextBlock x:Name="AwarenessMapSummary" Text="No signal profile yet" Foreground="#E5E7EB"
                                            FontFamily="Consolas" FontSize="18" FontWeight="Bold" Margin="0,8,0,0"/>
@@ -3281,6 +3497,10 @@ function Test-RtlSdrDongle {
                 <Button x:Name="StartRemoteServerButton" Content="OPEN RTL SERVER SCRIPT" Height="56"
                         Background="{StaticResource ButtonBlueBrush}" Foreground="White" BorderBrush="#0EA5E9"
                         FontFamily="Consolas" FontSize="17" FontWeight="Bold" Margin="0,0,0,12"/>
+
+                <Button x:Name="ConnectionSettingsButton" Content="PC CONNECTION SETTINGS" Height="48"
+                        Background="#111827" Foreground="#E5E7EB" BorderBrush="#22D3EE"
+                        FontFamily="Consolas" FontSize="15" FontWeight="Bold" Margin="0,0,0,12"/>
 
                 <Grid Margin="0,0,0,16">
                     <Grid.ColumnDefinitions>
@@ -3384,6 +3604,7 @@ $Window.Add_Loaded({
 
 $ConnectButton = $Window.FindName("ConnectButton")
 $StartRemoteServerButton = $Window.FindName("StartRemoteServerButton")
+$ConnectionSettingsButton = $Window.FindName("ConnectionSettingsButton")
 $TestButton = $Window.FindName("TestButton")
 $OpenLogsButton = $Window.FindName("OpenLogsButton")
 $RadioButton = $Window.FindName("RadioButton")
@@ -3443,6 +3664,12 @@ $StartRemoteServerButton.Add_Click({
     }
 })
 
+$ConnectionSettingsButton.Add_Click({
+    Invoke-AppAction -Context "Open PC connection settings" -Action {
+        Show-ConnectionSettingsWindow
+    }
+})
+
 $TestButton.Add_Click({ Invoke-AppAction -Context "Test dongle" -Action { Test-RtlSdrDongle } })
 $RadioButton.Add_Click({ Invoke-AppAction -Context "Open radio tuner" -Action { Show-RadioTunerWindow } })
 $RefreshButton.Add_Click({
@@ -3492,8 +3719,8 @@ $AlertTile.Add_MouseLeftButtonUp({
     }
 })
 $AwarenessMapPanel.Add_MouseLeftButtonUp({
-    Invoke-AppAction -Context "Open awareness locations" -Action {
-        Show-AwarenessLocationWindow
+    Invoke-AppAction -Context "Open offline awareness map" -Action {
+        Show-OfflineMapWindow
     }
 })
 $MainSignalGrid.Add_MouseDoubleClick({
@@ -3518,6 +3745,7 @@ $script:ScanTimer.Interval = [TimeSpan]::FromSeconds(4)
 $script:ScanTimer.Add_Tick({
     Invoke-AppAction -Context "Auto refresh" -Action {
         [void](Receive-AwarenessSyncRequests -LogPath $AppLog)
+        [void](Invoke-PendingAwarenessSdrDeepScan -LogPath $AppLog)
         Refresh-ScannerCounts
     }
 })
@@ -3542,8 +3770,8 @@ $Window.Add_Closed({
 
 Invoke-AppAction -Context "Startup refresh" -Action {
     try {
-        Start-AwarenessSyncServer -BindAddress $BindAddress -Port $AwarenessSyncPort -LogPath $AppLog
-        Add-LogLine "Awareness sync listening at http://$(Get-LanIpAddress):$AwarenessSyncPort/snifferops/sync"
+        Start-AwarenessSyncServer -BindAddress $script:BindAddress -Port $script:AwarenessSyncPort -LogPath $AppLog
+        Add-LogLine "Awareness sync listening at http://$(Get-PrimaryPcHost):$($script:AwarenessSyncPort)/snifferops/sync"
     } catch {
         Add-LogLine "Awareness sync unavailable: $($_.Exception.Message)"
     }
