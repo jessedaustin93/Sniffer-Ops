@@ -53,8 +53,37 @@ powershell -ExecutionPolicy Bypass -File scripts\test-rtl-sdr.ps1
 - `STOP RTL_TCP` stops the local `rtl_tcp` server.
 - `TEST DONGLE` runs `rtl_test.exe -t`.
 - `FM / AM RADIO TUNER` opens the local Windows radio listener.
+- `PC CONNECTION SETTINGS` shows the host and ports the phone should use (prefers Tailscale when it is running, otherwise the LAN address).
 - `REFRESH` updates local Wi-Fi, Bluetooth, SDR, and LAN endpoint status.
 - `OPEN LOGS` opens the latest `rtl_tcp` error log.
+
+## Offline Awareness Map
+
+The awareness panel in the header is a live miniature of the offline map; clicking it opens the full map window. The map is fully offline - a coordinate grid with a scale bar drawn on a WPF canvas, no map tiles, no internet. Drag to pan, scroll to zoom, click a dot for the signal's profile.
+
+Signals synced from the phone (`/snifferops/sync`) are placed in tiers:
+
+1. **GPS** (solid dot) - the signal has phone-GPS located sightings; it plots at their average.
+2. **Inferred, co-seen GPS** (dashed dot) - the signal has no GPS of its own, but the node that saw it reported GPS fixes for other signals close in time. It is placed from those fixes, weighted toward the nearest in time.
+3. **Inferred, node area** (hollow dashed dot) - no time-correlated fix exists, so the signal lands at its observing node's usual area: the average of that node's own GPS fixes, or - for a node that never has GPS, like this PC - the average position of GPS-placed signals the node also sees.
+4. **Unplaced** - nothing GPS-related was ever observed alongside the signal; it is counted in the status bar but not drawn.
+
+Colors match the scanner tiles (Wi-Fi green, Bluetooth blue, cellular amber, SDR purple), and Watch/Alert signals get a warning ring. The map refreshes automatically as phone sync snapshots arrive.
+
+The placement engine is headlessly testable:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File windows\Test-OfflineMap.ps1
+```
+
+## Awareness Sync Endpoints
+
+The companion listens on the sync port (default 8765) for the phone app:
+
+- `GET /snifferops/health` - reachability check.
+- `GET /snifferops/awareness` - the merged signal awareness state.
+- `POST /snifferops/sync` - merge a phone snapshot (signals plus GPS location) into the awareness log.
+- `POST /snifferops/sdr/deep-scan` and `GET /snifferops/sdr/deep-scan/status` - ask the PC to run an SDR spectrum sweep and poll its result.
 
 ## Icon
 
