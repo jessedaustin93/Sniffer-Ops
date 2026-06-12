@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.*
 import java.net.SocketTimeoutException
 
 data class AppState(
+    val historyDevices: List<SignalDevice> = emptyList(),
     val wifiDevices: List<SignalDevice> = emptyList(),
     val bluetoothDevices: List<SignalDevice> = emptyList(),
     val bleDevices: List<SignalDevice> = emptyList(),
@@ -84,6 +85,12 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         private const val PREF_AWARENESS_HOST = "awareness_sync_host"
         private const val PREF_AWARENESS_PORT = "awareness_sync_port"
         private const val PREF_AWARENESS_ENABLED = "awareness_sync_enabled"
+        private const val LIVE_REFRESH_INTERVAL_MS = 5_000L
+        private const val WIFI_LIVE_WINDOW_MS = 45_000L
+        private const val BLUETOOTH_LIVE_WINDOW_MS = 20_000L
+        private const val CELLULAR_LIVE_WINDOW_MS = 45_000L
+        private const val SDR_LIVE_WINDOW_MS = 10 * 60_000L
+        private const val NFC_LIVE_WINDOW_MS = 2 * 60_000L
     }
 
     private val appContext = application.applicationContext
@@ -108,10 +115,12 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private var sdrJob: Job? = null
     private var sdrCheckJob: Job? = null
     private var pcSdrScanJob: Job? = null
+    private var persistedDevices: List<SignalDevice> = emptyList()
 
     init {
         restoreWindowsServerSettings()
         loadPersistedSignals()
+        startLivePresenceRefresh()
         loadCompactionState()
         checkSdrConnection()
         startSdrConnectionMonitor()
@@ -621,7 +630,19 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             db.signalDeviceDao().getAllDevices()
                 .conflate()
                 .debounce(250)
-                .collect { devices -> applyPersistedSignalsToState(devices) }
+                .collect { devices ->
+                    persistedDevices = devices
+                    applyPersistedSignalsToState(devices)
+                }
+        }
+    }
+
+    private fun startLivePresenceRefresh() {
+        viewModelScope.launch {
+            while (isActive) {
+                delay(LIVE_REFRESH_INTERVAL_MS)
+                applyPersistedSignalsToState(persistedDevices)
+            }
         }
     }
 
@@ -638,14 +659,21 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
     private fun applyPersistedSignalsToState(devices: List<SignalDevice>) {
         val localDevices = devices.filter { !it.id.startsWith("awareness_") }
+        val now = System.currentTimeMillis()
         _state.update {
             it.copy(
-                wifiDevices = localDevices.filter { device -> device.signalType == SignalType.WIFI },
-                bluetoothDevices = localDevices.filter { device -> device.signalType == SignalType.BLUETOOTH },
-                bleDevices = localDevices.filter { device -> device.signalType == SignalType.BLE },
-                cellTowers = localDevices.filter { device -> device.signalType == SignalType.CELLULAR }.map { device -> device.toCellTower() },
-                sdrSignals = localDevices.filter { device -> device.signalType == SignalType.RTL_SDR }.map { device -> device.toSdrSignal() },
-                lastNfcTag = localDevices.firstOrNull { device -> device.signalType == SignalType.NFC }?.toNfcTag(),
+                historyDevices = localDevices,
+                wifiDevices = localDevices.liveSince(now, WIFI_LIVE_WINDOW_MS, SignalType.WIFI),
+                bluetoothDevices = localDevices.liveSince(now, BLUETOOTH_LIVE_WINDOW_MS, SignalType.BLUETOOTH),
+                bleDevices = localDevices.liveSince(now, BLUETOOTH_LIVE_WINDOW_MS, SignalType.BLE),
+                cellTowers = localDevices.liveSince(now, CELLULAR_LIVE_WINDOW_MS, SignalType.CELLULAR)
+                    .map { device -> device.toCellTower() },
+                sdrSignals = localDevices.liveSince(now, SDR_LIVE_WINDOW_MS, SignalType.RTL_SDR)
+                    .map { device -> device.toSdrSignal() },
+                lastNfcTag = localDevices
+                    .liveSince(now, NFC_LIVE_WINDOW_MS, SignalType.NFC)
+                    .firstOrNull()
+                    ?.toNfcTag(),
                 awarenessSignalCount = devices.size,
                 alertCount = it.summary.alertCount
             )
@@ -938,10 +966,7 @@ private fun SignalDevice.toNfcTag(): NfcTag = NfcTag(
 }
 
 fun AppState.compactAwarenessProfiles(): List<AwarenessProfile> {
-    val local = (wifiDevices + bluetoothDevices + bleDevices).map { it.toAwarenessProfile("local") } +
-        cellTowers.map { it.toAwarenessProfile() } +
-        sdrSignals.map { it.toAwarenessProfile() } +
-        listOfNotNull(lastNfcTag?.toAwarenessProfile())
+    val local = historyDevices.map { it.toAwarenessProfile("local-history") }
 
     return (awarenessProfiles + local)
         .groupBy { it.key.ifBlank { "${it.type}:${it.name}" } }
@@ -956,6 +981,14 @@ fun AppState.compactAwarenessProfiles(): List<AwarenessProfile> {
                 AwarenessStatus.NORMAL -> 3
             }
         }.thenByDescending { it.lastSeen })
+}
+
+private fun List<SignalDevice>.liveSince(
+    now: Long,
+    windowMs: Long,
+    type: SignalType
+): List<SignalDevice> = filter { device ->
+    device.signalType == type && now - device.lastSeen <= windowMs
 }
 
 private fun SignalDevice.toAwarenessProfile(source: String): AwarenessProfile = AwarenessProfile(

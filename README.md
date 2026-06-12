@@ -65,6 +65,8 @@ A failed, partial, or interrupted send deletes nothing. Confirmed rows also surv
 
 PC transfer and compaction controls live on the dedicated `PC Sync` screen. The SDR screen only manages SDR connection and measured RF scans. High-rate Bluetooth callbacks are coalesced before batched Room writes while the journal keeps its 10-second per-signal sighting cadence.
 
+Scanner type screens show only recently available signals. Older Wi-Fi, Bluetooth, cellular, NFC, and SDR observations remain in durable history and on the awareness map instead of filling the live lists.
+
 ## RTL-SDR
 
 SnifferOps works without an SDR dongle. Wi-Fi, Bluetooth, NFC, and cellular scanning use built-in phone hardware.

@@ -23,7 +23,6 @@ class BluetoothScanner(private val context: Context) {
 
     private val btManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
     private val btAdapter: BluetoothAdapter? = btManager.adapter
-    private val discoveredDevices = mutableMapOf<String, SignalDevice>()
 
     fun scanClassic(): Flow<List<SignalDevice>> = callbackFlow {
         val receiver = object : BroadcastReceiver() {
@@ -51,8 +50,7 @@ class BluetoothScanner(private val context: Context) {
                             deviceClass = cls,
                             threatLevel = threat
                         )
-                        discoveredDevices[address] = sd
-                        trySend(discoveredDevices.values.toList())
+                        trySend(listOf(sd))
                     }
                     BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
                         btAdapter?.startDiscovery()
@@ -75,7 +73,6 @@ class BluetoothScanner(private val context: Context) {
     }
 
     fun scanBle(): Flow<List<SignalDevice>> = callbackFlow {
-        val bleDevices = mutableMapOf<String, SignalDevice>()
         val scanner = btAdapter?.bluetoothLeScanner
 
         val callback = object : ScanCallback() {
@@ -97,8 +94,7 @@ class BluetoothScanner(private val context: Context) {
                     deviceClass = cls,
                     threatLevel = threat
                 )
-                bleDevices[address] = sd
-                trySend(bleDevices.values.toList())
+                trySend(listOf(sd))
             }
 
             override fun onScanFailed(errorCode: Int) {}
