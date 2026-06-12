@@ -8,7 +8,7 @@ Sync protocol (wire-compatible across Linux / Windows / Android):
 
 Tailscale auto-discovery:
   On startup and every DISCOVERY_INTERVAL seconds, query `tailscale status --json`,
-  probe each peer's :8765 health endpoint, and add any SnifferOps nodes automatically.
+  probe each peer's :8766 health endpoint, and add any SnifferOps nodes automatically.
   Discovered peers are tagged {"via": "tailscale"} and persisted to config.json.
 """
 
@@ -47,7 +47,7 @@ class NodeSyncManager:
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
-    def add_peer(self, host: str, port: int = 8765, name: str = "",
+    def add_peer(self, host: str, port: int = 8766, name: str = "",
                  via: str = "") -> bool:
         """Add a peer. Returns True if it was new."""
         with self._lock:
@@ -62,7 +62,7 @@ class NodeSyncManager:
         log.info("Peer added: %s:%s (%s)", host, port, name or host)
         return True
 
-    def remove_peer(self, host: str, port: int = 8765) -> None:
+    def remove_peer(self, host: str, port: int = 8766) -> None:
         with self._lock:
             self._peers = [p for p in self._peers
                            if not (p["host"] == host and p["port"] == port)]
@@ -153,9 +153,9 @@ class NodeSyncManager:
             if ip in existing_hosts:
                 continue
             # Probe for SnifferOps
-            if check_peer_health(ip, 8765, timeout=self.PROBE_TIMEOUT):
-                if self.add_peer(ip, 8765, name, via="tailscale"):
-                    added.append({"host": ip, "port": 8765, "name": name, "via": "tailscale"})
+            if check_peer_health(ip, 8766, timeout=self.PROBE_TIMEOUT):
+                if self.add_peer(ip, 8766, name, via="tailscale"):
+                    added.append({"host": ip, "port": 8766, "name": name, "via": "tailscale"})
                     log.info("Auto-discovered Tailscale peer: %s (%s)", name, ip)
 
         if added and self._on_update:
@@ -167,7 +167,7 @@ class NodeSyncManager:
     # ── Per-peer sync ──────────────────────────────────────────────────────────
 
     def _sync_peer(self, peer: dict) -> str:
-        host, port = peer["host"], peer.get("port", 8765)
+        host, port = peer["host"], peer.get("port", 8766)
 
         # Build our outgoing snapshot
         payload  = self._log.get_sync_payload()
@@ -291,7 +291,7 @@ def _http_get(host: str, port: int, path: str,
         return None
 
 
-def check_peer_health(host: str, port: int = 8765,
+def check_peer_health(host: str, port: int = 8766,
                       timeout: int = 3) -> bool:
     data = _http_get(host, port, "/snifferops/health", timeout=timeout)
     return bool(data and data.get("ok") is True)

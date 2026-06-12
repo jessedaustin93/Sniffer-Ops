@@ -368,7 +368,7 @@ def load_config() -> dict:
         with open(CFG_PATH) as f:
             return json.load(f)
     except Exception:
-        return {"port": 8765, "bind": "0.0.0.0",
+        return {"port": 8766, "bind": "0.0.0.0",
                 "wifi": True, "bluetooth": True, "sdr": False,
                 "sdr_remote": "", "peers": []}
 
@@ -805,7 +805,7 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
         self._sdr_status_lbl = _label("RTL-SDR LINK IDLE", "sdr-offline")
         self._sdr_sub_lbl    = _label("USB dongle or remote rtl_tcp feed", "sdr-sub")
         ts_ip = _tailscale_ip()
-        port  = self._cfg.get("port", 8765)
+        port  = self._cfg.get("port", 8766)
         ep    = f"{self._local_ip()}:{port}"
         if ts_ip:
             ep += f"  |  TS {ts_ip}:{port}"
@@ -917,7 +917,7 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
 
         ts_ip   = _tailscale_ip()
         local   = self._local_ip()
-        port    = self._cfg.get("port", 8765)
+        port    = self._cfg.get("port", 8766)
 
         this_grp = Adw.PreferencesGroup(title="This Node")
         this_grp.add(Adw.ActionRow(title="LAN Address",      subtitle=f"{local}:{port}"))
@@ -991,7 +991,7 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
             last_syncs = dict(_sync_manager._last_sync)
 
         for i, p in enumerate(peers):
-            key = f"{p['host']}:{p.get('port', 8765)}"
+            key = f"{p['host']}:{p.get('port', 8766)}"
             via_tag = "  •  tailscale" if p.get("via") == "tailscale" else ""
             ts = last_syncs.get(key, 0)
             if ts:
@@ -1007,7 +1007,7 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
                 sync_str = "  •  not synced yet"
             row = Adw.ActionRow(
                 title=p.get("name", p["host"]),
-                subtitle=f"{p['host']}:{p.get('port', 8765)}{via_tag}{sync_str}"
+                subtitle=f"{p['host']}:{p.get('port', 8766)}{via_tag}{sync_str}"
             )
             # Online dot
             dot = Gtk.Label()
@@ -1039,7 +1039,7 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
             )
             self._ts_list.append(placeholder)
             return
-        port = self._cfg.get("port", 8765)
+        port = self._cfg.get("port", 8766)
         already = {p["host"] for p in self._cfg.get("peers", [])}
         for node in nodes:
             ip   = node["ip"]
@@ -1082,7 +1082,7 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
         dlg.set_response_appearance("add", Adw.ResponseAppearance.SUGGESTED)
         grp = Adw.PreferencesGroup(); grp.set_margin_top(8)
         host_row = Adw.EntryRow(title="Host / IP address")
-        port_row = Adw.EntryRow(title="Port"); port_row.set_text("8765")
+        port_row = Adw.EntryRow(title="Port"); port_row.set_text("8766")
         name_row = Adw.EntryRow(title="Nickname (optional)")
         grp.add(host_row); grp.add(port_row); grp.add(name_row)
         dlg.set_extra_child(grp)
@@ -1090,8 +1090,8 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
             if r != "add": return
             host = host_row.get_text().strip()
             if not host: return
-            try:    port = int(port_row.get_text().strip() or "8765")
-            except: port = 8765
+            try:    port = int(port_row.get_text().strip() or "8766")
+            except: port = 8766
             name = name_row.get_text().strip() or host
             peer = {"host": host, "port": port, "name": name}
             self._cfg.setdefault("peers", []).append(peer)
@@ -1117,7 +1117,7 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
         if 0 <= idx < len(peers):
             removed = peers.pop(idx)
             save_config(self._cfg)
-            if _sync_manager: _sync_manager.remove_peer(removed["host"], removed.get("port", 8765))
+            if _sync_manager: _sync_manager.remove_peer(removed["host"], removed.get("port", 8766))
             self._rebuild_peers()
             self.toast(f"Removed {removed.get('name', removed['host'])}")
 
@@ -1153,7 +1153,7 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
 
         net_grp = Adw.PreferencesGroup(title="Network")
         self._port_entry       = Adw.EntryRow(title="Sync Port")
-        self._port_entry.set_text(str(self._cfg.get("port", 8765)))
+        self._port_entry.set_text(str(self._cfg.get("port", 8766)))
         self._sdr_remote_entry = Adw.EntryRow(title="Remote rtl_tcp (host:port)")
         self._sdr_remote_entry.set_text(self._cfg.get("sdr_remote", ""))
         net_grp.add(self._port_entry)
@@ -1300,7 +1300,7 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
         if not peers:
             return GLib.SOURCE_CONTINUE
         def _work():
-            results = [check_peer_health(p["host"], p.get("port", 8765)) for p in peers]
+            results = [check_peer_health(p["host"], p.get("port", 8766)) for p in peers]
             GLib.idle_add(self._apply_peer_dots, results)
         threading.Thread(target=_work, daemon=True).start()
         return GLib.SOURCE_CONTINUE
@@ -1394,7 +1394,7 @@ class SnifferOpsApp(Adw.Application):
     def _start_services(self, win: SnifferOpsWindow) -> None:
         global _sync_manager
         cfg = win._cfg
-        awareness_log.start_server("0.0.0.0", cfg.get("port", 8765))
+        awareness_log.start_server("0.0.0.0", cfg.get("port", 8766))
 
         def _on_peers_discovered(new_peers: list[dict]) -> None:
             """Called from sync thread when Tailscale auto-discovers new nodes."""

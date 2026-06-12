@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 SnifferOps Linux Companion
-- Awareness map consolidation hub (same HTTP API as Windows on port 8765)
+- Awareness map consolidation hub (same HTTP API as Windows on port 8766)
 - WiFi + Bluetooth scanning
 - RTL-SDR spectrum sweeps (if hardware present)
 - Android sync (receives POST /snifferops/sync)
@@ -45,7 +45,7 @@ except ImportError:
 
 DATA_DIR = os.path.expanduser("~/.snifferops")
 LOG_PATH = os.path.join(DATA_DIR, "awareness.json")
-SYNC_PORT = 8765
+SYNC_PORT = 8766
 NODE_ID = str(uuid.uuid4())[:16]
 NODE_NAME = f"linux-{platform.node()}"
 
@@ -139,7 +139,7 @@ def _build_status(peers: list[dict]) -> str:
     if peers:
         peer_strs = []
         for p in peers:
-            alive = check_peer_health(p["host"], p.get("port", 8765))
+            alive = check_peer_health(p["host"], p.get("port", 8766))
             icon = "[green]●[/green]" if alive else "[red]●[/red]"
             peer_strs.append(f"{icon} {p.get('name', p['host'])}")
         parts.append("Peers: " + "  ".join(peer_strs))
@@ -183,7 +183,7 @@ def _run_plain(sync_manager: NodeSyncManager) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="SnifferOps Linux Companion")
     parser.add_argument("--port", type=int, default=SYNC_PORT,
-                        help="HTTP sync server port (default 8765)")
+                        help="HTTP sync server port (default 8766)")
     parser.add_argument("--bind", default="0.0.0.0",
                         help="Bind address for sync server")
     parser.add_argument("--peer", action="append", default=[],
@@ -214,7 +214,7 @@ def main() -> None:
     for peer_str in args.peer:
         parts = peer_str.split(":")
         host = parts[0]
-        port = int(parts[1]) if len(parts) > 1 else 8765
+        port = int(parts[1]) if len(parts) > 1 else 8766
         name = parts[2] if len(parts) > 2 else host
         peers.append({"host": host, "port": port, "name": name})
 

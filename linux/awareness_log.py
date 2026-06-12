@@ -1,7 +1,7 @@
 """
 Durable signal awareness log and LAN sync endpoint.
 Wire-compatible with the Windows AwarenessLog.ps1 — same JSON schema,
-same HTTP endpoints (port 8765), same merge logic.
+same HTTP endpoints (port 8766), same merge logic.
 """
 
 import json
@@ -636,7 +636,7 @@ class _SyncHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "not found"}, 404)
 
 
-def start_server(bind: str = "0.0.0.0", port: int = 8765) -> None:
+def start_server(bind: str = "0.0.0.0", port: int = 8766) -> None:
     global _server, _server_thread
     if _server:
         return

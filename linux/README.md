@@ -105,7 +105,7 @@ Shows your local Tailscale IP under **This Node**. Lists all online Tailscale de
 ### Settings
 
 - Enable/disable individual scanners (Wi-Fi, Bluetooth, RTL-SDR)
-- Sync port (default 8765)
+- Sync port (default 8766)
 - Remote `rtl_tcp` source address (host:port)
 - **Clear Awareness Log** — wipes `awareness.json` after confirmation
 
@@ -209,11 +209,11 @@ When a spectrum peak is detected, it is routed through eight lenses in priority 
 
 ## Awareness Network
 
-All three platforms share a common JSON awareness log and a wire-compatible HTTP sync protocol on port **8765**.
+All three platforms share a common JSON awareness log and a wire-compatible HTTP sync protocol on port **8766**.
 
 ### HTTP API
 
-The Linux app starts a local HTTP server on `0.0.0.0:8765` when it launches.
+The Linux app starts a local HTTP server on `0.0.0.0:8766` when it launches.
 
 | Endpoint | Method | Description |
 |---|---|---|
@@ -234,7 +234,7 @@ Failed syncs use exponential backoff: first failure → wait 30s, second → 60s
 
 ### Tailscale auto-discovery
 
-At startup and every 60 seconds, the app runs `tailscale status --json` to get the list of online Tailscale peers. For each peer it probes `:8765/snifferops/health`. Any peer that responds is automatically added to the sync list (tagged `via: tailscale`) and saved to `config.json`. No manual entry needed — as long as both machines are on the same Tailscale network and SnifferOps is running, they find each other within a minute of launch.
+At startup and every 60 seconds, the app runs `tailscale status --json` to get the list of online Tailscale peers. For each peer it probes `:8766/snifferops/health`. Any peer that responds is automatically added to the sync list (tagged `via: tailscale`) and saved to `config.json`. No manual entry needed — as long as both machines are on the same Tailscale network and SnifferOps is running, they find each other within a minute of launch.
 
 ---
 
