@@ -2,6 +2,8 @@
 
 SnifferOps is an Android signal-awareness app tailored for Samsung phones, with an accompanying Samsung watch monitor app and optional RTL-SDR support.
 
+The phone is the primary, standalone recorder. Detection, classification, GPS tagging, and history storage do not depend on Windows, the watch, or an active sync connection.
+
 ## Overview
 
 SnifferOps combines a simple tactical dashboard with real Android sensor APIs:
@@ -13,6 +15,9 @@ SnifferOps combines a simple tactical dashboard with real Android sensor APIs:
 - Optional direct USB RTL-SDR scanning
 - Optional network RTL-SDR mode through `rtl_tcp`
 - Samsung watch monitor status display
+- Durable on-phone sighting journal with detection-time GPS
+- Background Wi-Fi, Bluetooth, BLE, and cellular recording through a foreground service
+- Optional replication to the Windows awareness companion
 
 The app is intended for authorized security auditing, network management, and educational use on networks and devices you own or have explicit permission to inspect.
 
@@ -35,6 +40,28 @@ The app is intended for authorized security auditing, network management, and ed
 - Alert count display
 - SDR connection status
 - Phone-to-watch sync through the Wear Data Layer
+
+## Local History And GPS
+
+SnifferOps stores two kinds of data in its on-phone Room database:
+
+- Compact device profiles in `signal_devices`
+- Append-only detection evidence in `signal_sightings`
+
+Each journal row records the signal ID, detection time, signal strength, and the phone's best available GPS fix at that moment. The foreground scanner service writes these rows while scanning continues in the background, so a drive can be recorded without a Windows connection and synced hours or days later.
+
+Sightings are sampled per device to preserve route movement without recording every repeated callback.
+
+## Windows Replication And Compaction
+
+Windows sync is optional replication, not required operation.
+
+1. `SYNC` sends queued journal rows with their original timestamps and GPS coordinates.
+2. Windows assimilates them into its persistent awareness state and returns the exact confirmed sighting IDs.
+3. Only after that handshake does `COMPACT PHONE` become available.
+4. Compaction deletes only PC-confirmed journal rows. Compact phone profiles and the awareness copy returned by Windows remain available locally.
+
+A failed, partial, or interrupted send deletes nothing. Confirmed rows also survive an app restart until the user explicitly presses `COMPACT PHONE`.
 
 ## RTL-SDR
 
@@ -91,7 +118,8 @@ The phone app requests:
 - `BLUETOOTH_SCAN` / `BLUETOOTH_CONNECT` for Bluetooth and BLE scanning
 - `READ_PHONE_STATE` for cellular tower info
 - `POST_NOTIFICATIONS` for alert notifications
-- `INTERNET` for optional Network SDR mode
+- `FOREGROUND_SERVICE_LOCATION` for persistent background recording
+- `INTERNET` for optional Windows replication and Network SDR mode
 - `NFC` for NFC tag detection
 - USB Host support for optional direct RTL-SDR mode
 
@@ -101,11 +129,11 @@ The phone app requests:
 app/
   scanner/        WifiScanner, BluetoothScanner, NfcScanner, CellularScanner,
                   RtlSdrScanner, NetworkRtlSdrScanner
-  model/          SignalDevice, SdrSignal, CellTower, NfcTag, ScanSummary
-  data/           Room database and DAO
+  model/          SignalDevice, SignalSighting, SdrSignal, CellTower, NfcTag
+  data/           Room profiles, append-only sighting journal, DAO, detection store
   viewmodel/      DashboardViewModel
   ui/             Compose screens and theme
-  service/        Foreground scanner service
+  service/        Foreground Wi-Fi/Bluetooth/BLE/cellular recorder
   util/           DeviceClassifier
 
 wear/

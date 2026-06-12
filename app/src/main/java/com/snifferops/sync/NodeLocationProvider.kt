@@ -23,7 +23,9 @@ class NodeLocationProvider(private val context: Context) {
         val candidates = locationManager.allProviders.mapNotNull { provider ->
             runCatching { locationManager.getLastKnownLocation(provider) }.getOrNull()
         }
-        candidates.maxWithOrNull(compareBy<Location> { -it.accuracy }.thenBy { it.time })?.let { location ->
+        candidates
+            .filter { it.latitude in -90.0..90.0 && it.longitude in -180.0..180.0 }
+            .maxWithOrNull(compareBy<Location> { it.time }.thenBy { -it.accuracy })?.let { location ->
             NodeLocation(
                 latitude = location.latitude,
                 longitude = location.longitude,

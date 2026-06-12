@@ -207,7 +207,11 @@ fun DashboardScreen(
                 }
             }
 
-            SdrStatusBadge(connected = summary.sdrConnected, deviceName = state.sdrDeviceName)
+            SdrStatusBadge(
+                connected = summary.sdrConnected,
+                deviceName = state.sdrDeviceName,
+                onConnectWindows = { onNavigate(Screen.Sdr) }
+            )
 
             Button(
                 onClick = if (state.scanActive) onStopScan else onStartScan,
@@ -436,7 +440,7 @@ private fun StatusRow(label: String, count: Int, color: Color) {
 }
 
 @Composable
-private fun SdrStatusBadge(connected: Boolean, deviceName: String) {
+private fun SdrStatusBadge(connected: Boolean, deviceName: String, onConnectWindows: () -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
@@ -453,7 +457,7 @@ private fun SdrStatusBadge(connected: Boolean, deviceName: String) {
                 contentDescription = null,
                 modifier = Modifier.size(34.dp).clip(RoundedCornerShape(6.dp))
             )
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     if (connected) "RTL-SDR LINK ONLINE" else "RTL-SDR LINK IDLE",
                     color = if (connected) RadarGreen else OnSurfaceMuted,
@@ -463,10 +467,24 @@ private fun SdrStatusBadge(connected: Boolean, deviceName: String) {
                     letterSpacing = 1.sp
                 )
                 Text(
-                    if (connected && deviceName.isNotEmpty()) deviceName else "USB-C OTG or Windows feed",
+                    if (connected && deviceName.isNotEmpty()) deviceName else "USB-C OTG or PC feed",
                     color = OnSurfaceMuted.copy(0.76f),
                     fontSize = 11.sp,
                     fontFamily = SnifferOpsCondensedFont
+                )
+            }
+            Button(
+                onClick = onConnectWindows,
+                shape = RoundedCornerShape(6.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8B5CF6))
+            ) {
+                Icon(Icons.Default.Radio, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    "PC",
+                    fontFamily = SnifferOpsCondensedFont,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp
                 )
             }
         }

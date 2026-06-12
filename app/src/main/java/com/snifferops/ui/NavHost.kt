@@ -89,7 +89,9 @@ fun SnifferOpsNavHost(
                 awarenessSyncPort = state.awarenessSyncPort,
                 awarenessSyncEnabled = state.awarenessSyncEnabled,
                 awarenessSyncConnected = state.awarenessSyncConnected,
+                awarenessSyncInProgress = state.awarenessSyncInProgress,
                 awarenessSyncStatus = state.awarenessSyncStatus,
+                awarenessCompactionReadyCount = state.awarenessCompactionReadyCount,
                 awarenessSignalCount = state.awarenessSignalCount,
                 deviceName = state.sdrDeviceName,
                 scanning = state.sdrScanActive,
@@ -100,6 +102,9 @@ fun SnifferOpsNavHost(
                 onDisconnectNetwork = { viewModel.disconnectNetworkSdr() },
                 onAwarenessEndpointChange = { host, port -> viewModel.setAwarenessSyncEndpoint(host, port) },
                 onAwarenessSyncEnabledChange = { viewModel.setAwarenessSyncEnabled(it) },
+                onConnectAwarenessSync = { viewModel.connectAwarenessSyncServer() },
+                onSyncAwarenessNow = { viewModel.syncSavedAwarenessToWindows() },
+                onCompactAwareness = { viewModel.compactConfirmedPhoneHistory() },
                 onBack = { navController.popBackStack() }
             )
         }

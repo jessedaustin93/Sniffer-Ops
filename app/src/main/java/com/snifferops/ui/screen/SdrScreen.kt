@@ -33,7 +33,9 @@ fun SdrScreen(
     awarenessSyncPort: String,
     awarenessSyncEnabled: Boolean,
     awarenessSyncConnected: Boolean,
+    awarenessSyncInProgress: Boolean,
     awarenessSyncStatus: String,
+    awarenessCompactionReadyCount: Int,
     awarenessSignalCount: Int,
     deviceName: String,
     scanning: Boolean,
@@ -44,6 +46,9 @@ fun SdrScreen(
     onDisconnectNetwork: () -> Unit,
     onAwarenessEndpointChange: (String, String) -> Unit,
     onAwarenessSyncEnabledChange: (Boolean) -> Unit,
+    onConnectAwarenessSync: () -> Unit,
+    onSyncAwarenessNow: () -> Unit,
+    onCompactAwareness: () -> Unit,
     onBack: () -> Unit
 ) {
     val sdrColor = Color(0xFF8B5CF6)
@@ -69,111 +74,36 @@ fun SdrScreen(
         Column(
             modifier = Modifier.fillMaxSize().padding(padding).background(BackgroundDark)
         ) {
-            // Dongle status
-            Surface(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                shape = RoundedCornerShape(8.dp),
-                color = if (connected) Color(0xFF0D2010) else SurfaceVariantDark
-            ) {
-                Row(
-                    modifier = Modifier.padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(Icons.Default.Usb, "USB",
-                        tint = if (connected) RadarGreen else OnSurfaceMuted)
-                    Column {
-                        Text(
-                            when {
-                                networkConnected -> "Network SDR: $deviceName"
-                                connected && hasPermission -> "RTL-SDR: $deviceName"
-                                connected -> "RTL-SDR Connected - permission needed"
-                                else -> "RTL-SDR Dongle Not Connected"
-                            },
-                            color = if (networkConnected || connected && hasPermission) RadarGreen else OnSurfaceMuted,
-                            fontFamily = FontFamily.Monospace, fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        if (networkConnected) {
-                            Text("Streaming from rtl_tcp on your Windows machine",
-                                color = OnSurfaceMuted.copy(0.6f), fontSize = 10.sp)
-                        } else if (connected && !hasPermission) {
-                            Text("Tap Scan and approve the Android USB permission prompt",
-                                color = OnSurfaceMuted.copy(0.6f), fontSize = 10.sp)
-                        } else if (!connected) {
-                            Text("Plug in your RTL-SDR Blog V4 via USB-C OTG adapter",
-                                color = OnSurfaceMuted.copy(0.6f), fontSize = 10.sp)
-                        }
-                    }
-                }
-            }
-
-            NetworkSdrPanel(
-                host = networkHost,
-                port = networkPort,
-                connected = networkConnected,
-                onEndpointChange = onNetworkEndpointChange,
-                onConnect = onConnectNetwork,
-                onDisconnect = onDisconnectNetwork
+            ScanControlBar(
+                scanning = scanning,
+                count = signals.size,
+                color = sdrColor,
+                onStart = onStartScan,
+                onStop = onStopScan
             )
 
-            AwarenessSyncPanel(
+            WindowsSyncCompactPanel(
                 host = awarenessSyncHost.ifBlank { networkHost },
                 port = awarenessSyncPort,
-                enabled = awarenessSyncEnabled,
                 connected = awarenessSyncConnected,
+                syncing = awarenessSyncInProgress,
                 status = awarenessSyncStatus,
-                knownCount = awarenessSignalCount,
+                compactionReadyCount = awarenessCompactionReadyCount,
                 onEndpointChange = onAwarenessEndpointChange,
-                onEnabledChange = onAwarenessSyncEnabledChange
+                onConnect = onConnectAwarenessSync,
+                onSyncNow = onSyncAwarenessNow,
+                onCompact = onCompactAwareness
             )
 
-            if (networkConnected || connected && hasPermission) {
-                ScanControlBar(
-                    scanning = scanning, count = signals.size,
-                    color = sdrColor, onStart = onStartScan, onStop = onStopScan
-                )
-            } else if (connected) {
-                Button(
-                    onClick = onStartScan,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = sdrColor)
-                ) {
-                    Text("REQUEST USB PERMISSION", fontFamily = FontFamily.Monospace)
-                }
-            }
-
-            if (!connected && !networkConnected) {
-                Column(
-                    modifier = Modifier.fillMaxSize().padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically)
-                ) {
-                    Icon(Icons.Default.Radio, "SDR", tint = OnSurfaceMuted, modifier = Modifier.size(64.dp))
-                    Text("Connect RTL-SDR Dongle", color = OnSurface, fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold)
-                    Text(
-                        "Plug your RTL-SDR Blog V4 dongle into the USB-C port using an OTG adapter. " +
-                        "The app will automatically detect it and enable spectrum scanning.",
-                        color = OnSurfaceMuted, fontSize = 13.sp
-                    )
-                    Text("Supported devices: RTL-SDR Blog V4, RTL2838, RTL2832, R820T, ezcap EzTV",
-                        color = OnSurfaceMuted.copy(0.6f), fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace)
-                }
-            } else if (connected && !networkConnected && !hasPermission) {
-                EmptyState("USB permission needed", "Approve the Android USB prompt to enable SDR scanning")
-            } else if (signals.isEmpty()) {
-                EmptyState("No measured SDR detections yet", "Tap Scan to run a measured sweep and show only peaks above the local noise floor")
+            if (signals.isEmpty()) {
+                EmptyState("No SDR peaks yet", "Tap Scan to run the PC deep scan and return measured RF peaks")
             } else {
                 LazyColumn(
                     modifier = Modifier.weight(1f),
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(signals.sortedByDescending { it.power }) { signal ->
+                    items(signals.sortedByDescending { it.power }, key = { it.frequency }) { signal ->
                         SdrSignalCard(signal, onClick = { selectedSignal = signal })
                     }
                 }
@@ -193,15 +123,158 @@ fun SdrScreen(
 }
 
 @Composable
+private fun WindowsSyncCompactPanel(
+    host: String,
+    port: String,
+    connected: Boolean,
+    syncing: Boolean,
+    status: String,
+    compactionReadyCount: Int,
+    onEndpointChange: (String, String) -> Unit,
+    onConnect: () -> Unit,
+    onSyncNow: () -> Unit,
+    onCompact: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        shape = RoundedCornerShape(8.dp),
+        color = SurfaceDark
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    Icons.Default.Computer,
+                    contentDescription = null,
+                    tint = if (connected) RadarGreen else Color(0xFF22D3EE)
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "PC CONNECTION",
+                        color = if (connected) RadarGreen else Color(0xFF22D3EE),
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+                    Text(
+                        status,
+                        color = OnSurfaceMuted,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 1
+                    )
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = host,
+                    onValueChange = { onEndpointChange(it, port) },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    label = { Text("PC Host") },
+                    textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 12.sp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = OnSurface,
+                        unfocusedTextColor = OnSurface,
+                        focusedBorderColor = Color(0xFF22D3EE),
+                        unfocusedBorderColor = OnSurfaceMuted,
+                        focusedLabelColor = Color(0xFF22D3EE),
+                        unfocusedLabelColor = OnSurfaceMuted
+                    )
+                )
+                OutlinedTextField(
+                    value = port,
+                    onValueChange = { onEndpointChange(host, it.filter(Char::isDigit).take(5)) },
+                    modifier = Modifier.width(94.dp),
+                    singleLine = true,
+                    label = { Text("Port") },
+                    textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 12.sp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = OnSurface,
+                        unfocusedTextColor = OnSurface,
+                        focusedBorderColor = Color(0xFF22D3EE),
+                        unfocusedBorderColor = OnSurfaceMuted,
+                        focusedLabelColor = Color(0xFF22D3EE),
+                        unfocusedLabelColor = OnSurfaceMuted
+                    )
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Button(
+                    onClick = onConnect,
+                    enabled = !syncing && host.isNotBlank(),
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (connected) RadarGreen else Color(0xFF0D84FF),
+                        contentColor = Color.Black
+                    )
+                ) {
+                    Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("CONNECT", fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                }
+                Button(
+                    onClick = onSyncNow,
+                    enabled = !syncing && host.isNotBlank(),
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF22D3EE),
+                        contentColor = Color.Black
+                    )
+                ) {
+                    Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("SEND STORED", fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 10.sp)
+                }
+            }
+            Button(
+                onClick = onCompact,
+                enabled = !syncing && compactionReadyCount > 0,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = RadarGreen,
+                    contentColor = Color.Black,
+                    disabledContainerColor = Color(0xFF263238),
+                    disabledContentColor = OnSurfaceMuted
+                )
+            ) {
+                Icon(Icons.Default.Storage, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    if (compactionReadyCount > 0) {
+                        "COMPACT PHONE ($compactionReadyCount CONFIRMED)"
+                    } else {
+                        "COMPACT PHONE (SEND + CONFIRM FIRST)"
+                    },
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 10.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun AwarenessSyncPanel(
     host: String,
     port: String,
     enabled: Boolean,
     connected: Boolean,
+    syncing: Boolean,
     status: String,
     knownCount: Int,
     onEndpointChange: (String, String) -> Unit,
-    onEnabledChange: (Boolean) -> Unit
+    onEnabledChange: (Boolean) -> Unit,
+    onConnect: () -> Unit,
+    onSyncNow: () -> Unit
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -219,7 +292,7 @@ private fun AwarenessSyncPanel(
             ) {
                 Column {
                     Text(
-                        "WINDOWS AWARENESS SYNC",
+                        "PC AWARENESS SYNC",
                         color = if (connected) RadarGreen else Color(0xFF22D3EE),
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
@@ -242,7 +315,7 @@ private fun AwarenessSyncPanel(
                     modifier = Modifier.weight(1f),
                     enabled = !enabled,
                     singleLine = true,
-                    label = { Text("Windows IP") },
+                    label = { Text("PC Host") },
                     textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 12.sp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = OnSurface,
@@ -271,6 +344,42 @@ private fun AwarenessSyncPanel(
                     )
                 )
             }
+            Button(
+                onClick = onConnect,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !syncing && host.isNotBlank(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (connected) RadarGreen else Color(0xFF0D84FF),
+                    contentColor = Color.Black
+                )
+            ) {
+                Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    if (connected) "PC SYNC CONNECTED" else "CONNECT PC SYNC",
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp
+                )
+            }
+            Button(
+                onClick = onSyncNow,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !syncing && host.isNotBlank(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (connected) RadarGreen else Color(0xFF22D3EE),
+                    contentColor = Color.Black
+                )
+            ) {
+                Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    if (syncing) "SENDING SAVED HISTORY" else "SEND SAVED HISTORY TO PC",
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp
+                )
+            }
         }
     }
 }
@@ -294,7 +403,7 @@ private fun NetworkSdrPanel(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(
-                "WINDOWS NETWORK SDR",
+                "PC NETWORK SDR",
                 color = Color(0xFF8B5CF6),
                 fontSize = 11.sp,
                 fontFamily = FontFamily.Monospace,
@@ -308,7 +417,7 @@ private fun NetworkSdrPanel(
                     modifier = Modifier.weight(1f),
                     enabled = !connected,
                     singleLine = true,
-                    label = { Text("Windows IP") },
+                    label = { Text("PC Host") },
                     textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 12.sp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = OnSurface,

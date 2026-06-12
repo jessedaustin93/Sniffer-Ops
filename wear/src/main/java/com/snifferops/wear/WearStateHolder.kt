@@ -30,6 +30,10 @@ object WearStateHolder {
     private val _state = MutableStateFlow(WearState())
     val state: StateFlow<WearState> = _state
 
+    fun replace(state: WearState) {
+        _state.value = state
+    }
+
     fun update(
         wifi: Int, bt: Int, cell: Int, sdr: Int,
         alerts: Int,

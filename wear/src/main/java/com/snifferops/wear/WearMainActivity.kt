@@ -74,7 +74,7 @@ private enum class WatchPanel(val label: String) {
 class WearMainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LOCKED
         setContent {
             MaterialTheme {
                 WearApp()
@@ -94,6 +94,14 @@ fun WearApp() {
     }
 
     LaunchedEffect(Unit) {
+        WearStateStore.load(context)?.let { cached ->
+            Log.d(
+                WearSyncTag,
+                "Loaded local watch cache scanning=${cached.scanning} wifi=${cached.wifiCount} " +
+                    "bt=${cached.btCount} cell=${cached.cellCount} sdr=${cached.sdrCount} alerts=${cached.alertCount}"
+            )
+            WearStateHolder.replace(cached)
+        }
         Wearable.getDataClient(context).dataItems.addOnSuccessListener { items ->
             var foundSummary = false
             items.forEach { item ->
@@ -123,6 +131,7 @@ fun WearApp() {
                         alertItems = dataMap.readItems("alert_items"),
                         awarenessItems = dataMap.readItems("awareness_items")
                     )
+                    WearStateStore.save(context, WearStateHolder.state.value)
                 }
             }
             if (!foundSummary) Log.d(WearSyncTag, "No cached summary data item found")

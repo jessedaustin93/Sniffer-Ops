@@ -41,6 +41,7 @@ class WearDataService : WearableListenerService() {
                         alertItems = dataMap.readItems("alert_items"),
                         awarenessItems = dataMap.readItems("awareness_items")
                     )
+                    WearStateStore.save(applicationContext, WearStateHolder.state.value)
                 }
             }
         }
