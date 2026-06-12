@@ -36,7 +36,7 @@ data class AppState(
     val networkSdrPort: String = "1234",
     val networkSdrConnected: Boolean = false,
     val awarenessSyncHost: String = "",
-    val awarenessSyncPort: String = "8765",
+    val awarenessSyncPort: String = "8766",
     val awarenessSyncEnabled: Boolean = false,
     val awarenessSyncConnected: Boolean = false,
     val awarenessSyncStatus: String = "Sync off",
@@ -239,7 +239,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         val current = _state.value
         val windowsHost = current.awarenessSyncHost.ifBlank { current.networkSdrHost }
         if (windowsHost.isNotBlank()) {
-            startWindowsSdrDeepScan(windowsHost, current.awarenessSyncPort.toIntOrNull() ?: 8765)
+            startWindowsSdrDeepScan(windowsHost, current.awarenessSyncPort.toIntOrNull() ?: 8766)
             return
         }
         if (!current.sdrConnected) return
@@ -490,7 +490,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     fun connectAwarenessSyncServer() {
         val current = _state.value
         val host = current.awarenessSyncHost.ifBlank { current.networkSdrHost }
-        val port = current.awarenessSyncPort.toIntOrNull() ?: 8765
+        val port = current.awarenessSyncPort.toIntOrNull() ?: 8766
         if (host.isBlank()) {
             _state.update { it.copy(awarenessSyncConnected = false, awarenessSyncStatus = "Enter PC host") }
             return
@@ -579,7 +579,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         val savedNetworkHost = serverPrefs.getString(PREF_NETWORK_HOST, "").orEmpty()
         val networkPort = serverPrefs.getString(PREF_NETWORK_PORT, "1234").orEmpty().ifBlank { "1234" }
         val awarenessHost = serverPrefs.getString(PREF_AWARENESS_HOST, "").orEmpty().ifBlank { savedNetworkHost }
-        val awarenessPort = serverPrefs.getString(PREF_AWARENESS_PORT, "8765").orEmpty().ifBlank { "8765" }
+        val awarenessPort = serverPrefs.getString(PREF_AWARENESS_PORT, "8766").orEmpty().ifBlank { "8766" }
         val awarenessEnabled = serverPrefs.getBoolean(PREF_AWARENESS_ENABLED, false)
 
         _state.update {
@@ -611,7 +611,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             .putString(PREF_NETWORK_HOST, pcHost)
             .putString(PREF_NETWORK_PORT, current.networkSdrPort.ifBlank { "1234" })
             .putString(PREF_AWARENESS_HOST, pcHost)
-            .putString(PREF_AWARENESS_PORT, current.awarenessSyncPort.ifBlank { "8765" })
+            .putString(PREF_AWARENESS_PORT, current.awarenessSyncPort.ifBlank { "8766" })
             .putBoolean(PREF_AWARENESS_ENABLED, current.awarenessSyncEnabled)
             .apply()
     }
@@ -664,7 +664,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private fun triggerAwarenessSync() {
         val current = _state.value
         val host = current.awarenessSyncHost.ifBlank { current.networkSdrHost }
-        val port = current.awarenessSyncPort.toIntOrNull() ?: 8765
+        val port = current.awarenessSyncPort.toIntOrNull() ?: 8766
         if (host.isBlank()) {
             _state.update { it.copy(awarenessSyncConnected = false, awarenessSyncStatus = "Enter PC host") }
             return

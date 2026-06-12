@@ -69,7 +69,7 @@ class AwarenessSyncClient(private val context: Context) {
             val connection = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 connectTimeout = 4000
-                readTimeout = 12000
+                readTimeout = 60000
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json")
             }
