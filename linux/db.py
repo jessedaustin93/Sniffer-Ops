@@ -535,6 +535,15 @@ def merge_remote_snapshot(snapshot: dict) -> dict:
                 last_seen_val = signal.get("lastSeen") or now_ms
                 seen_count_val = signal.get("seenCount") or 0
                 strongest = _to_number(signal.get("strongestSignal") or signal.get("signalStrength"))
+                # Accept GPS at the profile level — Windows sends estimatedLatitude/
+                # estimatedLongitude (no per-sighting records); _to_snapshot_signals()
+                # normalises both names to "latitude"/"longitude".
+                profile_lat = _to_number(
+                    signal.get("latitude") or signal.get("estimatedLatitude")
+                )
+                profile_lon = _to_number(
+                    signal.get("longitude") or signal.get("estimatedLongitude")
+                )
 
                 conn.execute(
                     """
@@ -542,12 +551,14 @@ def merge_remote_snapshot(snapshot: dict) -> dict:
                         id, name, address, type, manufacturer, device_class,
                         is_encrypted, channel, frequency_hz, threat_level, notes,
                         first_seen, last_seen, seen_count, strongest_signal, last_signal,
-                        presence_state, last_present_at, node_ids, timeline
+                        presence_state, last_present_at, node_ids, timeline,
+                        estimated_latitude, estimated_longitude
                     ) VALUES (
                         ?, ?, ?, ?, ?, ?,
                         ?, ?, ?, ?, ?,
                         ?, ?, ?, ?, ?,
-                        'seen', ?, '[]', '[]'
+                        'seen', ?, '[]', '[]',
+                        ?, ?
                     )
                     ON CONFLICT(id) DO UPDATE SET
                         name             = COALESCE(NULLIF(excluded.name, ''), signal_profiles.name),
@@ -565,13 +576,18 @@ def merge_remote_snapshot(snapshot: dict) -> dict:
                                   OR excluded.strongest_signal > signal_profiles.strongest_signal)
                             THEN excluded.strongest_signal
                             ELSE signal_profiles.strongest_signal
-                        END
+                        END,
+                        estimated_latitude  = COALESCE(excluded.estimated_latitude,
+                                                        signal_profiles.estimated_latitude),
+                        estimated_longitude = COALESCE(excluded.estimated_longitude,
+                                                        signal_profiles.estimated_longitude)
                     """,
                     (
                         profile_id, name, address, sig_type, manufacturer, device_class,
                         is_encrypted, channel, frequency_hz, threat_level, notes,
                         first_seen_val, last_seen_val, seen_count_val, strongest, strongest,
                         now_ms,
+                        profile_lat, profile_lon,
                     ),
                 )
 
