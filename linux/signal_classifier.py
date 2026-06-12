@@ -278,6 +278,85 @@ _SDR_RULES = [
 ]
 
 
+def classify_alert(name: str, type_: str, specific_type: str,
+                   threat_level: str, notes: str = "") -> dict:
+    """
+    Returns {"level": "HIGH"/"MEDIUM"/"LOW"/"NONE", "evidence": ...,
+             "meaning": ..., "next_step": ..., "notes": ...}
+
+    Mirrors Get-SignalAlertClassification from SnifferOps.Windows.ps1.
+    Movement clue on a surveillance-class signal upgrades it to HIGH.
+    """
+    text = " ".join(filter(None, [name, type_, specific_type, threat_level, notes])).lower()
+    threat = threat_level.strip().upper()
+
+    high_pat = (r'(imsi|stingray|fake\s*sim|fake\s*cell|rogue\s*cell|'
+                r'cell\s*site\s*simulator|evil\s*twin|wifi\s*pineapple|pineapple|'
+                r'deauther|pwnagotchi|marauder|flipper|badusb|skimmer|'
+                r'tap\s*to\s*pay|payment|nfc\s*intercept|credential|password|'
+                r'phish|sniffer|data[- ]?capture|hacking)')
+    # "camera" removed — too many false positives on SSID names
+    medium_pat = (r'(flock|flock\s*safety|alpr|lpr|license\s*plate|plate\s*reader|'
+                  r'traffic\s*reader|traffic\s*camera|speed\s*camera|red\s*light|'
+                  r'surveillance|cctv|doorbell|verkada|avigilon|hikvision|dahua|'
+                  r'axis|vigilant|genetec|motorola)')
+    low_pat = (r'(unknown\s*ble|beacon|tracker|airtag|tile|hidden\s*wifi|'
+               r'open\s*wifi|open\s*security|unsecured|rogue|spoof|jam|burst|'
+               r'unclassified\s*rf|unexpected|odd|weird)')
+    move_pat = (r'(new\s+scan\s+location|location_changed|also\s+seen\s+by|'
+                r'same\s+reader|following|followed|moved\s+with)')
+
+    high_m   = re.search(high_pat,   text)
+    medium_m = re.search(medium_pat, text)
+    low_m    = re.search(low_pat,    text)
+    move_m   = re.search(move_pat,   text)
+
+    if threat == "ALERT" or high_m:
+        return {
+            "level": "HIGH",
+            "evidence": (f"High-risk keyword: {high_m.group(0)}"
+                         if high_m else "Threat level is ALERT"),
+            "meaning": ("Signal name, type, or classification matched a known adversarial "
+                        "or surveillance tool."),
+            "next_step": ("Investigate immediately; this matches patterns associated with "
+                          "tracking, interception, or network attack tools."),
+            "notes": "High alert: treat as confirmed threat until ruled out.",
+        }
+    if threat == "SUSPICIOUS" or medium_m:
+        if move_m:
+            return {
+                "level": "HIGH",
+                "evidence": f"Surveillance/traffic class with movement clue: {move_m.group(0)}",
+                "meaning": ("Possible surveillance or reader system seen across "
+                             "scan locations or nodes."),
+                "next_step": ("Correlate the timeline and map; repeated movement "
+                              "with your route deserves immediate attention."),
+                "notes": ("High alert: surveillance-class signal appears to move "
+                          "or repeat across scan locations."),
+            }
+        return {
+            "level": "MEDIUM",
+            "evidence": (f"Surveillance/traffic keyword: {medium_m.group(0)}"
+                         if medium_m else "Threat level is SUSPICIOUS"),
+            "meaning": ("Signal matches patterns associated with license plate readers, "
+                        "ALPR cameras, or surveillance infrastructure."),
+            "next_step": ("Note location and whether it moves; a stationary reader "
+                          "is expected, a mobile one is not."),
+            "notes": "",
+        }
+    if low_m:
+        return {
+            "level": "LOW",
+            "evidence": f"Attention keyword: {low_m.group(0)}",
+            "meaning": ("Signal has a low-priority attention flag — "
+                        "tracker, beacon, or unclassified RF."),
+            "next_step": ("Monitor for changes; LOW alone is informational "
+                          "unless combined with other clues."),
+            "notes": "",
+        }
+    return {"level": "NONE", "evidence": "", "meaning": "", "next_step": "", "notes": ""}
+
+
 def classify_sdr(frequency_hz: int | float) -> SignalExplanation:
     mhz = frequency_hz / 1_000_000.0
     for lo, hi, sig_type, mod, conf, meaning, nxt in _SDR_RULES:

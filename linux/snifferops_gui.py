@@ -287,9 +287,10 @@ entry, .entry {{ background-color: {C['panel2']}; color: {C['green']}; border: 1
 }}
 .peer-online  {{ color: {C['green']}; }}
 .peer-offline {{ color: {C['red']};   }}
-.threat-alert {{ color: {C['red']};    font-weight: bold; }}
-.threat-watch {{ color: {C['orange']}; font-weight: bold; }}
-.threat-safe  {{ color: {C['green2']}; }}
+.threat-alert   {{ color: {C['red']};    font-weight: bold; }}
+.threat-watch   {{ color: {C['orange']}; font-weight: bold; }}
+.threat-noticed {{ color: {C['cyan']};  }}
+.threat-safe    {{ color: {C['green2']}; }}
 viewswitcherbar {{
     background-color: #000000;
     border-top: 1px solid {C['border_green']};
@@ -391,16 +392,34 @@ def _submit(signals: list[dict], signal_type: str) -> None:
     _scan_stats["syncs"] += 1
 
 
+def _alert_level_to_threat(level: str) -> str:
+    return {"HIGH": "ALERT", "MEDIUM": "SUSPICIOUS", "LOW": "UNKNOWN"}.get(level, "")
+
+
 def _on_wifi(signals: list[dict]) -> None:
     for s in signals:
-        s["deviceClass"] = signal_classifier.classify_wifi(s).specific_type
+        exp = signal_classifier.classify_wifi(s)
+        s["deviceClass"] = exp.specific_type
+        alert = signal_classifier.classify_alert(
+            s.get("name", ""), "WIFI", exp.specific_type,
+            s.get("threatLevel", ""), s.get("notes", ""),
+        )
+        if alert["level"] != "NONE":
+            s["threatLevel"] = _alert_level_to_threat(alert["level"])
     _submit(signals, "WIFI")
     _scan_stats["wifi"] += len(signals)
 
 
 def _on_bt(devices: list[dict]) -> None:
     for d in devices:
-        d["deviceClass"] = signal_classifier.classify_bluetooth(d).specific_type
+        exp = signal_classifier.classify_bluetooth(d)
+        d["deviceClass"] = exp.specific_type
+        alert = signal_classifier.classify_alert(
+            d.get("name", ""), "BLUETOOTH", exp.specific_type,
+            d.get("threatLevel", ""), d.get("notes", ""),
+        )
+        if alert["level"] != "NONE":
+            d["threatLevel"] = _alert_level_to_threat(alert["level"])
     _submit(devices, "BLUETOOTH")
     _scan_stats["bt"] += len(devices)
 
@@ -408,10 +427,18 @@ def _on_bt(devices: list[dict]) -> None:
 def _on_sdr(signals: list[dict]) -> None:
     for s in signals:
         freq = s.get("frequencyHz") or 0
-        s["deviceClass"] = signal_classifier.classify_sdr(freq).specific_type
+        exp = signal_classifier.classify_sdr(freq)
+        s["deviceClass"] = exp.specific_type
         d = route(freq)
-        if d:
-            s["notes"] = f"Lens: {d.kind}/{d.mode or d.title}"
+        lens_note = f"Lens: {d.kind}/{d.mode or d.title}" if d else ""
+        if lens_note:
+            s["notes"] = lens_note
+        alert = signal_classifier.classify_alert(
+            s.get("name", ""), "RTL_SDR", exp.specific_type,
+            s.get("threatLevel", ""), lens_note,
+        )
+        if alert["level"] != "NONE":
+            s["threatLevel"] = _alert_level_to_threat(alert["level"])
     _submit(signals, "RTL_SDR")
     _scan_stats["sdr"] += len(signals)
 
@@ -593,14 +620,26 @@ def _make_signal_table(filter_type: str | None = None) -> tuple[Gtk.ScrolledWind
             lbl: Gtk.Label = item.get_child()
             val = row.get_property(p)
             if p == "threat":
-                classes = {"ALERT": "threat-alert", "SUSPICIOUS": "threat-watch",
-                           "WATCH": "threat-watch", "SAFE": "threat-safe"}
-                cls = classes.get(val.upper(), "")
+                _cls_map = {
+                    "ALERT":      "threat-alert",
+                    "HIGH":       "threat-alert",
+                    "Alert":      "threat-alert",
+                    "SUSPICIOUS": "threat-watch",
+                    "MEDIUM":     "threat-watch",
+                    "Watch":      "threat-watch",
+                    "LOW":        "threat-noticed",
+                    "Noticed":    "threat-noticed",
+                    "SAFE":       "threat-safe",
+                    "Normal":     "threat-safe",
+                    "Learning":   "threat-safe",
+                    "One-off":    "threat-safe",
+                }
+                css_cls = _cls_map.get(val, "")
                 lbl.set_text(val)
-                for c in ["threat-alert", "threat-watch", "threat-safe"]:
+                for c in ["threat-alert", "threat-watch", "threat-noticed", "threat-safe"]:
                     lbl.remove_css_class(c)
-                if cls:
-                    lbl.add_css_class(cls)
+                if css_cls:
+                    lbl.add_css_class(css_cls)
             else:
                 lbl.set_text(val)
         factory.connect("setup", _setup)
@@ -1184,32 +1223,37 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
             t = r.get("Type", "")
             type_counts[t] = type_counts.get(t, 0) + 1
 
-        wifi_n  = type_counts.get("WIFI", 0)
-        bt_n    = type_counts.get("BLUETOOTH", 0) + type_counts.get("BLE", 0)
-        cell_n  = type_counts.get("CELLULAR", 0)
-        sdr_n   = type_counts.get("RTL_SDR", 0)
-        alert_n = _scan_stats.get("alerts", 0)
+        wifi_n = type_counts.get("WIFI", 0)
+        bt_n   = type_counts.get("BLUETOOTH", 0) + type_counts.get("BLE", 0)
+        cell_n = type_counts.get("CELLULAR", 0)
+        sdr_n  = type_counts.get("RTL_SDR", 0)
+
+        # Awareness display profiles for classified counts
+        profiles = awareness_log.get_display_profiles()
+        alert_n  = sum(1 for p in profiles if p["Class"] == "Alert")
+        watch_n  = sum(1 for p in profiles if p["Class"] == "Watch")
+        noticed_n = sum(1 for p in profiles if p["Class"] == "Noticed")
+        normal_n  = sum(1 for p in profiles if p["Class"] in ("Normal", "Learning"))
+        total_dp  = len(profiles)
 
         # Stat counters
         self._cnt_wifi.set_text(str(wifi_n))
         self._cnt_bt.set_text(str(bt_n))
         self._cnt_cell.set_text(str(cell_n))
         self._cnt_sdr.set_text(str(sdr_n))
-        self._cnt_alert.set_text(str(alert_n))
+        self._cnt_alert.set_text(str(alert_n + watch_n))
 
         # Tile counts
-        tile_vals = [wifi_n, bt_n, 0, cell_n, sdr_n, alert_n]
+        tile_vals = [wifi_n, bt_n, 0, cell_n, sdr_n, alert_n + watch_n]
         for lbl, val in zip(self._tile_counts, tile_vals):
             lbl.set_text(str(val))
 
-        # Awareness strip
-        total = len(rows)
-        normal_n = sum(1 for r in rows
-                       if (r.get("Confidence") or "").upper() in ("SAFE", "UNKNOWN", ""))
-        odd_n = total - normal_n
-        self._aw_summary.set_text(f"{total} known / {_scan_stats['syncs']} syncs")
+        # Awareness strip — use display profiles for accurate class counts
+        self._aw_summary.set_text(f"{total_dp} known / {_scan_stats['syncs']} syncs")
         self._aw_normal.set_text(f"Normal: {normal_n}")
-        self._aw_odd.set_text(f"Watch / alerts: {odd_n}")
+        self._aw_odd.set_text(
+            f"Alert: {alert_n}  Watch: {watch_n}  Noticed: {noticed_n}"
+        )
 
         # SDR link status
         sdr_on = self._cfg.get("sdr", False)

@@ -7,12 +7,15 @@ same HTTP endpoints (port 8765), same merge logic.
 import json
 import math
 import os
+import re
 import socket
 import threading
 import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
+
+import signal_classifier as _sc
 
 _log_path: str | None = None
 _state_lock = threading.Lock()
@@ -384,6 +387,193 @@ def get_sync_payload() -> dict:
     }
 
 
+_NORMAL_BASELINE = 5  # seenCount threshold for "Normal" status
+
+
+def _display_name(profile: dict) -> str:
+    """Strip BT service protocol suffixes (AVRCP, A2DP, etc.) from device names."""
+    name = (profile.get("Name") or "").strip()
+    if (profile.get("Type") or "").upper() == "BLUETOOTH" and name:
+        for suffix in (
+            r"\s+AVRCP\s+TRANSPORT$", r"\s+A2DP\s+(SINK|SOURCE)$",
+            r"\s+RFCOMM\s+.*$",       r"\s+HANDS[- ]FREE\s+.*$",
+            r"\s+HEADSET\s+.*$",      r"\s+GATT\s+.*$",
+            r"\s+HID\s+.*$",
+        ):
+            trimmed = re.sub(suffix, "", name, flags=re.IGNORECASE).strip()
+            if trimmed and trimmed != name:
+                return trimmed
+    return name
+
+
+def _display_group_key(profile: dict) -> str:
+    """Key used to merge duplicate profiles (same device seen by multiple nodes)."""
+    sig_type = (profile.get("Type") or "UNKNOWN").upper()
+    name = re.sub(r"\s+", " ", _display_name(profile).upper()).strip()
+    generic = {
+        "", "UNKNOWN", "UNCLASSIFIED",
+        "UNCLASSIFIED BLUETOOTH DEVICE OR SERVICE",
+        "UNCLASSIFIED RF SIGNAL",
+    }
+    if sig_type not in ("SDR", "RTL_SDR") and name and name not in generic:
+        return f"NAME|{sig_type}|{name}"
+    if profile.get("Key"):
+        return f"KEY|{profile['Key']}"
+    return (f"RAW|{sig_type}|{name}"
+            f"|{profile.get('Address','')}"
+            f"|{profile.get('FrequencyHz','')}")
+
+
+def _class_rank(class_name: str) -> int:
+    return {"Alert": 5, "Watch": 4, "Noticed": 3,
+            "One-off": 2, "Learning": 1, "Normal": 0}.get(class_name, 0)
+
+
+def _profile_class(profile: dict) -> str:
+    """Compute the display class (Alert/Watch/Noticed/One-off/Learning/Normal)."""
+    timeline = profile.get("Timeline") or []
+    last_event = timeline[-1]["Summary"] if timeline else ""
+    notes_text = " ".join(filter(None, [last_event, profile.get("Notes") or ""]))
+    alert = _sc.classify_alert(
+        profile.get("Name") or "",
+        profile.get("Type") or "",
+        profile.get("SpecificType") or "",
+        profile.get("ThreatLevel") or "",
+        notes_text,
+    )
+    seen = int(profile.get("SeenCount") or 0)
+    level = alert["level"]
+    if level == "HIGH":
+        return "Alert"
+    if level == "MEDIUM":
+        return "Watch"
+    if level == "LOW":
+        return "Noticed" if seen < _NORMAL_BASELINE else "Normal"
+    if seen <= 1:
+        return "One-off"
+    if seen >= _NORMAL_BASELINE:
+        return "Normal"
+    return "Learning"
+
+
+def get_display_profiles() -> list[dict]:
+    """
+    Grouped, classified profiles ready for the awareness strip and timeline view.
+    Mirrors Get-AwarenessDisplayProfiles from SnifferOps.Windows.ps1.
+    """
+    with _state_lock:
+        state = _read_state()
+
+    raw: list[dict] = []
+    for profile in state["Signals"].values():
+        cls = _profile_class(profile)
+        timeline = profile.get("Timeline") or []
+        raw.append({
+            "Key":               profile.get("Key"),
+            "Name":              _display_name(profile),
+            "RawName":           profile.get("Name") or "",
+            "Address":           profile.get("Address"),
+            "FrequencyHz":       profile.get("FrequencyHz"),
+            "Type":              profile.get("Type"),
+            "SpecificType":      profile.get("SpecificType"),
+            "ThreatLevel":       profile.get("ThreatLevel"),
+            "SeenCount":         int(profile.get("SeenCount") or 0),
+            "NodeCount":         len(profile.get("NodeIds") or []),
+            "LastSeen":          profile.get("LastSeen") or "",
+            "LastSignal":        profile.get("LastSignal"),
+            "Class":             cls,
+            "LastEvent":         timeline[-1]["Summary"] if timeline else "",
+            "Sightings":         profile.get("Sightings") or [],
+            "Timeline":          timeline,
+            "EstimatedLatitude": profile.get("EstimatedLatitude"),
+            "EstimatedLongitude": profile.get("EstimatedLongitude"),
+        })
+
+    groups: dict[str, list[dict]] = {}
+    for p in raw:
+        groups.setdefault(_display_group_key(p), []).append(p)
+
+    rows: list[dict] = []
+    for members in groups.values():
+        if not members:
+            continue
+        primary = sorted(
+            members,
+            key=lambda m: (_class_rank(m["Class"]), m["LastSeen"]),
+            reverse=True,
+        )[0]
+        latest  = max(members, key=lambda m: m["LastSeen"])
+        types   = ", ".join(dict.fromkeys(
+            m["SpecificType"] for m in members if m["SpecificType"]
+        ))
+        raw_ids = ", ".join(dict.fromkeys(
+            str(m["Address"]) if m["Address"]
+            else (str(m["FrequencyHz"]) if m["FrequencyHz"] else (m["Key"] or ""))
+            for m in members
+        ))
+        all_sightings = [s for m in members for s in m["Sightings"]]
+        node_count = max(
+            primary["NodeCount"],
+            len({s.get("NodeId") for s in all_sightings if s.get("NodeId")}),
+        )
+        last_event = (
+            f"Grouped {len(members)} matching IDs; {latest['LastEvent']}"
+            if len(members) > 1 else latest["LastEvent"]
+        )
+        rows.append({
+            "Class":            primary["Class"],
+            "Signal":           primary["Name"],
+            "Type":             types or primary["SpecificType"],
+            "SourceType":       primary["Type"],
+            "ThreatLevel":      primary["ThreatLevel"],
+            "Seen":             sum(m["SeenCount"] for m in members),
+            "Nodes":            node_count,
+            "Last":             latest["LastSeen"],
+            "LastEvent":        last_event,
+            "Strength":         latest["LastSignal"],
+            "RawIds":           raw_ids,
+            "CombinedProfiles": len(members),
+            "TimelineCount":    sum(len(m["Timeline"]) for m in members),
+            "Sightings":        all_sightings,
+        })
+
+    rows.sort(
+        key=lambda r: (_class_rank(r["Class"]), r["Seen"], r["Last"]),
+        reverse=True,
+    )
+    return rows
+
+
+def get_scan_locations() -> list[dict]:
+    """
+    Returns deduplicated scan locations with signal and interesting-signal counts.
+    Each location key is a "lat,lon" string rounded to 4 decimal places (~11 m).
+    """
+    with _state_lock:
+        state = _read_state()
+
+    points: dict[str, dict] = {}
+    for profile in state["Signals"].values():
+        seen_keys: set[str] = set()
+        cls = _profile_class(profile)
+        for sighting in (profile.get("Sightings") or []):
+            lat = _to_number(sighting.get("Latitude"))
+            lon = _to_number(sighting.get("Longitude"))
+            if lat is None or lon is None:
+                continue
+            loc_key = f"{lat:.4f},{lon:.4f}"
+            if loc_key in seen_keys:
+                continue
+            seen_keys.add(loc_key)
+            if loc_key not in points:
+                points[loc_key] = {"key": loc_key, "signal_count": 0, "interesting_count": 0}
+            points[loc_key]["signal_count"] += 1
+            if cls in ("Alert", "Watch", "Noticed", "One-off"):
+                points[loc_key]["interesting_count"] += 1
+
+    return sorted(points.values(), key=lambda p: p["signal_count"], reverse=True)
+
+
 def get_rows() -> list[dict]:
     with _state_lock:
         state = _read_state()
@@ -391,15 +581,17 @@ def get_rows() -> list[dict]:
     for profile in state["Signals"].values():
         timeline = profile.get("Timeline", [])
         latest = timeline[-1]["Summary"] if timeline else "profile updated"
+        cls = _profile_class(profile)
         rows.append({
-            "Type": profile.get("Type"),
-            "Signal": profile.get("Name"),
+            "Type":             profile.get("Type"),
+            "Signal":           _display_name(profile),
             "AddressOrFrequency": profile.get("Address") or profile.get("FrequencyHz"),
-            "StrengthOrPower": profile.get("LastSignal"),
-            "Classification": profile.get("SpecificType"),
-            "Confidence": profile.get("ThreatLevel"),
+            "StrengthOrPower":  profile.get("LastSignal"),
+            "Classification":   profile.get("SpecificType"),
+            "Confidence":       cls,
             "Details": (f"Seen {profile.get('SeenCount', 0)}x from "
                         f"{len(profile.get('NodeIds', []))} node(s); {latest}"),
+            "LastSeen":         profile.get("LastSeen", ""),
         })
     rows.sort(key=lambda r: r.get("LastSeen", ""), reverse=True)
     return rows
