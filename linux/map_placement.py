@@ -180,6 +180,20 @@ def compute_placements(
 
         profile_sightings = sightings_by_device.get(pid, [])
 
+        # Fast path: no sightings in our capped dataset → use stored position.
+        if not profile_sightings:
+            est_lat = profile.get("estimated_latitude")
+            est_lon = profile.get("estimated_longitude")
+            if est_lat is not None and est_lon is not None:
+                markers.append(MapMarker(
+                    profile_id=pid, name=pname, signal_type=ptype,
+                    lat=float(est_lat), lon=float(est_lon),
+                    tier="anchor", color=color, count=1,
+                ))
+            else:
+                unplaced_count += 1
+            continue
+
         # ------------------------------------------------------------------
         # Tier GPS
         # ------------------------------------------------------------------

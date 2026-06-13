@@ -89,6 +89,9 @@ def _create_schema(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_sightings_synced   ON signal_sightings(synced_at);
         CREATE INDEX IF NOT EXISTS idx_profiles_type      ON signal_profiles(type);
         CREATE INDEX IF NOT EXISTS idx_profiles_last_seen ON signal_profiles(last_seen);
+        CREATE INDEX IF NOT EXISTS idx_sightings_gps
+            ON signal_sightings(device_id, captured_at DESC)
+            WHERE latitude IS NOT NULL AND longitude IS NOT NULL;
     """)
     conn.commit()
 
@@ -375,16 +378,29 @@ def get_all_profiles() -> list[dict]:
 
 def get_sightings_for_placement() -> list[dict]:
     """
-    Return all sightings joined with their profile type,
-    ordered by captured_at DESC. Used for placement / map display.
+    Return up to 20 recent GPS-tagged sightings per device for map placement.
+    Non-GPS sightings are excluded — profiles without GPS sightings fall
+    back to their stored estimated_latitude/estimated_longitude.
+    Capped at 20 per device to keep memory usage bounded regardless of
+    how many historical sightings exist.
     """
     with _connect() as conn:
         rows = conn.execute(
             """
-            SELECT ss.*, sp.type AS signal_type
-            FROM signal_sightings ss
-            JOIN signal_profiles sp ON ss.device_id = sp.id
-            ORDER BY ss.captured_at DESC
+            WITH ranked AS (
+                SELECT device_id, node_id, captured_at,
+                       latitude, longitude, signal_strength,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY device_id
+                           ORDER BY captured_at DESC
+                       ) AS rn
+                FROM signal_sightings
+                WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+            )
+            SELECT device_id, node_id, captured_at,
+                   latitude, longitude, signal_strength
+            FROM ranked
+            WHERE rn <= 20
             """,
         ).fetchall()
     return [dict(r) for r in rows]

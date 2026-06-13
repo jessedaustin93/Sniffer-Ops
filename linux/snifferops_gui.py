@@ -34,6 +34,13 @@ from map_widget import MapWidget
 DATA_DIR  = os.path.expanduser("~/.snifferops")
 LOG_PATH  = os.path.join(DATA_DIR, "awareness.json")
 CFG_PATH  = os.path.join(DATA_DIR, "config.json")
+
+# Default map home — a generic in-region placeholder (Knoxville, TN).  Override
+# per install with "home_lat" / "home_lon" / "home_zoom" in config.json; no real
+# location is hardcoded so the published source carries no personal data.
+DEFAULT_HOME_LAT  = 35.9606
+DEFAULT_HOME_LON  = -83.9207
+DEFAULT_HOME_ZOOM = 11
 def _load_node_id() -> str:
     path = os.path.join(DATA_DIR, "node_id")
     os.makedirs(DATA_DIR, exist_ok=True)
@@ -384,7 +391,9 @@ def load_config() -> dict:
     except Exception:
         return {"port": 8766, "bind": "0.0.0.0",
                 "wifi": True, "bluetooth": True, "sdr": False,
-                "sdr_remote": "", "peers": []}
+                "sdr_remote": "", "peers": [],
+                "home_lat": DEFAULT_HOME_LAT, "home_lon": DEFAULT_HOME_LON,
+                "home_zoom": DEFAULT_HOME_ZOOM}
 
 
 def save_config(cfg: dict) -> None:
@@ -691,6 +700,12 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
         self._all_store = Gio.ListStore(item_type=SignalRow)
         self._peer_status_labels: list[Gtk.Label] = []
         self._peer_online: list[bool] = []
+        # The map lives in its OWN top-level window (created lazily on first
+        # open).  Embedding the WebView in the main window made every redraw
+        # re-composite the heavy map and starved its rendering while it sat on
+        # a hidden stack page.  A separate window renders only the map.
+        self._map_widget = None
+        self._map_window = None
 
         self._toast = Adw.ToastOverlay()
         self.set_content(self._toast)
@@ -922,41 +937,92 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
     # ── Map page ──────────────────────────────────────────────────────────────
 
     def _build_map_page(self) -> None:
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        # The Map stack page is just a launcher — the map itself opens in its
+        # own window so its rendering never competes with the main UI thread.
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        box.set_valign(Gtk.Align.CENTER)
+        box.set_halign(Gtk.Align.CENTER)
         self._stack.add_titled_with_icon(box, "map", "Map", "find-location-symbolic")
 
-        # Toolbar
-        toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        toolbar.set_margin_start(10); toolbar.set_margin_end(10)
-        toolbar.set_margin_top(8);   toolbar.set_margin_bottom(8)
-        box.append(toolbar)
+        title = _label("AWARENESS MAP", "title-green")
+        title.set_halign(Gtk.Align.CENTER)
+        box.append(title)
 
-        refresh_map_btn = Gtk.Button(label="Refresh Map")
-        refresh_map_btn.add_css_class("btn-secondary")
-        refresh_map_btn.connect("clicked", lambda _b: self._refresh_map())
-        toolbar.append(refresh_map_btn)
+        desc = _label("Opens in its own window so the map's rendering\n"
+                      "stays off the main app's thread.", "subtitle-muted")
+        desc.set_halign(Gtk.Align.CENTER)
+        desc.set_justify(Gtk.Justification.CENTER)
+        box.append(desc)
 
-        self._unsynced_lbl = Gtk.Label(label="Unsynced: 0")
-        self._unsynced_lbl.set_margin_start(8)
-        self._unsynced_lbl.set_margin_end(8)
-        toolbar.append(self._unsynced_lbl)
+        open_btn = Gtk.Button(label="Open Map Window")
+        open_btn.add_css_class("btn-scan-start")
+        open_btn.set_halign(Gtk.Align.CENTER)
+        open_btn.connect("clicked", lambda _b: self._open_map_window())
+        box.append(open_btn)
 
-        send_btn = Gtk.Button(label="Send to Windows")
-        send_btn.add_css_class("btn-secondary")
-        send_btn.connect("clicked", self._on_send_history)
-        toolbar.append(send_btn)
+    def _open_map_window(self) -> None:
+        """Create (first time) and present the standalone map window."""
+        if self._map_window is None:
+            win = Gtk.Window()
+            win.set_title("SnifferOps — Awareness Map")
+            win.set_default_size(1100, 760)
+            win.add_css_class("main-window")
 
-        self._compact_btn = Gtk.Button(label="Compact")
-        self._compact_btn.add_css_class("btn-secondary")
-        self._compact_btn.set_sensitive(False)
-        self._compact_btn.connect("clicked", self._on_compact)
-        toolbar.append(self._compact_btn)
+            outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
 
-        # Map widget
-        self._map_widget = MapWidget(os.path.join(DATA_DIR, "map-tiles"))
-        self._map_widget.set_vexpand(True)
-        self._map_widget.set_hexpand(True)
-        box.append(self._map_widget)
+            toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            toolbar.set_margin_start(10); toolbar.set_margin_end(10)
+            toolbar.set_margin_top(8);   toolbar.set_margin_bottom(8)
+            outer.append(toolbar)
+
+            refresh_map_btn = Gtk.Button(label="Refresh Map")
+            refresh_map_btn.add_css_class("btn-secondary")
+            refresh_map_btn.connect("clicked", lambda _b: self._refresh_map())
+            toolbar.append(refresh_map_btn)
+
+            home_btn = Gtk.Button(label="Home")
+            home_btn.add_css_class("btn-secondary")
+            home_btn.connect("clicked",
+                lambda _b: self._map_widget and
+                           self._map_widget.center_on(*self._home()))
+            toolbar.append(home_btn)
+
+            self._unsynced_lbl = Gtk.Label(label="Unsynced: 0")
+            self._unsynced_lbl.set_margin_start(8)
+            self._unsynced_lbl.set_margin_end(8)
+            toolbar.append(self._unsynced_lbl)
+
+            send_btn = Gtk.Button(label="Send to Windows")
+            send_btn.add_css_class("btn-secondary")
+            send_btn.connect("clicked", self._on_send_history)
+            toolbar.append(send_btn)
+
+            self._compact_btn = Gtk.Button(label="Compact")
+            self._compact_btn.add_css_class("btn-secondary")
+            self._compact_btn.set_sensitive(False)
+            self._compact_btn.connect("clicked", self._on_compact)
+            toolbar.append(self._compact_btn)
+
+            # Map widget — created lazily, only when the window first opens.
+            self._map_widget = MapWidget(os.path.join(DATA_DIR, "map-tiles"))
+            self._map_widget.set_vexpand(True)
+            self._map_widget.set_hexpand(True)
+            self._map_widget.center_on(*self._home())
+            outer.append(self._map_widget)
+
+            win.set_child(outer)
+            # Hide (don't destroy) on close → instant reopen, dots stay loaded.
+            win.connect("close-request", self._on_map_window_close)
+            self._map_window = win
+
+            # Now that the map exists and is about to be visible, load the dots.
+            self._refresh_map()
+
+        self._map_window.present()
+
+    def _on_map_window_close(self, win) -> bool:
+        win.set_visible(False)
+        return True   # keep the window/widget alive
 
     # ── Peers page ────────────────────────────────────────────────────────────
 
@@ -1273,31 +1339,64 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
         if not awareness_log._log_path:
             return
 
-        # Live-presence windows (seconds) — signals outside these windows
-        # disappear from all lists; they remain in history and on the map.
-        PWIN = {"WIFI": 45, "BLUETOOTH": 20, "BLE": 20, "CELLULAR": 45, "RTL_SDR": 600}
+        # All DB queries + the all-profiles classification run on a BACKGROUND
+        # thread; only the cheap label/store updates touch the GTK main thread.
+        # Previously this whole method ran on the main thread every 2s — with
+        # ~1500 profiles it blocked the UI each cycle (~60% CPU), and once a
+        # WebView shares the window that block reads as "not responding".
+        if getattr(self, "_refresh_in_flight", False):
+            return  # a previous cycle is still working — skip this tick
+        self._refresh_in_flight = True
 
-        # Fetch live profiles once per type; reused for counts, stores, and log.
-        live_wifi  = db.get_live_profiles("WIFI",      PWIN["WIFI"])
-        live_bt    = db.get_live_profiles("BLUETOOTH", PWIN["BLUETOOTH"])
-        live_ble   = db.get_live_profiles("BLE",       PWIN["BLE"])
-        live_cell  = db.get_live_profiles("CELLULAR",  PWIN["CELLULAR"])
-        live_sdr   = db.get_live_profiles("RTL_SDR",   PWIN["RTL_SDR"])
+        def _work():
+            try:
+                # Live-presence windows (seconds) — signals outside these
+                # windows disappear from lists; they remain in history/map.
+                PWIN = {"WIFI": 45, "BLUETOOTH": 20, "BLE": 20,
+                        "CELLULAR": 45, "RTL_SDR": 600}
+
+                live_wifi = db.get_live_profiles("WIFI",      PWIN["WIFI"])
+                live_bt   = db.get_live_profiles("BLUETOOTH", PWIN["BLUETOOTH"])
+                live_ble  = db.get_live_profiles("BLE",       PWIN["BLE"])
+                live_cell = db.get_live_profiles("CELLULAR",  PWIN["CELLULAR"])
+                live_sdr  = db.get_live_profiles("RTL_SDR",   PWIN["RTL_SDR"])
+
+                # Awareness strip — classified counts come from ALL known
+                # profiles (history), not just currently-active ones.
+                disp_profiles = awareness_log.get_display_profiles()
+                data = {
+                    "live_wifi": live_wifi, "live_bt": live_bt,
+                    "live_ble": live_ble, "live_cell": live_cell,
+                    "live_sdr": live_sdr,
+                    "alert_n":   sum(1 for p in disp_profiles if p["Class"] == "Alert"),
+                    "watch_n":   sum(1 for p in disp_profiles if p["Class"] == "Watch"),
+                    "noticed_n": sum(1 for p in disp_profiles if p["Class"] == "Noticed"),
+                    "normal_n":  sum(1 for p in disp_profiles if p["Class"] in ("Normal", "Learning")),
+                    "total_dp":  len(disp_profiles),
+                }
+            except Exception:
+                data = None
+            GLib.idle_add(self._apply_refresh_all, data)
+
+        threading.Thread(target=_work, daemon=True).start()
+
+    def _apply_refresh_all(self, data) -> bool:
+        self._refresh_in_flight = False
+        if not data:
+            return GLib.SOURCE_REMOVE
+
+        live_wifi = data["live_wifi"]; live_bt = data["live_bt"]
+        live_ble  = data["live_ble"];  live_cell = data["live_cell"]
+        live_sdr  = data["live_sdr"]
+        alert_n   = data["alert_n"];   watch_n = data["watch_n"]
+        noticed_n = data["noticed_n"]; normal_n = data["normal_n"]
+        total_dp  = data["total_dp"]
 
         wifi_n = len(live_wifi)
         bt_n   = len(live_bt) + len(live_ble)
         cell_n = len(live_cell)
         sdr_n  = len(live_sdr)
         total  = wifi_n + bt_n + cell_n + sdr_n
-
-        # Awareness strip — classified counts come from ALL known profiles
-        # (history), not just currently-active ones.
-        disp_profiles = awareness_log.get_display_profiles()
-        alert_n   = sum(1 for p in disp_profiles if p["Class"] == "Alert")
-        watch_n   = sum(1 for p in disp_profiles if p["Class"] == "Watch")
-        noticed_n = sum(1 for p in disp_profiles if p["Class"] == "Noticed")
-        normal_n  = sum(1 for p in disp_profiles if p["Class"] in ("Normal", "Learning"))
-        total_dp  = len(disp_profiles)
 
         # Tile counts (active signals only)
         self._cnt_wifi.set_text(str(wifi_n))
@@ -1368,6 +1467,8 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
             for p in live_sdr:
                 store_sdr.append(SignalRow(_p2row(p, "RTL_SDR")))
 
+        return GLib.SOURCE_REMOVE
+
     def _append_log(self, text: str) -> None:
         buf = self._log_buf
         end = buf.get_end_iter()
@@ -1428,7 +1529,19 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
 
     # ── Map methods ───────────────────────────────────────────────────────────
 
+    def _home(self) -> tuple:
+        """(lat, lon, zoom) for the map home — from config, else placeholder."""
+        return (
+            float(self._cfg.get("home_lat",  DEFAULT_HOME_LAT)),
+            float(self._cfg.get("home_lon",  DEFAULT_HOME_LON)),
+            int(self._cfg.get("home_zoom", DEFAULT_HOME_ZOOM)),
+        )
+
     def _refresh_map(self) -> None:
+        # Skip entirely until the map window has been opened — no point doing
+        # the marker computation if there's nowhere to show it.
+        if self._map_widget is None:
+            return
         def _work():
             from map_placement import compute_placements
             profiles = db.get_all_profiles()
@@ -1440,9 +1553,13 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
         threading.Thread(target=_work, daemon=True).start()
 
     def _apply_map_data(self, markers, unplaced, unsynced, compact_n) -> bool:
+        if self._map_widget is None:
+            return GLib.SOURCE_REMOVE
         self._map_widget.set_markers(markers)
-        self._unsynced_lbl.set_text(f"Unsynced: {unsynced}")
-        self._compact_btn.set_sensitive(compact_n > 0)
+        if getattr(self, "_unsynced_lbl", None) is not None:
+            self._unsynced_lbl.set_text(f"Unsynced: {unsynced}")
+        if getattr(self, "_compact_btn", None) is not None:
+            self._compact_btn.set_sensitive(compact_n > 0)
         return GLib.SOURCE_REMOVE
 
     def _on_send_history(self, _btn) -> None:
