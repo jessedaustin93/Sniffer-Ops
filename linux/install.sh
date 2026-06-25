@@ -14,10 +14,11 @@ echo "[snifferops] Installing SnifferOps Linux Companion..."
 # System packages
 sudo apt-get install -y \
     python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-adw-1 \
+    gir1.2-webkit-6.0 \
     libgtk-4-dev \
     rtl-sdr librtlsdr-dev \
     bluetooth bluez \
-    network-manager 2>/dev/null || true
+    network-manager wireless-tools 2>/dev/null || true
 
 # Spy Agency fonts (shared with Windows companion)
 FONT_DIR="$HOME/.local/share/fonts/snifferops"
