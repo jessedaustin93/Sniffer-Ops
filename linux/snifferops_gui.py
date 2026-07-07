@@ -1478,6 +1478,8 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
         if line_count > 80:
             start = buf.get_start_iter()
             trim_end = buf.get_iter_at_line(line_count - 80)
+            if isinstance(trim_end, tuple):
+                trim_end = trim_end[1]
             buf.delete(start, trim_end)
 
     def _check_peers_bg(self) -> bool:

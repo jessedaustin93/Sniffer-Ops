@@ -16,7 +16,7 @@ import threading
 import time
 from typing import Callable
 
-from ..spectrum.power_scan import parse_rtl_power_csv, find_peaks
+from spectrum.power_scan import Peak, parse_rtl_power_csv, find_peaks
 
 
 class RtlSdrScanner:
@@ -61,7 +61,7 @@ class RtlSdrScanner:
         try:
             cmd = [
                 "rtl_power",
-                "-f", self._freq_range,
+                "-f", f"{self._freq_range}:{self._bin_size}",
                 "-i", "1",
                 "-1",
                 "-g", "40",
@@ -69,7 +69,7 @@ class RtlSdrScanner:
                 tmp_path,
             ]
             result = subprocess.run(
-                cmd, timeout=30,
+                cmd, timeout=60,
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
             if result.returncode != 0:
@@ -184,9 +184,13 @@ class NetworkRtlSdrScanner:
             time.sleep(30)
 
 
-def _peak_to_signal(peak: dict) -> dict:
-    freq_hz = int(peak.get("frequency", 0))
-    power_db = peak.get("power", -999)
+def _peak_to_signal(peak: Peak | dict) -> dict:
+    if isinstance(peak, dict):
+        freq_hz = int(peak.get("frequency", 0))
+        power_db = peak.get("power", -999)
+    else:
+        freq_hz = int(peak.frequency)
+        power_db = peak.power
     return {
         "name": f"RF {freq_hz/1e6:.3f} MHz",
         "address": f"rf:{freq_hz}",
