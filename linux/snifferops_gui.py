@@ -34,6 +34,7 @@ from map_widget import MapWidget
 DATA_DIR  = os.path.expanduser("~/.snifferops")
 LOG_PATH  = os.path.join(DATA_DIR, "awareness.json")
 CFG_PATH  = os.path.join(DATA_DIR, "config.json")
+REFRESH_INTERVAL_MS = 10_000
 
 # Default map home — a generic in-region placeholder (Knoxville, TN).  Override
 # per install with "home_lat" / "home_lon" / "home_zoom" in config.json; no real
@@ -759,7 +760,7 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
         bar.set_reveal(True)
         tv.add_bottom_bar(bar)
 
-        GLib.timeout_add(2000,  self._tick)
+        GLib.timeout_add(REFRESH_INTERVAL_MS, self._tick)
         GLib.timeout_add(15000, self._check_peers_bg)
 
     # ── Dashboard page ────────────────────────────────────────────────────────

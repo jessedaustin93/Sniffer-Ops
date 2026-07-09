@@ -1,7 +1,7 @@
 """
 SnifferOps Linux — SQLite persistence layer.
 
-Provides durable storage for signal profiles and sightings with
+Provides durable storage for signal profiles with bounded per-node sightings,
 WAL-mode SQLite, optional GPS position averaging, sync-state tracking,
 and a JSON-legacy migration path from awareness.json.
 """
@@ -155,6 +155,11 @@ def _sdr_bucket_hz(class_group: str) -> float:
     return buckets.get(class_group, 250_000.0)
 
 
+def _sighting_id(profile_id: str, node_id: str) -> str:
+    """Stable row key: one updateable sighting row per signal profile per node."""
+    return uuid.uuid5(uuid.NAMESPACE_URL, f"snifferops:{profile_id}:{node_id}").hex
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 
@@ -222,17 +227,17 @@ def write_detection(
     """
     Persist one signal detection.
 
-    1. Generate a new sighting UUID.
+    1. Compute the stable profile and per-node sighting IDs.
     2. UPSERT signal_profiles (INSERT first time, UPDATE on conflict).
-    3. INSERT OR IGNORE into signal_sightings.
+    3. UPSERT signal_sightings so repeated detections update one row.
     4. Recompute estimated_latitude/longitude as the mean of GPS sightings.
-    5. Return the sighting UUID.
+    5. Return the stable sighting ID.
     """
     if now_ms is None:
         now_ms = _now_ms()
 
     profile_id = signal_profile_id(signal)
-    sighting_id = uuid.uuid4().hex
+    sighting_id = _sighting_id(profile_id, node_id)
 
     sig_lat = _to_number(signal.get("latitude")) if lat is None else lat
     sig_lon = _to_number(signal.get("longitude")) if lon is None else lon
@@ -313,13 +318,22 @@ def write_detection(
                         (json.dumps(node_ids), profile_id),
                     )
 
-            # Insert sighting
+            # Keep one updateable sighting row per signal profile per node. The
+            # profile is the "spreadsheet" row; this row is sync evidence, not
+            # an unbounded time-series journal.
             conn.execute(
                 """
-                INSERT OR IGNORE INTO signal_sightings (
+                INSERT INTO signal_sightings (
                     id, device_id, node_id, captured_at,
                     signal_strength, latitude, longitude, accuracy_meters, synced_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                ON CONFLICT(id) DO UPDATE SET
+                    captured_at     = excluded.captured_at,
+                    signal_strength = excluded.signal_strength,
+                    latitude        = COALESCE(excluded.latitude, signal_sightings.latitude),
+                    longitude       = COALESCE(excluded.longitude, signal_sightings.longitude),
+                    accuracy_meters = COALESCE(excluded.accuracy_meters, signal_sightings.accuracy_meters),
+                    synced_at       = NULL
                 """,
                 (sighting_id, profile_id, node_id, now_ms,
                  strength, sig_lat, sig_lon, sig_acc),
@@ -519,12 +533,70 @@ def compact_acknowledged(sighting_ids: list[str]) -> int:
     return cur.rowcount
 
 
+def compact_duplicate_sightings() -> int:
+    """
+    Collapse historical sighting spam to one latest row per profile/node.
+
+    This keeps the database shaped like a spreadsheet of signals with one
+    updateable sync-evidence row per node, instead of an ever-growing journal.
+    """
+    with _write_lock:
+        with _connect() as conn:
+            before = conn.execute(
+                "SELECT COUNT(*) AS n FROM signal_sightings"
+            ).fetchone()["n"]
+            conn.execute(
+                """
+                DELETE FROM signal_sightings
+                WHERE id IN (
+                    SELECT id
+                    FROM (
+                        SELECT
+                            id,
+                            ROW_NUMBER() OVER (
+                                PARTITION BY device_id, node_id
+                                ORDER BY captured_at DESC, synced_at IS NULL DESC
+                            ) AS row_rank
+                        FROM signal_sightings
+                    )
+                    WHERE row_rank > 1
+                )
+                """
+            )
+            rows = conn.execute(
+                "SELECT id, device_id, node_id FROM signal_sightings"
+            ).fetchall()
+            for row in rows:
+                stable_id = _sighting_id(row["device_id"], row["node_id"])
+                if row["id"] == stable_id:
+                    continue
+                existing = conn.execute(
+                    "SELECT 1 FROM signal_sightings WHERE id=?",
+                    (stable_id,),
+                ).fetchone()
+                if existing:
+                    conn.execute(
+                        "DELETE FROM signal_sightings WHERE id=?",
+                        (row["id"],),
+                    )
+                else:
+                    conn.execute(
+                        "UPDATE signal_sightings SET id=? WHERE id=?",
+                        (stable_id, row["id"]),
+                    )
+            conn.commit()
+            after = conn.execute(
+                "SELECT COUNT(*) AS n FROM signal_sightings"
+            ).fetchone()["n"]
+            return max(0, before - after)
+
+
 def merge_remote_snapshot(snapshot: dict) -> dict:
     """
     Idempotently merge a remote sync snapshot into the local database.
 
     - For each signal in snapshot["signals"], UPSERT the profile.
-    - For each sighting in signal["sightings"], INSERT OR IGNORE by UUID.
+    - For each sighting in signal["sightings"], UPSERT one row per profile/node.
     - Remote sightings are pre-acknowledged (synced_at = now_ms).
     - Recomputes estimated positions after merge.
     - Returns {"merged": N, "total_signals": M}.
@@ -609,8 +681,8 @@ def merge_remote_snapshot(snapshot: dict) -> dict:
 
                 # Insert remote sightings as pre-acknowledged
                 for sighting in (signal.get("sightings") or []):
-                    s_id = sighting.get("id") or uuid.uuid4().hex
                     s_node = sighting.get("nodeId") or snapshot.get("nodeId") or "remote"
+                    s_id = _sighting_id(profile_id, s_node)
                     s_at = sighting.get("capturedAt") or now_ms
                     s_sig = _to_number(sighting.get("signalStrength"))
                     s_lat = _to_number(sighting.get("latitude"))
@@ -619,11 +691,18 @@ def merge_remote_snapshot(snapshot: dict) -> dict:
 
                     conn.execute(
                         """
-                        INSERT OR IGNORE INTO signal_sightings (
+                        INSERT INTO signal_sightings (
                             id, device_id, node_id, captured_at,
                             signal_strength, latitude, longitude, accuracy_meters,
                             synced_at
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(id) DO UPDATE SET
+                            captured_at     = MAX(signal_sightings.captured_at, excluded.captured_at),
+                            signal_strength = COALESCE(excluded.signal_strength, signal_sightings.signal_strength),
+                            latitude        = COALESCE(excluded.latitude, signal_sightings.latitude),
+                            longitude       = COALESCE(excluded.longitude, signal_sightings.longitude),
+                            accuracy_meters = COALESCE(excluded.accuracy_meters, signal_sightings.accuracy_meters),
+                            synced_at       = COALESCE(signal_sightings.synced_at, excluded.synced_at)
                         """,
                         (s_id, profile_id, s_node, s_at,
                          s_sig, s_lat, s_lon, s_acc, now_ms),
@@ -843,8 +922,8 @@ def migrate_json(json_path: str, node_id: str) -> int:
 
                 # Migrate individual sightings
                 for s in sightings_json:
-                    s_id = uuid.uuid4().hex
                     s_node = s.get("NodeId") or node_id
+                    s_id = _sighting_id(profile_id, s_node)
                     s_at = _iso_to_ms(s.get("At")) or now_ms
                     s_sig = _to_number(s.get("SignalStrengthNumeric") or s.get("SignalStrength"))
                     s_lat = _to_number(s.get("Latitude"))
