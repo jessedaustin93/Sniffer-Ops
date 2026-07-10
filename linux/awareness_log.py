@@ -454,118 +454,329 @@ _WEB_APP_HTML = """<!doctype html>
   <style>
     :root {
       color-scheme: dark;
-      --bg: #090c0f;
-      --panel: #111820;
-      --panel-2: #151d25;
-      --border: #2b3743;
-      --text: #e7eef4;
-      --muted: #8ea0ad;
-      --green: #3ddc97;
-      --cyan: #40d8ff;
-      --orange: #ffb454;
-      --red: #ff5d5d;
-      --blue: #8bb8ff;
+      --bg: #020617;
+      --panel: #111827;
+      --panel-2: #0b1120;
+      --surface: #0f172a;
+      --border: #255866;
+      --border-green: #0b6b57;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --dim: #6b7280;
+      --green: #21f982;
+      --green-2: #10b981;
+      --cyan: #22d3ee;
+      --blue: #00bfff;
+      --blue-2: #0d84ff;
+      --orange: #f59e0b;
+      --purple: #8b5cf6;
+      --pink: #ec4899;
+      --red: #ef4444;
     }
     * { box-sizing: border-box; }
+    html, body { min-height: 100%; }
     body {
       margin: 0;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: var(--bg);
+      font-family: "Ubuntu Mono", "DejaVu Sans Mono", "Courier New", monospace;
+      background-color: var(--bg);
+      background-image:
+        linear-gradient(rgba(11,58,53,0.48) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(11,58,53,0.48) 1px, transparent 1px);
+      background-size: 28px 28px;
       color: var(--text);
     }
     header {
       display: flex;
-      align-items: end;
+      align-items: center;
       justify-content: space-between;
       gap: 16px;
-      padding: 22px 24px 14px;
-      border-bottom: 1px solid var(--border);
-      background: #0c1116;
+      min-height: 58px;
+      padding: 10px 18px;
+      border-bottom: 1px solid var(--border-green);
+      background: #000;
     }
-    h1 { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: 0; }
-    .sub { margin-top: 5px; color: var(--muted); font-size: 13px; }
+    h1 {
+      margin: 0;
+      color: var(--green);
+      font-size: clamp(24px, 4vw, 34px);
+      font-weight: 900;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+    }
+    .sub {
+      margin-top: 2px;
+      color: #637082;
+      font-size: 12px;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+    }
     .status {
-      min-width: 190px;
+      min-width: 220px;
       color: var(--green);
       text-align: right;
-      font-size: 13px;
-      font-weight: 600;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 1px;
+      text-transform: uppercase;
     }
-    main { padding: 20px 24px 28px; }
-    .metrics {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 12px;
-      margin-bottom: 18px;
+    main {
+      width: min(1480px, calc(100vw - 28px));
+      margin: 0 auto;
+      padding: 16px 0 76px;
     }
-    .metric, section {
-      background: var(--panel);
+    .panel, .tile, section {
+      background: rgba(17,24,39,0.94);
       border: 1px solid var(--border);
-      border-radius: 8px;
+      border-radius: 6px;
     }
-    .metric { padding: 14px 16px; min-height: 82px; }
-    .metric .label { color: var(--muted); font-size: 12px; text-transform: uppercase; }
-    .metric .value { margin-top: 6px; font-size: 28px; font-weight: 750; }
-    .split {
+    .hero {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 340px;
-      gap: 16px;
+      grid-template-columns: 190px minmax(220px, 1fr) 300px;
+      gap: 12px;
+      align-items: stretch;
+      margin-bottom: 12px;
+    }
+    .radar-panel {
+      min-height: 190px;
+      display: grid;
+      place-items: center;
+      background: rgba(2,6,23,0.88);
+      border-color: var(--border-green);
+    }
+    .radar {
+      position: relative;
+      width: 154px;
+      height: 154px;
+      border: 2px solid var(--green);
+      border-radius: 50%;
+      background:
+        radial-gradient(circle, transparent 0 22%, rgba(33,249,130,0.16) 23% 24%, transparent 25% 47%, rgba(33,249,130,0.16) 48% 49%, transparent 50%),
+        linear-gradient(rgba(33,249,130,0.18), rgba(33,249,130,0.18)) 50% 0 / 1px 100% no-repeat,
+        linear-gradient(90deg, rgba(33,249,130,0.18), rgba(33,249,130,0.18)) 0 50% / 100% 1px no-repeat,
+        radial-gradient(circle, rgba(33,249,130,0.10), rgba(2,6,23,0.18) 62%, rgba(2,6,23,0.75));
+      box-shadow: 0 0 22px rgba(33,249,130,0.18), inset 0 0 18px rgba(33,249,130,0.12);
+      overflow: hidden;
+    }
+    .radar::before {
+      content: "";
+      position: absolute;
+      inset: 50% 50% 0 0;
+      transform-origin: 100% 0;
+      background: conic-gradient(from -22deg, rgba(33,249,130,0.55), rgba(33,249,130,0.08) 34deg, transparent 46deg);
+      animation: sweep 3.6s linear infinite;
+    }
+    .radar::after {
+      content: "SCAN";
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      color: var(--green);
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: 1.5px;
+      text-shadow: 0 0 8px rgba(33,249,130,0.55);
+    }
+    @keyframes sweep {
+      to { transform: rotate(360deg); }
+    }
+    .stats-panel {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px 18px;
+      padding: 18px;
+      align-content: center;
+    }
+    .stat-row {
+      display: grid;
+      grid-template-columns: 18px 1fr auto;
+      align-items: center;
+      gap: 8px;
+      min-height: 26px;
+    }
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 10px currentColor;
+    }
+    .stat-label {
+      color: var(--muted);
+      font-size: 13px;
+      text-transform: uppercase;
+    }
+    .stat-value {
+      font-size: 17px;
+      font-weight: 900;
+    }
+    .wifi { color: var(--green); }
+    .bt { color: var(--blue); }
+    .cell { color: var(--orange); }
+    .sdr { color: var(--purple); }
+    .pink { color: var(--pink); }
+    .alerts { color: var(--red); }
+    .watch { color: var(--orange); }
+    .awareness-panel {
+      padding: 16px;
+      display: grid;
+      align-content: center;
+      gap: 8px;
+      background: rgba(2,6,23,0.88);
+      border-color: var(--border-green);
+    }
+    .awareness-title {
+      color: var(--cyan);
+      font-size: 13px;
+      font-weight: 900;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+    .awareness-summary {
+      color: var(--text);
+      font-size: 24px;
+      font-weight: 900;
+    }
+    .awareness-detail { color: var(--green-2); font-size: 12px; }
+    .awareness-odd { color: var(--orange); font-size: 12px; }
+    .tiles {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .tile {
+      min-height: 96px;
+      padding: 12px 10px;
+      display: grid;
+      align-content: center;
+      justify-items: center;
+      gap: 5px;
+    }
+    .tile-count {
+      font-size: 30px;
+      line-height: 1;
+      font-weight: 900;
+    }
+    .tile-label {
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+    .tile-sub {
+      color: var(--dim);
+      font-size: 11px;
+      text-align: center;
+      min-height: 14px;
+    }
+    .content {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 330px;
+      gap: 12px;
       align-items: start;
     }
     section { overflow: hidden; }
     section h2 {
       margin: 0;
-      padding: 12px 14px;
+      padding: 11px 14px;
       border-bottom: 1px solid var(--border);
-      font-size: 14px;
+      color: var(--muted);
+      background: var(--panel);
+      font-size: 12px;
       text-transform: uppercase;
-      letter-spacing: 0;
+      letter-spacing: 2px;
     }
     table { width: 100%; border-collapse: collapse; }
     th, td {
-      padding: 10px 12px;
-      border-bottom: 1px solid #202b35;
+      padding: 9px 11px;
+      border-bottom: 1px solid rgba(37,88,102,0.55);
       text-align: left;
-      font-size: 13px;
+      font-size: 12px;
       vertical-align: top;
     }
-    th { color: var(--muted); font-weight: 650; background: var(--panel-2); }
+    th {
+      color: var(--muted);
+      font-weight: 900;
+      background: var(--panel-2);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      font-size: 11px;
+    }
+    tbody tr:nth-child(odd) { background: var(--panel-2); }
+    tbody tr:nth-child(even) { background: var(--surface); }
+    tbody tr:hover { background: rgba(37,88,102,0.40); }
     tr:last-child td { border-bottom: 0; }
-    .name { font-weight: 650; }
+    .name { font-weight: 900; color: var(--text); }
     .muted { color: var(--muted); }
     .pill {
       display: inline-flex;
       align-items: center;
       min-width: 68px;
       justify-content: center;
-      border-radius: 999px;
+      border-radius: 4px;
       padding: 3px 8px;
-      font-size: 12px;
-      font-weight: 700;
-      color: #081014;
-      background: var(--green);
+      font-size: 11px;
+      font-weight: 900;
+      color: var(--text);
+      border: 1px solid currentColor;
+      background: rgba(16,185,129,0.08);
+      text-transform: uppercase;
     }
-    .Alert { background: var(--red); }
-    .Watch { background: var(--orange); }
-    .Noticed { background: var(--cyan); }
-    .One-off { background: var(--blue); }
-    .Learning { background: #a7b1ba; }
-    .list { padding: 8px 0; }
+    .Alert { color: var(--red); background: rgba(239,68,68,0.10); }
+    .Watch { color: var(--orange); background: rgba(245,158,11,0.10); }
+    .Noticed { color: var(--cyan); background: rgba(34,211,238,0.10); }
+    .One-off { color: var(--blue); background: rgba(0,191,255,0.10); }
+    .Learning { color: var(--muted); background: rgba(156,163,175,0.10); }
+    .Normal { color: var(--green-2); background: rgba(16,185,129,0.10); }
+    .side { display: grid; gap: 12px; }
+    .list { padding: 6px 0; }
     .item {
       display: grid;
       grid-template-columns: 1fr auto;
       gap: 8px;
-      padding: 10px 14px;
-      border-bottom: 1px solid #202b35;
-      font-size: 13px;
+      padding: 9px 12px;
+      border-bottom: 1px solid rgba(37,88,102,0.55);
+      font-size: 12px;
     }
     .item:last-child { border-bottom: 0; }
-    .count { color: var(--text); font-weight: 700; }
+    .count { color: var(--green); font-weight: 900; }
+    .bottom-nav {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 0;
+      border-top: 1px solid var(--border-green);
+      background: #000;
+      z-index: 10;
+    }
+    .nav-item {
+      min-height: 44px;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: 1px;
+      line-height: 1.15;
+      padding: 4px 2px;
+      text-align: center;
+      text-transform: uppercase;
+      border-right: 1px solid rgba(11,107,87,0.45);
+    }
+    .nav-item:first-child { color: var(--green); }
+    .nav-item:last-child { border-right: 0; }
     @media (max-width: 900px) {
       header { align-items: start; flex-direction: column; }
       .status { text-align: left; }
-      .metrics, .split { grid-template-columns: 1fr; }
-      main { padding: 14px; }
+      main { width: calc(100vw - 18px); padding-top: 10px; }
+      .hero, .content { grid-template-columns: 1fr; }
+      .stats-panel, .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .radar-panel { min-height: 174px; }
+      .nav-item { font-size: 9px; letter-spacing: 0.4px; }
       th:nth-child(6), td:nth-child(6) { display: none; }
     }
   </style>
@@ -579,13 +790,32 @@ _WEB_APP_HTML = """<!doctype html>
     <div class="status" id="status">Connecting</div>
   </header>
   <main>
-    <div class="metrics">
-      <div class="metric"><div class="label">Profiles</div><div class="value" id="profiles">-</div></div>
-      <div class="metric"><div class="label">Alerts</div><div class="value" id="alerts">-</div></div>
-      <div class="metric"><div class="label">Watch</div><div class="value" id="watch">-</div></div>
-      <div class="metric"><div class="label">Locations</div><div class="value" id="locations">-</div></div>
+    <div class="hero">
+      <div class="panel radar-panel"><div class="radar"></div></div>
+      <div class="panel stats-panel">
+        <div class="stat-row wifi"><span class="dot"></span><span class="stat-label">WiFi</span><span class="stat-value" id="stat-wifi">-</span></div>
+        <div class="stat-row bt"><span class="dot"></span><span class="stat-label">BT/BLE</span><span class="stat-value" id="stat-bt">-</span></div>
+        <div class="stat-row cell"><span class="dot"></span><span class="stat-label">CELL</span><span class="stat-value" id="stat-cell">-</span></div>
+        <div class="stat-row sdr"><span class="dot"></span><span class="stat-label">SDR</span><span class="stat-value" id="stat-sdr">-</span></div>
+        <div class="stat-row alerts"><span class="dot"></span><span class="stat-label">ALERTS</span><span class="stat-value" id="stat-alerts">-</span></div>
+        <div class="stat-row watch"><span class="dot"></span><span class="stat-label">WATCH</span><span class="stat-value" id="stat-watch">-</span></div>
+      </div>
+      <div class="panel awareness-panel">
+        <div class="awareness-title">Awareness</div>
+        <div class="awareness-summary" id="aw-summary">- known / - locations</div>
+        <div class="awareness-detail" id="aw-detail">Normal baseline loading</div>
+        <div class="awareness-odd" id="aw-odd">Alerts: - / Watch: - / Noticed: -</div>
+      </div>
     </div>
-    <div class="split">
+    <div class="tiles">
+      <div class="tile"><div class="tile-count wifi" id="tile-wifi">-</div><div class="tile-label">WiFi</div><div class="tile-sub">Linux WLAN scan</div></div>
+      <div class="tile"><div class="tile-count bt" id="tile-bt">-</div><div class="tile-label">Bluetooth</div><div class="tile-sub">BT/BLE discovery</div></div>
+      <div class="tile"><div class="tile-count pink" id="tile-nfc">0</div><div class="tile-label">NFC</div><div class="tile-sub">Android only</div></div>
+      <div class="tile"><div class="tile-count cell" id="tile-cell">-</div><div class="tile-label">Cellular</div><div class="tile-sub">Android feed</div></div>
+      <div class="tile"><div class="tile-count sdr" id="tile-sdr">-</div><div class="tile-label">SDR Radio</div><div class="tile-sub">RTL-SDR hub</div></div>
+      <div class="tile"><div class="tile-count alerts" id="tile-alerts">-</div><div class="tile-label">Alerts</div><div class="tile-sub">Local app status</div></div>
+    </div>
+    <div class="content">
       <section>
         <h2>Recent Signal Profiles</h2>
         <table>
@@ -595,22 +825,31 @@ _WEB_APP_HTML = """<!doctype html>
           <tbody id="rows"><tr><td colspan="6" class="muted">Loading...</td></tr></tbody>
         </table>
       </section>
-      <div>
+      <div class="side">
         <section>
           <h2>Signal Types</h2>
           <div class="list" id="types"></div>
         </section>
-        <section style="margin-top: 16px;">
+        <section>
           <h2>Scan Locations</h2>
           <div class="list" id="places"></div>
         </section>
       </div>
     </div>
   </main>
+  <div class="bottom-nav">
+    <div class="nav-item">Dashboard</div>
+    <div class="nav-item">WiFi</div>
+    <div class="nav-item">Bluetooth</div>
+    <div class="nav-item">SDR Radio</div>
+    <div class="nav-item">Peers</div>
+    <div class="nav-item">Settings</div>
+  </div>
   <script>
     const $ = (id) => document.getElementById(id);
     const setText = (id, value) => { $(id).textContent = value; };
     const fmtTime = (value) => value ? new Date(value).toLocaleString() : "";
+    const typeCount = (data, key) => data.typeCounts && data.typeCounts[key] ? data.typeCounts[key] : 0;
 
     function classPill(name) {
       const span = document.createElement("span");
@@ -647,10 +886,28 @@ _WEB_APP_HTML = """<!doctype html>
         const res = await fetch("/snifferops/web/status", {cache: "no-store"});
         if (!res.ok) throw new Error("HTTP " + res.status);
         const data = await res.json();
-        setText("profiles", data.profileCount);
-        setText("alerts", data.classCounts.Alert || 0);
-        setText("watch", data.classCounts.Watch || 0);
-        setText("locations", data.locationCount);
+        const wifi = typeCount(data, "WIFI");
+        const bt = typeCount(data, "BLUETOOTH") + typeCount(data, "BLE");
+        const cell = typeCount(data, "CELLULAR");
+        const sdr = typeCount(data, "RTL_SDR") + typeCount(data, "SDR");
+        const alerts = data.classCounts.Alert || 0;
+        const watch = data.classCounts.Watch || 0;
+        const noticed = data.classCounts.Noticed || 0;
+        const normal = data.classCounts.Normal || 0;
+        setText("stat-wifi", wifi);
+        setText("stat-bt", bt);
+        setText("stat-cell", cell);
+        setText("stat-sdr", sdr);
+        setText("stat-alerts", alerts);
+        setText("stat-watch", watch);
+        setText("tile-wifi", wifi);
+        setText("tile-bt", bt);
+        setText("tile-cell", cell);
+        setText("tile-sdr", sdr);
+        setText("tile-alerts", alerts + watch);
+        setText("aw-summary", `${data.profileCount} known / ${data.locationCount} locations`);
+        setText("aw-detail", `${normal} normal / ${data.profileCount} total profiles`);
+        setText("aw-odd", `Alerts: ${alerts} / Watch: ${watch} / Noticed: ${noticed}`);
         setText("node", `${data.nodeName || "SnifferOps node"} - ${data.nodeId || "unknown node"}`);
         setText("status", `Live - ${fmtTime(data.generatedAt)}`);
 
