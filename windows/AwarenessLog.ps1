@@ -161,6 +161,26 @@ function ConvertTo-AwarenessIsoTime {
     return $Fallback
 }
 
+function ConvertTo-AwarenessIso {
+    param([object] $Value, [string] $Fallback = "")
+
+    if (-not $Fallback) { $Fallback = (Get-Date).ToUniversalTime().ToString("o") }
+    if ($null -eq $Value) { return $Fallback }
+    $text = ([string]$Value).Trim()
+    if ([string]::IsNullOrWhiteSpace($text)) { return $Fallback }
+    $number = 0.0
+    if ([double]::TryParse($text, [ref]$number)) {
+        try {
+            return ([DateTimeOffset]::FromUnixTimeMilliseconds([int64]$number)).UtcDateTime.ToString("o")
+        } catch {}
+    }
+    try {
+        return ([DateTimeOffset]::Parse($text)).UtcDateTime.ToString("o")
+    } catch {
+        return $Fallback
+    }
+}
+
 function Add-AwarenessTimelineEvent {
     param(
         [object] $SignalProfile,
@@ -272,7 +292,7 @@ function Merge-AwarenessSnapshot {
     $completeTypes = @($Snapshot.completeTypes | ForEach-Object { ([string]$_).ToUpperInvariant() })
     $currentKeys = @{}
     $merged = 0
-    $acknowledgedSightingIds = New-Object System.Collections.ArrayList
+    $acknowledgedSightingIds = New-Object System.Collections.Generic.List[string]
 
     foreach ($signal in $signals) {
         $key = Get-AwarenessSignalKey -Signal $signal
@@ -408,12 +428,12 @@ function Merge-AwarenessSnapshot {
 
         foreach ($journal in $journalSightings) {
             if ([string]$journal.id) {
-                [void]$acknowledgedSightingIds.Add([string]$journal.id)
+                $acknowledgedSightingIds.Add([string]$journal.id) | Out-Null
             }
         }
         $incomingSightings = if ($journalSightings.Count -gt 0) { $newJournalSightings } else { @($null) }
         foreach ($journal in $incomingSightings) {
-            $sightingAt = if ($null -ne $journal) { ConvertTo-AwarenessIsoTime -Milliseconds $journal.capturedAt -Fallback $now } else { $now }
+            $sightingAt = if ($null -ne $journal) { ConvertTo-AwarenessIso -Value $journal.capturedAt -Fallback $now } else { $now }
             $sightingLat = if ($null -ne $journal) { ConvertTo-AwarenessNumber $journal.latitude } else { $signalLat }
             $sightingLon = if ($null -ne $journal) { ConvertTo-AwarenessNumber $journal.longitude } else { $signalLon }
             $sightingAccuracy = if ($null -ne $journal) { ConvertTo-AwarenessNumber $journal.accuracyMeters } else { $signalAccuracy }
@@ -421,15 +441,19 @@ function Merge-AwarenessSnapshot {
             $sighting = [pscustomobject][ordered]@{
                 SightingId = if ($null -ne $journal) { [string]$journal.id } else { "" }
                 At = $sightingAt
-                NodeId = $nodeId
+                NodeId = if ($null -ne $journal -and $journal.sourceNodeId) { [string]$journal.sourceNodeId } else { $nodeId }
                 NodeName = $nodeName
                 Latitude = $sightingLat
                 Longitude = $sightingLon
                 AccuracyMeters = $sightingAccuracy
-                NodeLatitude = $sightingLat
-                NodeLongitude = $sightingLon
+                NodeLatitude = $nodeLat
+                NodeLongitude = $nodeLon
                 SignalStrength = $sightingStrength
                 SignalStrengthNumeric = ConvertTo-AwarenessNumber $sightingStrength
+                MovementSessionId = if ($null -ne $journal) { [string]$journal.movementSessionId } else { "" }
+                SpeedMetersPerSecond = if ($null -ne $journal) { ConvertTo-AwarenessNumber $journal.speedMetersPerSecond } else { $null }
+                BearingDegrees = if ($null -ne $journal) { ConvertTo-AwarenessNumber $journal.bearingDegrees } else { $null }
+                LocationProvider = if ($null -ne $journal) { [string]$journal.locationProvider } else { "" }
             }
             $beforeSightings = @($existing.Sightings)
             Add-AwarenessRecentSighting -SignalProfile $existing -Sighting $sighting
@@ -440,6 +464,7 @@ function Merge-AwarenessSnapshot {
                     longitude = $sightingLon
                     accuracyMeters = $sightingAccuracy
                     nodeId = $nodeId
+                    movementSessionId = $sighting.MovementSessionId
                 })
             }
         }
@@ -473,7 +498,7 @@ function Merge-AwarenessSnapshot {
         Merged = $merged
         TotalSignals = $state.Signals.Count
         UpdatedAt = $state.UpdatedAt
-        AcknowledgedSightingIds = @($acknowledgedSightingIds)
+        AcknowledgedSightingIds = @($acknowledgedSightingIds | Select-Object -Unique)
     }
 }
 
@@ -499,7 +524,35 @@ function Get-AwarenessSyncPayload {
     $state = Read-AwarenessState
     $signals = @($state.Signals.GetEnumerator() | ForEach-Object {
         $signal = $_.Value
+        $sightings = @($signal.Sightings | ForEach-Object {
+            $capturedAt = 0L
+            if ($_.At) {
+                try {
+                    $capturedAt = [DateTimeOffset]::Parse(
+                        [string]$_.At,
+                        [Globalization.CultureInfo]::InvariantCulture
+                    ).ToUnixTimeMilliseconds()
+                } catch {
+                    $capturedAt = 0L
+                }
+            }
+            [ordered]@{
+                id = [string]$_.SightingId
+                capturedAt = $capturedAt
+                sourceNodeId = [string]$_.NodeId
+                nodeName = [string]$_.NodeName
+                latitude = $_.Latitude
+                longitude = $_.Longitude
+                accuracyMeters = $_.AccuracyMeters
+                signalStrength = $_.SignalStrength
+                movementSessionId = $_.MovementSessionId
+                speedMetersPerSecond = $_.SpeedMetersPerSecond
+                bearingDegrees = $_.BearingDegrees
+                locationProvider = $_.LocationProvider
+            }
+        })
         [ordered]@{
+            id = $signal.Key
             key = $signal.Key
             name = $signal.Name
             address = $signal.Address
@@ -514,9 +567,16 @@ function Get-AwarenessSyncPayload {
             firstSeen = $signal.FirstSeen
             lastSeen = $signal.LastSeen
             seenCount = $signal.SeenCount
+            latitude = $signal.EstimatedLatitude
+            longitude = $signal.EstimatedLongitude
             estimatedLatitude = $signal.EstimatedLatitude
             estimatedLongitude = $signal.EstimatedLongitude
+            presenceState = $signal.PresenceState
+            lastPresentAt = $signal.LastPresentAt
+            lastMissingAt = $signal.LastMissingAt
+            nodeIds = @($signal.NodeIds)
             nodeCount = @($signal.NodeIds).Count
+            sightings = $sightings
             latestEvent = if (@($signal.Timeline).Count -gt 0) { @($signal.Timeline)[-1].Summary } else { "" }
             timelineCount = @($signal.Timeline).Count
             timeline = @($signal.Timeline | Select-Object -Last 12)
@@ -525,6 +585,17 @@ function Get-AwarenessSyncPayload {
 
     return [ordered]@{
         schema = 1
+        protocolVersion = 2
+        nodeId = "windows-$env:COMPUTERNAME"
+        nodeName = $env:COMPUTERNAME
+        nodeRole = "secondary_companion"
+        hubPreference = "linux_primary"
+        capabilities = @(
+            "secondary_companion",
+            "rtl_sdr_host",
+            "awareness_sync_schema1",
+            "exact_sighting_acknowledgement"
+        )
         updatedAt = $state.UpdatedAt
         totalSignals = $signals.Count
         signals = $signals
@@ -697,14 +768,9 @@ function Receive-AwarenessSyncRequests {
             if ($request.Method -eq "POST" -and $path -eq "/snifferops/sync") {
                 $snapshot = $request.Body | ConvertFrom-Json
                 $merge = Merge-AwarenessSnapshot -Snapshot $snapshot
-                $payload = @{
-                    schema = 1
-                    merged = $merge.Merged
-                    totalSignals = $merge.TotalSignals
-                    updatedAt = $merge.UpdatedAt
-                    acknowledgedSightingIds = @($merge.AcknowledgedSightingIds)
-                    signals = @()
-                }
+                $payload = Get-AwarenessSyncPayload
+                $payload["merged"] = $merge.Merged
+                $payload["acknowledgedSightingIds"] = @($merge.AcknowledgedSightingIds)
                 Send-AwarenessTcpJsonResponse -Client $client -Body $payload
                 $handled++
                 continue

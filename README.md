@@ -1,8 +1,8 @@
 # SnifferOps Windows Companion
 
-This branch contains the Windows companion version of SnifferOps.
+This branch contains the Windows secondary companion version of SnifferOps.
 
-Use this branch on the Windows machine that hosts the RTL-SDR dongle. The companion can start `rtl_tcp` so the Android app can use Network SDR data over the local network, and it also includes Windows-side SDR testing, scanning, ADS-B helpers, and radio listening tools.
+Use this branch on the Windows machine that hosts the RTL-SDR dongle. The Linux T5810B node is the primary SnifferOps hub; Windows is not intended to run the hub role. The Windows companion can start `rtl_tcp` so the Android app can use Network SDR data over the local network, and it also includes Windows-side SDR testing, scanning, ADS-B helpers, radio listening tools, and schema-1-compatible awareness sync.
 
 The Android phone remains the standalone recorder. This companion receives durable copies later, compiles them into awareness profiles, and acknowledges exactly which phone sightings were safely assimilated.
 
@@ -94,6 +94,19 @@ RTL deep scans run outside the WPF UI loop, so the app and sync endpoint remain 
 The sync response includes `acknowledgedSightingIds`. Windows returns an ID only after the sighting has been assimilated and the awareness state has been saved. Duplicate retries are acknowledged but not counted twice.
 
 The phone keeps acknowledged rows until the user presses `COMPACT PHONE`. This separates transfer from deletion: a timeout, failed save, missing acknowledgment, or partial response cannot erase phone evidence.
+
+## Linux Hub Relationship
+
+Windows is a secondary node. It should preserve local observations and stay compatible with the Linux hub, but it should not own Linux-only structures such as movement sessions, derived entities, watch zones, policy profiles, cellular baselines, or route-exposure scoring.
+
+The awareness payload now advertises:
+
+- `protocolVersion: 2`
+- `nodeRole: secondary_companion`
+- `hubPreference: linux_primary`
+- capabilities for schema-1 awareness sync, exact sighting acknowledgement, and RTL-SDR hosting
+
+Windows can acknowledge exact Android/Linux sighting IDs when it receives them, preserving safe compaction semantics. New Linux hub fields are optional and ignored safely where the Windows companion does not use them.
 
 ## Icon
 
