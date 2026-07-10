@@ -6,6 +6,8 @@ Returns structured explanations for WiFi, Bluetooth, and SDR/RF signals.
 import re
 from dataclasses import dataclass, field
 
+import signal_signatures
+
 
 @dataclass
 class SignalExplanation:
@@ -40,6 +42,16 @@ def classify_wifi(signal: dict) -> SignalExplanation:
         band = "Unknown band"
 
     evidence_parts = [band]
+    signature = signal_signatures.classify_signal_signature(signal)
+    if signature.matched and signature.family in ("attack", "surveillance", "camera", "network-camera"):
+        return SignalExplanation(
+            category="WiFi",
+            specific_type=signature.label,
+            confidence=signature.confidence,
+            evidence=_join(band, signature.evidence_text()),
+            meaning="WiFi metadata matched a passive attack, camera, ALPR, or surveillance-device signature.",
+            next_step="Treat high-alert signatures as hostile until ruled out; correlate location, repeated sightings, and signal-strength changes before calling identity confirmed.",
+        )
 
     rules = [
         {
@@ -136,6 +148,16 @@ def classify_bluetooth(device: dict) -> SignalExplanation:
     name = str(device.get("name") or "")
     status = str(device.get("status") or device.get("device_class") or "")
     evidence = f"status: {status}" if status else "no status"
+    signature = signal_signatures.classify_signal_signature(device)
+    if signature.matched:
+        return SignalExplanation(
+            category="Bluetooth",
+            specific_type=signature.label,
+            confidence=signature.confidence,
+            evidence=_join(evidence, signature.evidence_text()),
+            meaning="Bluetooth metadata matched a passive tracker, camera, or surveillance-device signature.",
+            next_step="Use repeated sightings and RSSI changes to localize; Bluetooth names alone are not proof of ownership or intent.",
+        )
 
     rules = [
         {
@@ -272,9 +294,18 @@ _SDR_RULES = [
     (2400.0, 2500.0, "2.4 GHz WiFi, Bluetooth, or ISM device", "OFDM/FHSS/digital", "Medium",
      "Very crowded unlicensed band used by WiFi, Bluetooth, ZigBee, cameras, controllers, and IoT.",
      "Correlate with WiFi/Bluetooth lists and movement."),
+    (3300.0, 3500.0, "3.4 GHz CBRS / private LTE / 5G-adjacent data", "Cellular/OFDM", "Medium",
+     "Private LTE, CBRS, and nearby 5G-style systems can show as wide digital energy.",
+     "Correlate with cellular/router devices and local infrastructure; SDR power alone cannot identify the operator."),
+    (3550.0, 3700.0, "CBRS private LTE / fixed wireless", "Cellular/OFDM", "Medium",
+     "Common for private LTE, fixed wireless, and enterprise/municipal data links.",
+     "Correlate with cameras, gateways, and outdoor antennas if this repeats at one location."),
     (5150.0, 5850.0, "5 GHz WiFi or unlicensed data", "OFDM/digital", "Medium",
      "Common for WiFi APs, mesh nodes, cameras, and high-rate unlicensed devices.",
      "Correlate with WiFi SSIDs and channel details."),
+    (5850.0, 5925.0, "5.9 GHz ITS / C-V2X / DSRC or upper unlicensed data", "OFDM/data", "Low",
+     "Vehicle-to-infrastructure, transportation, or upper unlicensed data systems may appear here.",
+     "Treat as a location clue and compare against traffic infrastructure before labeling it."),
 ]
 
 
@@ -292,17 +323,19 @@ def classify_alert(name: str, type_: str, specific_type: str,
 
     high_pat = (r'(imsi|stingray|fake\s*sim|fake\s*cell|rogue\s*cell|'
                 r'cell\s*site\s*simulator|evil\s*twin|wifi\s*pineapple|pineapple|'
-                r'deauther|pwnagotchi|marauder|flipper|badusb|skimmer|'
+                r'deauth|deauthentication|disassociation|deauther|'
+                r'pwnagotchi|marauder|flipper|badusb|skimmer|'
                 r'tap\s*to\s*pay|payment|nfc\s*intercept|credential|password|'
-                r'phish|sniffer|data[- ]?capture|hacking)')
-    # "camera" removed — too many false positives on SSID names
-    medium_pat = (r'(flock|flock\s*safety|alpr|lpr|license\s*plate|plate\s*reader|'
+                r'phish|evil\s*portal|credential\s*portal|sniffer|data[- ]?capture|'
+                r'hacking|jammer|jamming|interference\s*attack|'
+                r'flock|flock\s*safety|alpr|lpr|license\s*plate|plate\s*reader|'
                   r'traffic\s*reader|traffic\s*camera|speed\s*camera|red\s*light|'
                   r'surveillance|cctv|doorbell|verkada|avigilon|hikvision|dahua|'
-                  r'axis|vigilant|genetec|motorola)')
+                  r'axis|vigilant|genetec|motorola|fusus|briefcam|openpath)')
+    medium_pat = (r'(camera\s*service|rtsp|onvif|open\s*port|hidden\s*wifi|'
+                  r'open\s*wifi|open\s*security|unsecured|rogue|spoof|unexpected)')
     low_pat = (r'(unknown\s*ble|beacon|tracker|airtag|tile|hidden\s*wifi|'
-               r'open\s*wifi|open\s*security|unsecured|rogue|spoof|jam|burst|'
-               r'unclassified\s*rf|unexpected|odd|weird)')
+               r'burst|unclassified\s*rf|odd|weird)')
     move_pat = (r'(new\s+scan\s+location|location_changed|also\s+seen\s+by|'
                 r'same\s+reader|following|followed|moved\s+with)')
 
@@ -317,7 +350,7 @@ def classify_alert(name: str, type_: str, specific_type: str,
             "evidence": (f"High-risk keyword: {high_m.group(0)}"
                          if high_m else "Threat level is ALERT"),
             "meaning": ("Signal name, type, or classification matched a known adversarial "
-                        "or surveillance tool."),
+                        "tool or hostile surveillance class."),
             "next_step": ("Investigate immediately; this matches patterns associated with "
                           "tracking, interception, or network attack tools."),
             "notes": "High alert: treat as confirmed threat until ruled out.",
@@ -336,12 +369,12 @@ def classify_alert(name: str, type_: str, specific_type: str,
             }
         return {
             "level": "MEDIUM",
-            "evidence": (f"Surveillance/traffic keyword: {medium_m.group(0)}"
+            "evidence": (f"Attention keyword: {medium_m.group(0)}"
                          if medium_m else "Threat level is SUSPICIOUS"),
-            "meaning": ("Signal matches patterns associated with license plate readers, "
-                        "ALPR cameras, or surveillance infrastructure."),
-            "next_step": ("Note location and whether it moves; a stationary reader "
-                          "is expected, a mobile one is not."),
+            "meaning": ("Signal has a warning condition such as an exposed service, "
+                        "open network, or spoofing clue."),
+            "next_step": ("Correlate with location, ownership, and repeated sightings "
+                          "before escalating."),
             "notes": "",
         }
     if low_m:

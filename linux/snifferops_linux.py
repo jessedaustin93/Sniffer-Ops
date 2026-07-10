@@ -24,6 +24,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import awareness_log
 import signal_classifier
+import signal_signatures
+import db
 from lenses.all_lenses import ALL_LENSES, route
 from scanners.wifi_scanner import WifiScanner
 from scanners.bluetooth_scanner import BluetoothScanner
@@ -59,16 +61,32 @@ _console = Console() if RICH else None
 
 def _on_wifi(signals: list[dict]) -> None:
     for s in signals:
+        previous = db.get_profile(db.signal_profile_id(s))
         expl = signal_classifier.classify_wifi(s)
         s["deviceClass"] = expl.specific_type
+        signature = signal_signatures.annotate_signal(s)
+        cue = signal_signatures.live_cue(s, previous.get("last_signal") if previous else None)
+        if signature.matched:
+            s["notes"] = "; ".join(part for part in (
+                s.get("notes", ""),
+                f"Live cue: {cue['label']}",
+            ) if part)
     _submit_snapshot(signals, "WIFI")
     _scan_stats["wifi"] += len(signals)
 
 
 def _on_bluetooth(devices: list[dict]) -> None:
     for d in devices:
+        previous = db.get_profile(db.signal_profile_id(d))
         expl = signal_classifier.classify_bluetooth(d)
         d["deviceClass"] = expl.specific_type
+        signature = signal_signatures.annotate_signal(d)
+        cue = signal_signatures.live_cue(d, previous.get("last_signal") if previous else None)
+        if signature.matched:
+            d["notes"] = "; ".join(part for part in (
+                d.get("notes", ""),
+                f"Live cue: {cue['label']}",
+            ) if part)
     _submit_snapshot(devices, "BLUETOOTH")
     _scan_stats["bt"] += len(devices)
 

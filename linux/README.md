@@ -77,13 +77,13 @@ The interface uses a dark tactical theme (Adwaita dark + custom CSS) with the Sp
 
 ### WiFi
 
-Detected Wi-Fi access points with SSID, BSSID, signal strength (dBm), channel, frequency band, and security type. Each row shows a device class and a threat class colored by severity — red = Alert, orange = Watch, cyan = Noticed, green = Normal.
+Detected Wi-Fi access points with SSID, BSSID, signal strength (dBm), channel, frequency band, and security type. Each row shows a device class and a threat class colored by severity — red = Alert, orange = Watch, cyan = Noticed, green = Normal. Passive signatures can flag likely Flock Safety / ALPR, surveillance-camera, camera-service, evil portal / evil twin, deauth, jamming, Pwnagotchi/Marauder/Flipper-style tooling, and related infrastructure clues from SSID/vendor/notes metadata.
 
 **How it scans:** calls `nmcli --get-values SSID,BSSID,SIGNAL,CHAN,FREQ,SECURITY dev wifi list` as the primary method. Falls back to `iwlist scanning` if NetworkManager is not available.
 
 ### Bluetooth
 
-Bluetooth Classic and BLE devices with MAC address, display name, RSSI, device class, and manufacturer. Bluetooth service-profile suffixes (AVRCP TRANSPORT, A2DP SINK/SOURCE, GATT, HID, etc.) are stripped from device names so "Galaxy S21 AVRCP TRANSPORT" shows as just "Galaxy S21".
+Bluetooth Classic and BLE devices with MAC address, display name, RSSI, device class, and manufacturer. Bluetooth service-profile suffixes (AVRCP TRANSPORT, A2DP SINK/SOURCE, GATT, HID, etc.) are stripped from device names so "Galaxy S21 AVRCP TRANSPORT" shows as just "Galaxy S21". Passive signatures also flag tracker, tag, beacon, and camera/surveillance naming clues.
 
 **How it scans:** calls `bluetoothctl --timeout 8 scan on` then `bluetoothctl devices` followed by per-device `bluetoothctl info <MAC>` to pull class and manufacturer data. Falls back to `hcitool scan --flush` on older BlueZ.
 
@@ -121,8 +121,8 @@ Each signal is first typed by pattern matching against its SSID, device name, or
 
 | Signal type | Categories |
 |---|---|
-| Wi-Fi | Flock camera, surveillance/doorbell, router/AP, TV/media, phone/hotspot, smart-home, guest network, hidden SSID, open/unsecured |
-| Bluetooth | Audio (headphones/speakers), personal device (phone/tablet/watch), input device (keyboard/mouse), BT adapter, tracker/beacon/tag |
+| Wi-Fi | Flock Safety / ALPR, surveillance cameras/platforms, camera services, deauth/disassociation, jamming indicators, evil portal / evil twin, WiFi Pineapple, Pwnagotchi/Marauder/Flipper-style tooling, router/AP, TV/media, phone/hotspot, smart-home, guest network, hidden SSID, open/unsecured |
+| Bluetooth | Audio (headphones/speakers), personal device (phone/tablet/watch), input device (keyboard/mouse), BT adapter, tracker/beacon/tag, camera/surveillance naming clues, Pwnagotchi/Marauder/Flipper-style tooling |
 | SDR/RF | 28 band-plan ranges from broadcast FM through 5 GHz unlicensed |
 
 ### Alert levels
@@ -131,12 +131,16 @@ After device classification, the alert engine (`signal_classifier.classify_alert
 
 | Level | What triggers it |
 |---|---|
-| **HIGH** | IMSI catchers, stingrays, evil twin, pineapple, flipper, pwnagotchi, deauther, credential/phishing keywords — or any surveillance-class signal that also has a movement clue (seen at a new scan location or by a second node in a different place) |
-| **MEDIUM** | Flock Safety / ALPR, license plate readers, traffic cameras, known surveillance vendors (Verkada, Avigilon, Hikvision, Dahua, Axis, Motorola, etc.) |
-| **LOW** | Unknown BLE, beacons, trackers, AirTags, Tile tags, hidden SSIDs, open/unsecured networks, unclassified RF |
+| **HIGH** | IMSI catchers, stingrays, deauth/disassociation, jamming indicators, evil twin, evil portal, pineapple, flipper, pwnagotchi, Marauder, credential/phishing keywords, Flock Safety / ALPR, license plate readers, traffic cameras, and known surveillance platforms/vendors (Verkada, Avigilon, Hikvision, Dahua, Axis, Motorola, Fusus, BriefCam, Openpath, etc.) |
+| **MEDIUM** | Exposed camera/device services, RTSP/ONVIF/open-port clues, hidden SSIDs, open/unsecured networks, spoofing or unexpected-service clues |
+| **LOW** | Unknown BLE, beacons, trackers, AirTags, Tile tags, unclassified RF, odd one-off clues |
 | **NONE** | Everything else |
 
-The movement-detection upgrade is the key behavior: a stationary ALPR camera is MEDIUM. The same camera seen at two different GPS locations — or reported by two nodes in different places — upgrades to HIGH automatically.
+Flock Safety, ALPR, license-plate readers, traffic cameras, and similar surveillance-platform clues are treated as hostile policy signals in SnifferOps and render as HIGH/Alert until ruled out. That is a field-warning policy, not proof of device identity or illegal activity.
+
+### Live cues
+
+SnifferOps builds a short live cue for matched signatures from the passive device guess plus signal strength trend. Examples include `ALERT: Flock hostile signal: closing`, `ALERT: Deauth detected: close`, `ALERT: Evil portal detected: nearby`, `ALERT: Camera service exposed: detected`, and `Tracker/beacon detected: fading`. RSSI-based proximity is approximate; use it as a field cue, not a physical range measurement.
 
 ### Awareness profile classes
 

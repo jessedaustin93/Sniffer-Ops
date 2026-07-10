@@ -390,6 +390,16 @@ def get_all_profiles() -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def get_profile(profile_id: str) -> dict | None:
+    """Return one signal profile by stable ID, or None if it is unknown."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM signal_profiles WHERE id=?",
+            (profile_id,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
 def get_sightings_for_placement() -> list[dict]:
     """
     Return up to 20 recent GPS-tagged sightings per device for map placement.

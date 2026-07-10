@@ -25,6 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import awareness_log
 import signal_classifier
+import signal_signatures
 import db
 import map_placement
 from lenses.all_lenses import route
@@ -422,14 +423,24 @@ def _alert_level_to_threat(level: str) -> str:
 
 def _on_wifi(signals: list[dict]) -> None:
     for s in signals:
+        previous = db.get_profile(db.signal_profile_id(s))
         exp = signal_classifier.classify_wifi(s)
         s["deviceClass"] = exp.specific_type
+        signature = signal_signatures.annotate_signal(s)
+        cue = signal_signatures.live_cue(s, previous.get("last_signal") if previous else None)
+        if signature.matched:
+            s["notes"] = "; ".join(part for part in (
+                s.get("notes", ""),
+                f"Live cue: {cue['label']}",
+            ) if part)
         alert = signal_classifier.classify_alert(
             s.get("name", ""), "WIFI", exp.specific_type,
             s.get("threatLevel", ""), s.get("notes", ""),
         )
         if alert["level"] != "NONE":
             s["threatLevel"] = _alert_level_to_threat(alert["level"])
+        elif signature.alert_keyword:
+            s["threatLevel"] = "SUSPICIOUS" if signature.family == "surveillance" else "UNKNOWN"
         db.write_detection(s, NODE_ID)
     _submit(signals, "WIFI")
     _scan_stats["wifi"] += len(signals)
@@ -437,14 +448,24 @@ def _on_wifi(signals: list[dict]) -> None:
 
 def _on_bt(devices: list[dict]) -> None:
     for d in devices:
+        previous = db.get_profile(db.signal_profile_id(d))
         exp = signal_classifier.classify_bluetooth(d)
         d["deviceClass"] = exp.specific_type
+        signature = signal_signatures.annotate_signal(d)
+        cue = signal_signatures.live_cue(d, previous.get("last_signal") if previous else None)
+        if signature.matched:
+            d["notes"] = "; ".join(part for part in (
+                d.get("notes", ""),
+                f"Live cue: {cue['label']}",
+            ) if part)
         alert = signal_classifier.classify_alert(
             d.get("name", ""), "BLUETOOTH", exp.specific_type,
             d.get("threatLevel", ""), d.get("notes", ""),
         )
         if alert["level"] != "NONE":
             d["threatLevel"] = _alert_level_to_threat(alert["level"])
+        elif signature.alert_keyword:
+            d["threatLevel"] = "SUSPICIOUS" if signature.family == "surveillance" else "UNKNOWN"
         db.write_detection(d, NODE_ID)
     _submit(devices, "BLUETOOTH")
     _scan_stats["bt"] += len(devices)

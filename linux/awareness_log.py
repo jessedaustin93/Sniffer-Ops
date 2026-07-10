@@ -13,11 +13,13 @@ import math
 import re
 import threading
 from datetime import datetime, timezone
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse
 from typing import Any
 
 import db
 import signal_classifier as _sc
+import signal_signatures as _sig
 
 # ── Module-level state ────────────────────────────────────────────────────────
 
@@ -25,7 +27,7 @@ _node_id: str = ""
 _node_name: str = ""
 _log_path: str | None = None
 
-_server: HTTPServer | None = None
+_server: ThreadingHTTPServer | None = None
 _server_thread: threading.Thread | None = None
 
 _NORMAL_BASELINE = 5  # seenCount threshold for "Normal" status
@@ -270,6 +272,7 @@ def get_display_profiles() -> list[dict]:
             "Type":               p.get("type") or "",
             "SpecificType":       p.get("device_class") or "",
             "ThreatLevel":        p.get("threat_level") or "",
+            "Notes":              p.get("notes") or "",
             "SeenCount":          int(p.get("seen_count") or 0),
             "NodeCount":          len(node_ids),
             "LastSeen":           last_seen_iso,
@@ -313,6 +316,15 @@ def get_display_profiles() -> list[dict]:
             f"Grouped {len(members)} matching IDs; {latest['LastEvent']}"
             if len(members) > 1 else latest["LastEvent"]
         )
+        cue = _sig.live_cue({
+            "name": primary["RawName"] or primary["Name"],
+            "address": primary["Address"],
+            "type": primary["Type"],
+            "deviceClass": types or primary["SpecificType"],
+            "threatLevel": primary["ThreatLevel"],
+            "notes": primary["Notes"],
+            "signalStrength": latest["LastSignal"],
+        })
         rows.append({
             "Class":            primary["Class"],
             "Signal":           primary["Name"],
@@ -323,6 +335,7 @@ def get_display_profiles() -> list[dict]:
             "Nodes":            node_count,
             "Last":             latest["LastSeen"],
             "LastEvent":        last_event,
+            "LiveCue":          cue["label"] if cue["family"] else "",
             "Strength":         latest["LastSignal"],
             "RawIds":           raw_ids,
             "CombinedProfiles": len(members),
@@ -375,6 +388,318 @@ def get_scan_locations() -> list[dict]:
     return sorted(points.values(), key=lambda p: p["signal_count"], reverse=True)
 
 
+# ── Web dashboard helpers ────────────────────────────────────────────────────
+
+
+def get_web_status() -> dict:
+    """
+    Return a compact read-only dashboard payload for browser clients.
+    This intentionally does not expose raw sync payload shape or packet data.
+    """
+    profiles = get_display_profiles()
+    locations = get_scan_locations()
+
+    class_counts = {
+        "Alert": 0,
+        "Watch": 0,
+        "Noticed": 0,
+        "One-off": 0,
+        "Learning": 0,
+        "Normal": 0,
+    }
+    type_counts: dict[str, int] = {}
+    for p in profiles:
+        class_counts[p.get("Class", "Normal")] = class_counts.get(p.get("Class", "Normal"), 0) + 1
+        sig_type = p.get("SourceType") or "UNKNOWN"
+        type_counts[sig_type] = type_counts.get(sig_type, 0) + 1
+
+    recent = []
+    for p in profiles[:80]:
+        recent.append({
+            "class": p.get("Class", ""),
+            "name": p.get("DisplayName", ""),
+            "type": p.get("SourceType", ""),
+            "seen": p.get("Seen", 0),
+            "nodes": p.get("Nodes", 0),
+            "last": p.get("Last", ""),
+            "strength": p.get("Strength"),
+            "cue": p.get("LiveCue", ""),
+            "event": p.get("LastEvent", ""),
+        })
+
+    return {
+        "ok": True,
+        "nodeId": _node_id,
+        "nodeName": _node_name,
+        "generatedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "profileCount": len(profiles),
+        "locationCount": len(locations),
+        "classCounts": class_counts,
+        "typeCounts": dict(sorted(type_counts.items())),
+        "recent": recent,
+        "locations": locations[:40],
+    }
+
+
+_WEB_APP_HTML = """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SnifferOps</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #090c0f;
+      --panel: #111820;
+      --panel-2: #151d25;
+      --border: #2b3743;
+      --text: #e7eef4;
+      --muted: #8ea0ad;
+      --green: #3ddc97;
+      --cyan: #40d8ff;
+      --orange: #ffb454;
+      --red: #ff5d5d;
+      --blue: #8bb8ff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    header {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 22px 24px 14px;
+      border-bottom: 1px solid var(--border);
+      background: #0c1116;
+    }
+    h1 { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: 0; }
+    .sub { margin-top: 5px; color: var(--muted); font-size: 13px; }
+    .status {
+      min-width: 190px;
+      color: var(--green);
+      text-align: right;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    main { padding: 20px 24px 28px; }
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+    .metric, section {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    .metric { padding: 14px 16px; min-height: 82px; }
+    .metric .label { color: var(--muted); font-size: 12px; text-transform: uppercase; }
+    .metric .value { margin-top: 6px; font-size: 28px; font-weight: 750; }
+    .split {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 340px;
+      gap: 16px;
+      align-items: start;
+    }
+    section { overflow: hidden; }
+    section h2 {
+      margin: 0;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 0;
+    }
+    table { width: 100%; border-collapse: collapse; }
+    th, td {
+      padding: 10px 12px;
+      border-bottom: 1px solid #202b35;
+      text-align: left;
+      font-size: 13px;
+      vertical-align: top;
+    }
+    th { color: var(--muted); font-weight: 650; background: var(--panel-2); }
+    tr:last-child td { border-bottom: 0; }
+    .name { font-weight: 650; }
+    .muted { color: var(--muted); }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-width: 68px;
+      justify-content: center;
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 12px;
+      font-weight: 700;
+      color: #081014;
+      background: var(--green);
+    }
+    .Alert { background: var(--red); }
+    .Watch { background: var(--orange); }
+    .Noticed { background: var(--cyan); }
+    .One-off { background: var(--blue); }
+    .Learning { background: #a7b1ba; }
+    .list { padding: 8px 0; }
+    .item {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      padding: 10px 14px;
+      border-bottom: 1px solid #202b35;
+      font-size: 13px;
+    }
+    .item:last-child { border-bottom: 0; }
+    .count { color: var(--text); font-weight: 700; }
+    @media (max-width: 900px) {
+      header { align-items: start; flex-direction: column; }
+      .status { text-align: left; }
+      .metrics, .split { grid-template-columns: 1fr; }
+      main { padding: 14px; }
+      th:nth-child(6), td:nth-child(6) { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>SnifferOps</h1>
+      <div class="sub" id="node">Loading T5810B awareness hub...</div>
+    </div>
+    <div class="status" id="status">Connecting</div>
+  </header>
+  <main>
+    <div class="metrics">
+      <div class="metric"><div class="label">Profiles</div><div class="value" id="profiles">-</div></div>
+      <div class="metric"><div class="label">Alerts</div><div class="value" id="alerts">-</div></div>
+      <div class="metric"><div class="label">Watch</div><div class="value" id="watch">-</div></div>
+      <div class="metric"><div class="label">Locations</div><div class="value" id="locations">-</div></div>
+    </div>
+    <div class="split">
+      <section>
+        <h2>Recent Signal Profiles</h2>
+        <table>
+          <thead>
+            <tr><th>Class</th><th>Signal</th><th>Cue</th><th>Type</th><th>Seen</th><th>Last Event</th></tr>
+          </thead>
+          <tbody id="rows"><tr><td colspan="6" class="muted">Loading...</td></tr></tbody>
+        </table>
+      </section>
+      <div>
+        <section>
+          <h2>Signal Types</h2>
+          <div class="list" id="types"></div>
+        </section>
+        <section style="margin-top: 16px;">
+          <h2>Scan Locations</h2>
+          <div class="list" id="places"></div>
+        </section>
+      </div>
+    </div>
+  </main>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const setText = (id, value) => { $(id).textContent = value; };
+    const fmtTime = (value) => value ? new Date(value).toLocaleString() : "";
+
+    function classPill(name) {
+      const span = document.createElement("span");
+      span.className = "pill " + String(name || "Normal").replace(/[^A-Za-z-]/g, "");
+      span.textContent = name || "Normal";
+      return span;
+    }
+
+    function renderList(id, items, labelKey, countKey, emptyText) {
+      const root = $(id);
+      root.textContent = "";
+      if (!items.length) {
+        const empty = document.createElement("div");
+        empty.className = "item muted";
+        empty.textContent = emptyText;
+        root.appendChild(empty);
+        return;
+      }
+      for (const item of items) {
+        const row = document.createElement("div");
+        row.className = "item";
+        const label = document.createElement("div");
+        label.textContent = item[labelKey];
+        const count = document.createElement("div");
+        count.className = "count";
+        count.textContent = item[countKey];
+        row.append(label, count);
+        root.appendChild(row);
+      }
+    }
+
+    async function refresh() {
+      try {
+        const res = await fetch("/snifferops/web/status", {cache: "no-store"});
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        setText("profiles", data.profileCount);
+        setText("alerts", data.classCounts.Alert || 0);
+        setText("watch", data.classCounts.Watch || 0);
+        setText("locations", data.locationCount);
+        setText("node", `${data.nodeName || "SnifferOps node"} - ${data.nodeId || "unknown node"}`);
+        setText("status", `Live - ${fmtTime(data.generatedAt)}`);
+
+        const rows = $("rows");
+        rows.textContent = "";
+        for (const item of data.recent) {
+          const tr = document.createElement("tr");
+          const cls = document.createElement("td");
+          cls.appendChild(classPill(item.class));
+          const name = document.createElement("td");
+          name.innerHTML = "";
+          const title = document.createElement("div");
+          title.className = "name";
+          title.textContent = item.name || "(unnamed signal)";
+          const meta = document.createElement("div");
+          meta.className = "muted";
+          meta.textContent = fmtTime(item.last);
+          name.append(title, meta);
+          const cue = document.createElement("td");
+          cue.textContent = item.cue || "";
+          const type = document.createElement("td");
+          type.textContent = item.type || "UNKNOWN";
+          const seen = document.createElement("td");
+          seen.textContent = item.seen || 0;
+          const event = document.createElement("td");
+          event.textContent = item.event || "";
+          tr.append(cls, name, cue, type, seen, event);
+          rows.appendChild(tr);
+        }
+        if (!data.recent.length) {
+          rows.innerHTML = '<tr><td colspan="6" class="muted">No profiles yet.</td></tr>';
+        }
+
+        const typeItems = Object.entries(data.typeCounts || {}).map(([name, count]) => ({name, count}));
+        renderList("types", typeItems, "name", "count", "No signal types yet.");
+        const placeItems = (data.locations || []).map((p) => ({
+          key: p.key,
+          signal_count: `${p.signal_count} / ${p.interesting_count} interesting`
+        }));
+        renderList("places", placeItems, "key", "signal_count", "No GPS-tagged scan locations.");
+      } catch (err) {
+        setText("status", "Offline - " + err.message);
+      }
+    }
+
+    refresh();
+    setInterval(refresh, 10000);
+  </script>
+</body>
+</html>
+"""
+
+
 # ── HTTP server ───────────────────────────────────────────────────────────────
 
 
@@ -391,9 +716,45 @@ class _SyncHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _send_html(self, body: str, status: int = 200) -> None:
+        data = body.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _send_head(self) -> None:
+        path = urlparse(self.path).path.lower()
+        if path in ("/", "/snifferops", "/snifferops/", "/snifferops/web"):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(_WEB_APP_HTML.encode("utf-8"))))
+        elif path in (
+            "/snifferops/web/status",
+            "/snifferops/health",
+            "/snifferops/awareness",
+            "/snifferops/sdr/deep-scan/status",
+        ):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+        else:
+            self.send_response(404)
+            self.send_header("Content-Type", "application/json")
+        self.send_header("Connection", "close")
+        self.end_headers()
+
+    def do_HEAD(self):
+        self._send_head()
+
     def do_GET(self):
-        path = self.path.lower().split("?")[0]
-        if path == "/snifferops/health":
+        path = urlparse(self.path).path.lower()
+        if path in ("/", "/snifferops", "/snifferops/", "/snifferops/web"):
+            self._send_html(_WEB_APP_HTML)
+        elif path == "/snifferops/web/status":
+            self._send_json(get_web_status())
+        elif path == "/snifferops/health":
             self._send_json({"ok": True, "service": "snifferops-awareness", "platform": "linux"})
         elif path == "/snifferops/awareness":
             self._send_json(get_sync_payload())
@@ -434,7 +795,7 @@ def start_server(bind: str = "0.0.0.0", port: int = 8766) -> None:
     global _server, _server_thread
     if _server:
         return
-    _server = HTTPServer((bind, port), _SyncHandler)
+    _server = ThreadingHTTPServer((bind, port), _SyncHandler)
     _server_thread = threading.Thread(target=_server.serve_forever, daemon=True)
     _server_thread.start()
 
