@@ -1,28 +1,19 @@
-# SnifferOps — Linux Companion
+# SnifferOps Linux Hub
 
-A GTK4 / Adwaita desktop app for Linux that scans local wireless signals (Wi-Fi, Bluetooth, RTL-SDR), classifies them, and keeps a shared awareness log in sync with the Android and Windows nodes in your SnifferOps mesh.
+Linux is the primary SnifferOps awareness hub for the Dell Precision T5810B. It is the local-first persistence, classification, correlation, mapping, and sync authority for the current architecture. Android is the mobile detector, and Windows is the secondary companion/RTL-SDR host.
 
-Companion branches:
-- Android app — [`codex/android-mobile-app`](../../tree/codex/android-mobile-app)
-- Windows companion — [`codex/windows-companion`](../../tree/codex/windows-companion)
+SnifferOps is passive defensive awareness software. It stores local observations, preserves evidence, explains inferences, and supports lawful situational awareness. It does not attack equipment, inject packets, capture credentials, exploit devices, interfere with police, or support pursuit/traffic-stop/checkpoint evasion.
 
----
+## Architecture
 
-## Requirements
+The Linux hub has four layers:
 
-| Dependency | Version | How to get it |
-|---|---|---|
-| Python | 3.10+ | `python3` from system packages |
-| GTK4 + GLib | 4.0 | `apt-get install python3-gi gir1.2-gtk-4.0` |
-| libadwaita | 1.2+ (1.5 recommended) | `apt-get install gir1.2-adw-1` |
-| BlueZ | 5.50+ | `apt-get install bluez` |
-| NetworkManager | any | `apt-get install network-manager` |
-| RTL-SDR tools | any | `apt-get install rtl-sdr` (optional) |
-| Tailscale | any | `curl -fsSL https://tailscale.com/install.sh \| sh` (optional) |
+1. Raw scanner facts: Wi-Fi, Bluetooth/BLE, SDR, synchronized peer payloads, timestamps, signal strength, optional GPS, node identity, and legacy JSON migration input.
+2. Durable SQLite storage: `signal_profiles` and bounded per-profile/per-node `signal_sightings`, WAL mode, stable signal profile IDs, stable sighting UUIDs, sync acknowledgments, and confirmed compaction.
+3. Linux inference layer: versioned structured classifications, evidence rows, policy dispositions, ownership records, movement sessions, network-integrity models, cellular baselines/anomalies, derived entities, watch zones, enforcement locations, and route-exposure scoring foundation.
+4. Interfaces: GTK4 tactical UI, read-only web dashboard, offline awareness map, Tailscale peer discovery, HTTP sync endpoints, GNOME autostart, and systemd user startup.
 
-Tested on Ubuntu 22.04 LTS and 24.04 LTS. Other GNOME / systemd distros should work with minor adjustments.
-
----
+Existing Android and Windows schema-1 payloads still ingest. New Linux-generated structures are hub-local unless a future protocol version explicitly negotiates support.
 
 ## Install
 
@@ -34,327 +25,388 @@ cd linux
 bash install.sh
 ```
 
-`install.sh` does the following in order:
+`install.sh` installs GTK4/libadwaita, BlueZ, NetworkManager, optional RTL-SDR tools, the bundled fonts, icon, GNOME desktop launcher, GNOME autostart entry, `snifferops` command, and `~/.config/systemd/user/snifferops.service`.
 
-1. Runs `apt-get install` for all system dependencies listed above
-2. Copies the three Spy Agency font files from `assets/fonts/` into `~/.local/share/fonts/snifferops/` and runs `fc-cache`
-3. Installs the app icon (`assets/snifferops.svg`) into `~/.local/share/icons/hicolor/scalable/apps/`
-4. Writes a `.desktop` launcher file to `~/.local/share/applications/` so SnifferOps appears in the GNOME app grid
-5. Creates a `snifferops` command in `~/.local/bin/` (make sure `~/.local/bin` is on your `$PATH`)
-6. Writes a GNOME autostart entry to `~/.config/autostart/com.snifferops.linux.desktop`
-7. Writes and enables a systemd user service at `~/.config/systemd/user/snifferops.service`
-
----
-
-## Launch
-
-From the GNOME app grid — search **SnifferOps**.
-
-From a terminal:
+## Launch And Startup
 
 ```bash
 snifferops
-# or directly:
 python3 /path/to/Sniffer-Ops/linux/snifferops_gui.py
-```
-
-The app registers the D-Bus name `com.snifferops.linux`. If an instance is already running, a second launch exits immediately — the existing window comes to the foreground instead.
-
----
-
-## The GUI
-
-The interface uses a dark tactical theme (Adwaita dark + custom CSS) with the Spy Agency typeface, a radar scope animation, and a grid of scanner tiles on the main dashboard. The bottom bar has six tabs.
-
-### Dashboard
-
-- **Radar scope** — animated sweep that spins while a scan is active; stops when paused
-- **Scanner counters** — live counts for Wi-Fi networks, Bluetooth devices, SDR signals, and combined Watch/Alert count
-- **Awareness strip** — shows how many signals are currently classified as Alert, Watch, Noticed, and Normal (see classification section below)
-- **SDR badge** — shows `LOCAL`, `REMOTE`, or `OFFLINE` depending on RTL-SDR state
-- **START / STOP SCAN** — toggles active scanning across all enabled scanners
-- **Scanner tile grid** — six tiles (Wi-Fi, Bluetooth, SDR Radio, NFC, Cellular, Alerts); click the Wi-Fi, Bluetooth, or SDR tiles to jump to that scanner's signal list page
-
-### WiFi
-
-Detected Wi-Fi access points with SSID, BSSID, signal strength (dBm), channel, frequency band, and security type. Each row shows a device class and a threat class colored by severity — red = Alert, orange = Watch, cyan = Noticed, green = Normal. Passive signatures can flag likely Flock Safety / ALPR, surveillance-camera, camera-service, evil portal / evil twin, deauth, jamming, Pwnagotchi/Marauder/Flipper-style tooling, and related infrastructure clues from SSID/vendor/notes metadata.
-
-**How it scans:** calls `nmcli --get-values SSID,BSSID,SIGNAL,CHAN,FREQ,SECURITY dev wifi list` as the primary method. Falls back to `iwlist scanning` if NetworkManager is not available.
-
-### Bluetooth
-
-Bluetooth Classic and BLE devices with MAC address, display name, RSSI, device class, and manufacturer. Bluetooth service-profile suffixes (AVRCP TRANSPORT, A2DP SINK/SOURCE, GATT, HID, etc.) are stripped from device names so "Galaxy S21 AVRCP TRANSPORT" shows as just "Galaxy S21". Passive signatures also flag tracker, tag, beacon, and camera/surveillance naming clues.
-
-**How it scans:** calls `bluetoothctl --timeout 8 scan on` then `bluetoothctl devices` followed by per-device `bluetoothctl info <MAC>` to pull class and manufacturer data. Falls back to `hcitool scan --flush` on older BlueZ.
-
-### SDR Radio
-
-Spectrum sweep results classified against eight signal lenses. Each row shows center frequency, signal strength, bandwidth estimate, and the matched lens type.
-
-**How it scans:** runs `rtl_power -f <start>:<stop>:<step> -g 0 -i 1` and parses the CSV output. Peak detection runs over the power array to identify active signals. Matched peaks are passed to the lens pipeline.
-
-### Peers
-
-Shows your local Tailscale IP under **This Node**. Lists all online Tailscale devices under **Tailscale Network** with a one-click **Add** button. The **Manual Peers** section lists each configured sync peer with:
-
-- Last sync age (updated after every successful sync cycle)
-- Online/offline dot (green = health check passed)
-- **Sync now** button for an immediate push/pull
-- **Remove** button
-
-### Settings
-
-- Enable/disable individual scanners (Wi-Fi, Bluetooth, RTL-SDR)
-- Sync port (default 8766)
-- Remote `rtl_tcp` source address (host:port)
-- **Clear Awareness Log** — wipes `awareness.json` after confirmation
-
----
-
-## Signal Classification
-
-All three platforms (Linux, Windows, Android) use the same classification engine, ported from `SignalClassifier.ps1` and `AwarenessProfile.kt`.
-
-### Device classification
-
-Each signal is first typed by pattern matching against its SSID, device name, or frequency:
-
-| Signal type | Categories |
-|---|---|
-| Wi-Fi | Flock Safety / ALPR, surveillance cameras/platforms, camera services, deauth/disassociation, jamming indicators, evil portal / evil twin, WiFi Pineapple, Pwnagotchi/Marauder/Flipper-style tooling, router/AP, TV/media, phone/hotspot, smart-home, guest network, hidden SSID, open/unsecured |
-| Bluetooth | Audio (headphones/speakers), personal device (phone/tablet/watch), input device (keyboard/mouse), BT adapter, tracker/beacon/tag, camera/surveillance naming clues, Pwnagotchi/Marauder/Flipper-style tooling |
-| SDR/RF | 28 band-plan ranges from broadcast FM through 5 GHz unlicensed |
-
-### Alert levels
-
-After device classification, the alert engine (`signal_classifier.classify_alert()`) assigns one of four levels:
-
-| Level | What triggers it |
-|---|---|
-| **HIGH** | IMSI catchers, stingrays, deauth/disassociation, jamming indicators, evil twin, evil portal, pineapple, flipper, pwnagotchi, Marauder, credential/phishing keywords, Flock Safety / ALPR, license plate readers, traffic cameras, and known surveillance platforms/vendors (Verkada, Avigilon, Hikvision, Dahua, Axis, Motorola, Fusus, BriefCam, Openpath, etc.) |
-| **MEDIUM** | Exposed camera/device services, RTSP/ONVIF/open-port clues, hidden SSIDs, open/unsecured networks, spoofing or unexpected-service clues |
-| **LOW** | Unknown BLE, beacons, trackers, AirTags, Tile tags, unclassified RF, odd one-off clues |
-| **NONE** | Everything else |
-
-Flock Safety, ALPR, license-plate readers, traffic cameras, and similar surveillance-platform clues are treated as hostile policy signals in SnifferOps and render as HIGH/Alert until ruled out. That is a field-warning policy, not proof of device identity or illegal activity.
-
-### Trusted home devices
-
-Local trusted devices can be suppressed from the hostile-alert path without
-removing their identity/classification. Put private SSIDs, camera names, MACs,
-or profile IDs in `~/.snifferops/trusted_devices.json`; do not commit that file.
-
-Example shape:
-
-```json
-{
-  "owner_label": "Jesse/home trusted device",
-  "trusted_profiles": ["WIFI|AA:BB:CC:DD:EE:FF"],
-  "trusted_addresses": ["aa:bb:cc:dd:ee:ff"],
-  "trusted_names": ["known camera setup ssid"],
-  "trusted_name_patterns": ["\\\\bhome-network-name\\\\b", "\\\\bknown-camera-brand\\\\b"]
-}
-```
-
-Trusted matches keep showing in the dashboard and sync payloads, but the
-dashboard class becomes Normal and scanner callbacks write `threatLevel: SAFE`.
-Use `python3 linux/tools/trust_home_devices.py --pattern <text>` to preview
-matching local Wi-Fi profiles and add `--apply` to write matching profile IDs to
-the local trust file.
-
-### Live cues
-
-SnifferOps builds a short live cue for matched signatures from the passive device guess plus signal strength trend. Examples include `ALERT: Flock hostile signal: closing`, `ALERT: Deauth detected: close`, `ALERT: Evil portal detected: nearby`, `ALERT: Camera service exposed: detected`, and `Tracker/beacon detected: fading`. RSSI-based proximity is approximate; use it as a field cue, not a physical range measurement.
-
-### Awareness profile classes
-
-Each signal is tracked as a profile that accumulates sightings and a change timeline. Over time each profile is assigned one of six display classes:
-
-| Class | Meaning | Color |
-|---|---|---|
-| **Alert** | Alert engine returned HIGH | Red |
-| **Watch** | Alert engine returned MEDIUM | Orange |
-| **Noticed** | Alert engine returned LOW, seen fewer than 5 times | Cyan |
-| **One-off** | Seen only once, no alert flag | — |
-| **Learning** | Seen 2–4 times, no alert flag | — |
-| **Normal** | Seen 5+ times, no alert flag | Green |
-
-The Normal baseline of 5 sightings is consistent across Linux, Windows, and Android — a new signal stays out of the Normal bucket until it has established a pattern.
-
-### Signal grouping
-
-The awareness display merges signals with the same name and type into a single row (e.g., the same Bluetooth device seen by three nodes shows as one entry with a combined seen count and the highest class of any member). SDR signals are grouped by frequency bucket instead of name.
-
----
-
-## Scanning in More Detail
-
-### RTL-SDR Local Dongle
-
-Plug in an RTL2832U-based dongle. Enable the scanner in **Settings → RTL-SDR Scanner**. The app calls `rtl_power` directly — no SDR# or other SDR application needed.
-
-If the device shows a permissions error:
-
-```bash
-sudo usermod -aG plugdev $USER
-# log out and back in
-```
-
-Modern kernels ship a generic DVB-T driver that conflicts with `librtlsdr`. If `rtl_power` reports the device is in use:
-
-```bash
-sudo modprobe -r dvb_usb_rtl28xxu
-```
-
-### RTL-SDR Remote Feed
-
-If your RTL-SDR dongle is connected to a different machine (e.g. the Windows companion), you can receive its IQ stream over the network. In **Settings → Remote rtl_tcp**, enter the host and port:
-
-```
-192.168.x.x:1234
-```
-
-The app speaks the standard `rtl_tcp` binary protocol, the same one used by the Android app. On the Windows side, the companion's **START WINDOWS RTL SERVER** button starts the server.
-
----
-
-## Signal Lenses
-
-When a spectrum peak is detected, it is routed through eight lenses in priority order.
-
-| Lens | Frequency range | Signal type |
-|---|---|---|
-| ADS-B Aircraft | 1089.5 – 1090.5 MHz | Mode-S transponder frames |
-| Broadcast FM | 87.5 – 108 MHz | Wideband FM radio |
-| Aviation Airband | 118 – 137 MHz | AM voice (aircraft / ATC) |
-| NOAA Weather Radio | 162.40 – 162.55 MHz | NFM weather broadcasts |
-| Analog Voice / Amateur | 144–148, 148–174, 420–450, 450–470 MHz | NFM land mobile / ham |
-| P25 Phase 1 | 136 – 512 MHz P25 sub-bands | Digital trunked voice |
-| POCSAG Pager | 152.0, 157.5, 462 MHz bands | One-way pager protocol |
-| ACARS | 129.125, 130.025, 131.550 MHz | Aircraft data link |
-
----
-
-## Awareness Network
-
-All three platforms share a common JSON awareness log and a wire-compatible HTTP sync protocol on port **8766**.
-
-### HTTP API
-
-The Linux app starts a local HTTP server on `0.0.0.0:8766` when it launches.
-
-| Endpoint | Method | Description |
-|---|---|---|
-| `/snifferops/health` | GET | Returns `{"ok": true, "nodeId": "..."}` — used for peer probing |
-| `/snifferops/awareness` | GET | Returns the full merged signal log as a JSON snapshot |
-| `/snifferops/sync` | POST | Accepts a snapshot from a peer; merges it into the local log; returns the local snapshot so the caller can merge in the other direction |
-
-### Sync cycle
-
-The sync manager (`sync/node_sync.py`) runs a background thread that wakes every 5 seconds and checks each peer:
-
-1. If the peer is due for a sync, it POSTs the local awareness snapshot to `/snifferops/sync`
-2. The peer merges the incoming data and returns its own full snapshot in the response body
-3. The local node merges that response — both sides are now up to date in a single round trip
-4. If the POST fails, the app falls back to a GET on `/snifferops/awareness`
-
-Failed syncs use exponential backoff: first failure → wait 30s, second → 60s, third → 120s, up to a maximum of 5 minutes. A successful sync resets the backoff to the base interval.
-
-### Tailscale auto-discovery
-
-At startup and every 60 seconds, the app runs `tailscale status --json` to get the list of online Tailscale peers. For each peer it probes `:8766/snifferops/health`. Any peer that responds is automatically added to the sync list (tagged `via: tailscale`) and saved to `config.json`. No manual entry needed — as long as both machines are on the same Tailscale network and SnifferOps is running, they find each other within a minute of launch.
-
----
-
-## Tailscale Setup
-
-Tailscale lets all three nodes sync across different LANs, VPNs, or cellular connections — no port forwarding required.
-
-```bash
-# Install
-curl -fsSL https://tailscale.com/install.sh | sh
-
-# Authenticate
-sudo tailscale up
-
-# Verify your Tailscale IP (shown in Peers tab)
-tailscale ip -4
-```
-
----
-
-## Autostart
-
-`install.sh` sets up two autostart mechanisms:
-
-**GNOME session autostart** (`~/.config/autostart/com.snifferops.linux.desktop`)  
-Launches SnifferOps when your desktop session starts.
-
-```bash
-# Disable
-sed -i 's/X-GNOME-Autostart-enabled=true/X-GNOME-Autostart-enabled=false/' \
-    ~/.config/autostart/com.snifferops.linux.desktop
-```
-
-**systemd user service** (`~/.config/systemd/user/snifferops.service`)  
-Runs after `tailscaled.service`, restarts on crash (`Restart=on-failure`, 10s delay).
-
-```bash
 systemctl --user status snifferops
-systemctl --user stop snifferops
-systemctl --user disable snifferops
+systemctl --user restart snifferops
 ```
 
----
+The app binds the awareness API to `0.0.0.0:8766` by default and registers the D-Bus name `com.snifferops.linux` so duplicate launches do not create competing GUI instances.
 
-## Data and Privacy
+GNOME autostart:
 
-All data stays on your machines. Nothing is sent to any external service.
+```bash
+~/.config/autostart/com.snifferops.linux.desktop
+```
+
+Systemd user service:
+
+```bash
+~/.config/systemd/user/snifferops.service
+```
+
+## Data Location
 
 | Path | Contents |
 |---|---|
-| `~/.snifferops/awareness.json` | Merged signal log — all signals seen by any synced node, with per-profile timeline and sightings |
-| `~/.snifferops/config.json` | Scanner toggles, sync port, peer list, remote SDR address |
+| `~/.snifferops/awareness.db` | Primary SQLite/WAL database |
+| `~/.snifferops/awareness.json` | Legacy JSON migration source, kept for compatibility |
+| `~/.snifferops/config.json` | Scanner toggles, sync port, peers, map defaults |
+| `~/.snifferops/node_id` | Stable Linux node identity |
+| `~/.snifferops/trusted_devices.json` | Private local trust overrides; do not commit |
+| `~/.snifferops/network-captures/` | Optional local rotating packet summaries, not part of sync |
 
-Sync traffic is direct HTTP between nodes on your LAN or Tailscale mesh. If you use Tailscale, all traffic is end-to-end encrypted by WireGuard. The awareness log stores signal metadata (SSID, MAC, frequency, signal strength, classification) but not payload data — the app does not capture packet contents.
+Back up before migration or deployment:
 
----
-
-## File Layout
-
-```
-linux/
-├── snifferops_gui.py        # GTK4 / Adwaita GUI — main entry point
-├── awareness_log.py         # Awareness log, display profile engine, HTTP sync server
-├── signal_classifier.py     # Device classification + alert engine (ports SignalClassifier.ps1)
-├── install.sh               # Installer: apt deps, fonts, icon, .desktop, autostart
-├── start.sh                 # Thin launcher wrapper
-├── requirements.txt         # pip extras (GTK bindings come from apt, not pip)
-├── assets/
-│   ├── fonts/               # Spy Agency TTF files (loaded at runtime via fontconfig)
-│   ├── snifferops.svg       # App icon
-│   └── snifferops.desktop   # .desktop template (INSTALL_PATH filled by install.sh)
-├── scanners/
-│   ├── wifi_scanner.py      # nmcli primary, iwlist fallback
-│   ├── bluetooth_scanner.py # bluetoothctl primary, hcitool fallback
-│   └── rtl_sdr_scanner.py   # rtl_power (local USB) + rtl_tcp binary protocol (remote)
-├── lenses/
-│   ├── lens_contract.py     # Lens base class and LensDirective
-│   └── all_lenses.py        # Eight signal lenses (FM, ADS-B, aviation, weather, etc.)
-├── spectrum/
-│   └── power_scan.py        # rtl_power CSV parser and peak finder
-├── adsb/
-│   ├── adsb_decoder.py      # Mode-S / ADS-B frame decoder
-│   └── adsb_map.py          # Aircraft position map renderer
-└── sync/
-    └── node_sync.py         # Background sync manager: discovery, push/pull, backoff
+```bash
+mkdir -p ~/.snifferops/backups
+cp -a ~/.snifferops/awareness.db ~/.snifferops/backups/awareness.db.$(date -u +%Y%m%dT%H%M%SZ)
+cp -a ~/.snifferops/awareness.db-wal ~/.snifferops/backups/ 2>/dev/null || true
+cp -a ~/.snifferops/awareness.db-shm ~/.snifferops/backups/ 2>/dev/null || true
 ```
 
----
+## Schema Migrations
 
-## Notes
+SQLite is initialized in WAL mode with foreign keys enabled. `schema_migrations` records additive migration versions.
 
-- Requires a live Wayland or X11 display session. Does not run headless.
-- The GUI font (Spy Agency) is loaded at runtime from `assets/fonts/` via fontconfig — no system font install required.
-- `__pycache__`, runtime data, and log files are gitignored and will not be committed.
-- This tool is intended for authorized network auditing, security research, and educational use on networks and devices you own or have explicit permission to inspect.
+Current migration:
+
+| Version | Name | Purpose |
+|---|---|---|
+| 1 | `linux_hub_inference_layer` | Adds classifier versions, structured classifications, evidence, ownership records, movement sessions, network-integrity tables, cellular baselines/anomalies, derived entities, watch/surveillance zones, enforcement locations, manual confirmations, dismissed findings, and policy profiles |
+| 2 | `android_mobile_detector_sighting_metadata` | Adds optional per-sighting movement-session ID, speed, bearing, location provider, and source-node fields for Android mobile-detector sync |
+
+Migration 1 does not delete or rewrite raw `signal_profiles` or `signal_sightings`. Removing a classification, zone, or derived entity must never delete raw source observations.
+
+## Sync Compatibility
+
+Linux keeps the existing schema-1 awareness endpoints:
+
+| Endpoint | Method | Use |
+|---|---|---|
+| `/snifferops/health` | GET | Peer health and node identity |
+| `/snifferops/awareness` | GET | Merged awareness state |
+| `/snifferops/sync` | POST | Merge peer snapshot and return local snapshot |
+| `/snifferops/sdr/deep-scan` | POST | Existing SDR deep-scan compatibility |
+| `/snifferops/sdr/deep-scan/status` | GET | Existing SDR status compatibility |
+
+Linux still accepts old Android and Windows payloads with missing richer metadata. Android protocol-version-2 payloads may include `nodeRole: mobile_detector`, capability metadata, node location, movement-session IDs, BLE advertisement notes, and per-sighting speed/bearing/location-provider fields. Missing fields degrade gracefully: partial observations are retained, unknown values stay unknown, and classifiers avoid false certainty.
+
+## Classifier Architecture
+
+The Linux inference layer separates:
+
+- raw observed facts;
+- inferred identity;
+- identity confidence;
+- user policy disposition;
+- alert priority;
+- supporting evidence;
+- recommended defensive action.
+
+Example:
+
+| Field | Value |
+|---|---|
+| identity label | `Likely Flock Safety / ALPR camera` |
+| family | `surveillance.flock` |
+| confidence | `HIGH` |
+| priority | `HIGH` |
+| policyDisposition | `HOSTILE` |
+| policyReason | `User policy marks positively identified Flock infrastructure hostile.` |
+
+Confidence levels: `LOW`, `MEDIUM`, `HIGH`, `CONFIRMED`.
+
+Priority levels: `INFO`, `WATCH`, `CAUTION`, `HIGH`, `CRITICAL`.
+
+Policy dispositions are configurable and distinct from identity confidence. The default Linux policy marks positively identified Flock and strongly matched ALPR infrastructure `HOSTILE`. Public-safety vehicle and enforcement-location findings default to calm informational/watch behavior.
+
+Rules live in `linux/classifier_rules/` with `linux/classifier_rules.json` kept as a compatibility fallback. Code defaults in `inference_engine.py` keep the system running if a rule file is missing or malformed. Every stored classification records the classifier version and the rules directory.
+
+Current rule files:
+
+```text
+linux/classifier_rules/
+  surveillance.json
+  tracking.json
+  network_integrity.json
+  cellular.json
+  public_safety.json
+  route_exposure.json
+  external_sources.json
+```
+
+Implemented classifier families:
+
+```text
+surveillance.infrastructure
+surveillance.alpr
+surveillance.flock
+surveillance.camera
+surveillance.mobile_camera
+surveillance.unknown_roadside
+tracking.ble
+tracking.known_tracker
+tracking.following
+tracking.owned
+tracking.unknown_companion
+network.evil_twin
+network.deauthentication
+network.arp_spoofing
+network.dns_hijack
+network.gateway_change
+network.dhcp_change
+network.captive_portal_anomaly
+network.encryption_downgrade
+cellular.anomaly
+cellular.possible_rogue_cell
+cellular.downgrade
+public_safety.vehicle_cluster
+public_safety.possible_cruiser
+public_safety.probable_cruiser
+public_safety.confirmed_cruiser
+public_safety.enforcement_location
+public_safety.recurring_enforcement_location
+surveillance.license_plate_reader.generic
+surveillance.flock.fixed
+surveillance.flock.mobile
+surveillance.speed_camera
+surveillance.red_light_camera
+surveillance.traffic_camera
+surveillance.camera_trailer
+surveillance.roadside_sensor_cluster
+surveillance.fusus
+surveillance.axon
+surveillance.genetec
+surveillance.vigilant
+surveillance.motorola_solutions
+tracking.apple_findmy
+tracking.apple_airtag
+tracking.samsung_smarttag
+tracking.tile
+tracking.chipolo
+tracking.ble_beacon
+tracking.rotating_ble_identity
+tracking.stationary_beacon
+tracking.crowded_place_encounter
+tracking.separated_after_encounter
+network.ssid_clone
+network.bssid_spoof
+network.gateway_mac_change
+network.gateway_ip_change
+network.dns_server_change
+network.dhcp_server_change
+network.arp_gateway_conflict
+network.suspicious_captive_portal
+network.auto_join_risk
+network.trusted_router_verified
+cellular.unusual_cell
+cellular.unseen_cell_at_known_location
+cellular.stationary_cell_change
+cellular.technology_downgrade
+cellular.strong_unknown_cell
+cellular.mcc_mnc_change
+cellular.registration_failure_cluster
+cellular.neighbor_environment_shift
+entity.mobile_cluster
+entity.fixed_infrastructure
+entity.vehicle_equipment_package
+entity.possible_rotated_identity
+entity.probable_rotated_identity
+entity.rejected_member
+entity.confirmed_member
+public_safety.work_vehicle_cluster
+public_safety.fleet_vehicle_cluster
+public_safety.bodycam_vendor_clue
+public_safety.mdt_vendor_clue
+public_safety.dashcam_vendor_clue
+public_safety.alpr_vehicle_equipment
+public_safety.stationary_roadside_observation
+```
+
+## Ownership Controls
+
+Linux supports durable ownership states:
+
+```text
+Mine, Family, Trusted, Known neighbor, Unknown, Watch, Hostile, Ignore, False positive
+```
+
+Ownership and trust are not identity. Marking a tracker `Mine` or `Trusted` suppresses personal-tracking alerts but keeps sightings and evidence.
+
+Private pattern-based trust remains in `~/.snifferops/trusted_devices.json`; durable manual ownership records are stored in `ownership_records`.
+
+## GTK4 Interface
+
+The GTK app keeps the existing tactical visual style and adds structured lenses:
+
+- Priority Alerts
+- Surveillance
+- Personal Tracking
+- Network Integrity
+- Cellular
+- Entities & Zones
+- Wi-Fi
+- Bluetooth
+- SDR Radio
+- Peers
+- Settings
+- Map
+
+Finding rows show label, family, priority, confidence, disposition, evidence summary, observation count, source nodes, and recommended action. Actions are backed by SQLite state:
+
+- Mine
+- Family
+- Trusted
+- Watch
+- Hostile
+- Ignore
+- False positive
+- Dismiss
+- Confirm tracker
+- Confirm surveillance
+- Confirm cruiser
+
+Manual surveillance and cruiser confirmations require an extra confirmation dialog because those labels can misidentify vehicles or public-safety entities.
+
+## Personal Tracking
+
+Linux detects known or probable tracker-like BLE devices from names, manufacturer/service clues where present, repeated observations, node count, location availability, ownership state, and later movement-session context.
+
+Current following-risk behavior:
+
+- increases for AirTag/Find My, Samsung SmartTag, Tile, Chipolo, generic tracker/tag/beacon names;
+- increases with repeated observations and multiple user-associated nodes;
+- increases when the signal has repeated location-bearing observations;
+- suppresses for `Mine`, `Family`, `Trusted`, `Ignore`, and `False positive`;
+- never calls a single tracker sighting a following device.
+
+States represented through families and labels include tracker nearby, known tracker, unknown companion, device under observation, possible/probable following tracker, owned tracker, family/trusted device, and dismissed false positive.
+
+## Movement Sessions
+
+Migration 1 adds `movement_sessions` and `movement_session_observations`. The current scoring foundation can work with incomplete GPS and bounded sightings. Future work should populate sessions from journey windows, GPS deltas, node identity, activity transitions, and co-travel timing.
+
+## Network Integrity
+
+Network Integrity is defensive and only for networks the user owns or is authorized to inspect.
+
+Trusted fingerprints can include SSID, expected BSSID set, vendor, security mode, gateway IP/MAC, DHCP server, DNS servers, captive-portal expectation, normal channels/encryption, trusted location, and notes.
+
+Implemented comparison behavior detects:
+
+- trusted SSID with unexpected BSSID;
+- duplicate SSIDs visible simultaneously;
+- gateway IP or MAC change;
+- DNS change;
+- DHCP server change;
+- encryption downgrade;
+- unexpected captive portal.
+
+Recommended actions are defensive: disconnect, disable auto-join, use mobile data, verify router/gateway/DNS, and mark changed hardware trusted only after verification.
+
+## Cellular Anomalies
+
+Linux stores cellular baseline/anomaly tables and includes cautious scoring helpers for synchronized collector metadata.
+
+The scorer treats one indicator as low-confidence. Multiple indicators are required for elevated labels such as `possible rogue or misconfigured cell`.
+
+Supported indicators include LTE/5G downgrade, unexpected GSM/older fallback, serving-cell change while stationary, MCC/MNC changes, and repeated registration failures.
+
+Limitations are explicit: no single anomaly proves an IMSI catcher, and current Android/Windows collectors may not yet provide the needed cellular fields.
+
+## Derived Entities And Public Safety
+
+Migration 1 adds reversible derived entity tables for grouping signals likely belonging to the same physical equipment package, vehicle, or moving object. Source signals and sightings are never deleted by entity changes.
+
+The public-safety foundation uses gradual labels:
+
+- unknown mobile cluster;
+- fleet or work-vehicle cluster;
+- possible public-safety vehicle;
+- probable law-enforcement cruiser;
+- user-confirmed cruiser.
+
+Default public-safety disposition is informational/watch, not hostile. Enforcement-location wording should remain calm: “Recurring enforcement position ahead. Check speed and drive legally.” The system must not become active pursuit, stop, checkpoint, or detention evasion tooling.
+
+## Surveillance Zones
+
+The schema supports persistent surveillance/watch zones with classification, confidence, observation count, first/last seen, center point, confidence/effective radius, freshness, policy disposition, route-impact weight, manual status, and false-positive state.
+
+Do not infer camera field of view without sufficient evidence or manual confirmation.
+
+### DeFlock And OpenStreetMap References
+
+`classifier_rules/external_sources.json` describes DeFlock and OpenStreetMap as optional public reference sources for ALPR/Flock evidence. Linux does not automatically fetch these sources. A future explicit import tool may use DeFlock/OSM tags such as `surveillance:type=ALPR`, `camera:type=ALPR`, and `manufacturer=Flock Safety` as evidence for watch-zone seeds or classification recalculation.
+
+Imported public-map references should remain separate from raw scanner facts and should preserve attribution/licensing requirements. Crowdsourced references can raise confidence but should not be treated as user confirmation unless Jesse manually confirms the location or device.
+
+## Route Exposure Scoring
+
+`inference_engine.route_exposure_score()` is a reusable Linux-side foundation for future route segment scoring. It can score supplied route points against local findings using family weights, confidence, distance decay, and conceptual profiles:
+
+- Fastest
+- Balanced
+- Low Exposure
+- Maximum Privacy
+
+This is not navigation software and does not perform active police-evasion routing.
+
+## Testing
+
+Run the Linux tests:
+
+```bash
+cd /home/jesse/Sniffer-Ops
+pytest -q linux/tests
+```
+
+Synthetic coverage includes migration creation, classifier version recording, confidence/priority/disposition separation, evidence preservation, ownership suppression, tracker-following scoring, old Android/Windows payload ingestion, network integrity comparisons, cautious cellular anomaly scoring, and route exposure scoring.
+
+## Privacy And Legal Boundaries
+
+- Keep processing local-first.
+- Do not commit runtime databases, logs, captures, map tiles, GPS history, secrets, private SSIDs, MAC allowlists, or personal identifiers.
+- Keep published default coordinates generic.
+- Preserve raw evidence for recalculation.
+- Use SnifferOps for passive awareness and defensive inspection only.
+- Public-safety alerts should advise lawful driving, not evasion.
+
+## Android Mobile Detector Fields
+
+Android now sends the first Linux-hub mobile-detector fields while preserving current payload compatibility:
+
+- stable collector protocol version and capability list;
+- detection-time GPS with accuracy, speed, heading, and movement/session ID where Android exposes them;
+- BLE manufacturer data, service UUIDs, advertised service data, Tx power, connectability, and advertised names through notes;
+- `nodeRole: mobile_detector`;
+
+Future Android upgrades should add:
+
+- altitude, richer activity/motion state, and explicit journey boundaries;
+- BLE address type, rotating-address hints, and fuller scan response fields;
+- Wi-Fi BSSID vendor/OUI, security mode, channel width, frequency, capabilities, information elements where Android permits;
+- cellular radio technology, serving cell ID, neighboring cells, MCC, MNC, TAC/LAC, PCI, ARFCN/EARFCN/NRARFCN, signal levels, registration failures, network transitions, and stationary/moving state;
+- user-associated node identity and collection context;
+- ownership/trust hints from local user actions without forcing Linux policy;
+- optional movement-session boundaries and crowded-location hints.
+
+## Future Windows Companion Upgrade
+
+Windows should later add:
+
+- protocol version/capabilities for guarded richer sync;
+- Wi-Fi BSSID/vendor/security/channel-width/encryption details;
+- gateway IP/MAC, DNS, DHCP, captive-portal observations for authorized networks;
+- BLE manufacturer/service data where supported by adapter APIs;
+- SDR observation metadata with scanner settings, bin width, noise floor, peak prominence, and hardware source;
+- packet-summary-derived defensive network facts without credentials or payload capture;
+- movement/session IDs when acting as a mobile or vehicle-associated collector;
+- manual ownership/trust UI that sends optional hints but does not override Linux policy.
+
+Linux is ready to accept these optional fields as raw profile/sighting metadata, classifier evidence, network fingerprints, cellular baselines, movement sessions, and derived-entity inputs. Current collectors can omit them safely.

@@ -19,6 +19,7 @@ from typing import Optional
 
 _DB_PATH: Optional[str] = None
 _write_lock = threading.Lock()
+CURRENT_SCHEMA_VERSION = 2
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
@@ -45,6 +46,12 @@ def _connect():
 
 def _create_schema(conn: sqlite3.Connection) -> None:
     conn.executescript("""
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+            version      INTEGER PRIMARY KEY,
+            name         TEXT NOT NULL,
+            applied_at   INTEGER NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS signal_profiles (
             id                TEXT PRIMARY KEY,
             name              TEXT,
@@ -94,6 +101,328 @@ def _create_schema(conn: sqlite3.Connection) -> None:
             WHERE latitude IS NOT NULL AND longitude IS NOT NULL;
     """)
     conn.commit()
+
+
+def _schema_version(conn: sqlite3.Connection) -> int:
+    row = conn.execute(
+        "SELECT MAX(version) AS version FROM schema_migrations"
+    ).fetchone()
+    return int(row["version"] or 0) if row else 0
+
+
+def get_schema_version() -> int:
+    """Return the highest applied additive SnifferOps schema migration."""
+    with _connect() as conn:
+        return _schema_version(conn)
+
+
+def _record_migration(conn: sqlite3.Connection, version: int, name: str) -> None:
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO schema_migrations(version, name, applied_at)
+        VALUES (?, ?, ?)
+        """,
+        (version, name, _now_ms()),
+    )
+
+
+def _apply_migrations(conn: sqlite3.Connection) -> None:
+    """
+    Apply additive, idempotent migrations.
+
+    Version 1 adds the Linux-hub inference layer. It deliberately does not
+    alter or delete raw signal profile/sighting rows.
+    """
+    if _schema_version(conn) >= CURRENT_SCHEMA_VERSION:
+        return
+
+    if _schema_version(conn) < 1:
+        conn.executescript("""
+        CREATE TABLE IF NOT EXISTS classifier_versions (
+            family       TEXT PRIMARY KEY,
+            version      TEXT NOT NULL,
+            rules_path   TEXT,
+            updated_at   INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS policy_profiles (
+            id                  TEXT PRIMARY KEY,
+            name                TEXT NOT NULL,
+            active              INTEGER NOT NULL DEFAULT 0,
+            flock_disposition   TEXT NOT NULL DEFAULT 'HOSTILE',
+            alpr_disposition    TEXT NOT NULL DEFAULT 'HOSTILE',
+            public_safety_disposition TEXT NOT NULL DEFAULT 'INFO',
+            config_json         TEXT NOT NULL DEFAULT '{}',
+            updated_at          INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS ownership_records (
+            target_id       TEXT PRIMARY KEY,
+            target_kind     TEXT NOT NULL DEFAULT 'signal',
+            state           TEXT NOT NULL,
+            label           TEXT,
+            reason          TEXT,
+            updated_at      INTEGER NOT NULL,
+            source          TEXT NOT NULL DEFAULT 'manual'
+        );
+
+        CREATE TABLE IF NOT EXISTS classifications (
+            id                    TEXT PRIMARY KEY,
+            family                TEXT NOT NULL,
+            classifier_version    TEXT NOT NULL,
+            label                 TEXT NOT NULL,
+            priority              TEXT NOT NULL,
+            confidence            TEXT NOT NULL,
+            policy_disposition    TEXT NOT NULL DEFAULT 'UNKNOWN',
+            policy_reason         TEXT,
+            first_seen            INTEGER,
+            last_seen             INTEGER,
+            observation_count     INTEGER NOT NULL DEFAULT 0,
+            source_nodes          TEXT NOT NULL DEFAULT '[]',
+            related_signal_ids    TEXT NOT NULL DEFAULT '[]',
+            related_entity_id     TEXT,
+            recommended_next_step TEXT,
+            manual_status         TEXT NOT NULL DEFAULT 'unreviewed',
+            false_positive        INTEGER NOT NULL DEFAULT 0,
+            dismissed             INTEGER NOT NULL DEFAULT 0,
+            recalculated_at       INTEGER NOT NULL,
+            details_json          TEXT NOT NULL DEFAULT '{}'
+        );
+
+        CREATE TABLE IF NOT EXISTS classification_evidence (
+            id                 TEXT PRIMARY KEY,
+            classification_id  TEXT NOT NULL REFERENCES classifications(id) ON DELETE CASCADE,
+            evidence_type      TEXT NOT NULL,
+            summary            TEXT NOT NULL,
+            observed_at        INTEGER,
+            source_node        TEXT,
+            signal_id          TEXT,
+            weight             REAL DEFAULT 1.0,
+            raw_json           TEXT NOT NULL DEFAULT '{}'
+        );
+
+        CREATE TABLE IF NOT EXISTS movement_sessions (
+            id              TEXT PRIMARY KEY,
+            node_id         TEXT,
+            started_at      INTEGER NOT NULL,
+            ended_at        INTEGER,
+            has_gps         INTEGER NOT NULL DEFAULT 0,
+            start_latitude  REAL,
+            start_longitude REAL,
+            end_latitude    REAL,
+            end_longitude   REAL,
+            observation_count INTEGER NOT NULL DEFAULT 0,
+            status          TEXT NOT NULL DEFAULT 'open'
+        );
+
+        CREATE TABLE IF NOT EXISTS movement_session_observations (
+            session_id      TEXT NOT NULL REFERENCES movement_sessions(id) ON DELETE CASCADE,
+            sighting_id     TEXT NOT NULL,
+            signal_id       TEXT NOT NULL,
+            captured_at     INTEGER NOT NULL,
+            latitude        REAL,
+            longitude       REAL,
+            PRIMARY KEY(session_id, sighting_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS trusted_networks (
+            id              TEXT PRIMARY KEY,
+            ssid            TEXT NOT NULL,
+            bssid_set       TEXT NOT NULL DEFAULT '[]',
+            vendor          TEXT,
+            security_mode   TEXT,
+            gateway_ip      TEXT,
+            gateway_mac     TEXT,
+            dhcp_server     TEXT,
+            dns_servers     TEXT NOT NULL DEFAULT '[]',
+            captive_portal_expected INTEGER NOT NULL DEFAULT 0,
+            normal_channels TEXT NOT NULL DEFAULT '[]',
+            normal_encryption TEXT,
+            first_confirmed INTEGER,
+            last_confirmed  INTEGER,
+            trusted_location_context TEXT,
+            notes           TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS network_integrity_events (
+            id              TEXT PRIMARY KEY,
+            trusted_network_id TEXT REFERENCES trusted_networks(id) ON DELETE SET NULL,
+            family          TEXT NOT NULL,
+            label           TEXT NOT NULL,
+            priority        TEXT NOT NULL,
+            confidence      TEXT NOT NULL,
+            observed_at     INTEGER NOT NULL,
+            evidence_json   TEXT NOT NULL DEFAULT '[]',
+            recommended_next_step TEXT,
+            dismissed       INTEGER NOT NULL DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS cellular_baselines (
+            id              TEXT PRIMARY KEY,
+            location_key    TEXT,
+            radio_technology TEXT,
+            serving_cell_id TEXT,
+            neighbor_cell_ids TEXT NOT NULL DEFAULT '[]',
+            mcc             TEXT,
+            mnc             TEXT,
+            tac_lac         TEXT,
+            pci             TEXT,
+            channel_number  TEXT,
+            signal_level    REAL,
+            first_seen      INTEGER,
+            last_seen       INTEGER,
+            observation_count INTEGER NOT NULL DEFAULT 0,
+            source_nodes    TEXT NOT NULL DEFAULT '[]'
+        );
+
+        CREATE TABLE IF NOT EXISTS cellular_anomalies (
+            id              TEXT PRIMARY KEY,
+            baseline_id     TEXT REFERENCES cellular_baselines(id) ON DELETE SET NULL,
+            family          TEXT NOT NULL,
+            label           TEXT NOT NULL,
+            priority        TEXT NOT NULL,
+            confidence      TEXT NOT NULL,
+            observed_at     INTEGER NOT NULL,
+            evidence_json   TEXT NOT NULL DEFAULT '[]',
+            limitations     TEXT,
+            dismissed       INTEGER NOT NULL DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS derived_entities (
+            id              TEXT PRIMARY KEY,
+            likely_entity_type TEXT NOT NULL,
+            confidence      TEXT NOT NULL,
+            first_seen      INTEGER,
+            last_seen       INTEGER,
+            co_travel_count INTEGER NOT NULL DEFAULT 0,
+            shared_stop_locations TEXT NOT NULL DEFAULT '[]',
+            common_movement_sessions TEXT NOT NULL DEFAULT '[]',
+            status          TEXT NOT NULL DEFAULT 'active',
+            evidence_json   TEXT NOT NULL DEFAULT '[]'
+        );
+
+        CREATE TABLE IF NOT EXISTS derived_entity_members (
+            entity_id       TEXT NOT NULL REFERENCES derived_entities(id) ON DELETE CASCADE,
+            signal_id       TEXT NOT NULL,
+            member_status   TEXT NOT NULL,
+            confidence      TEXT NOT NULL,
+            evidence_json   TEXT NOT NULL DEFAULT '[]',
+            PRIMARY KEY(entity_id, signal_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS derived_entity_relationships (
+            id              TEXT PRIMARY KEY,
+            entity_id       TEXT NOT NULL REFERENCES derived_entities(id) ON DELETE CASCADE,
+            related_signal_id TEXT NOT NULL,
+            relationship    TEXT NOT NULL,
+            confidence      TEXT NOT NULL,
+            evidence_json   TEXT NOT NULL DEFAULT '[]'
+        );
+
+        CREATE TABLE IF NOT EXISTS watch_zones (
+            id              TEXT PRIMARY KEY,
+            classification  TEXT NOT NULL,
+            confidence      TEXT NOT NULL,
+            observation_count INTEGER NOT NULL DEFAULT 0,
+            first_seen      INTEGER,
+            last_seen       INTEGER,
+            center_latitude REAL,
+            center_longitude REAL,
+            confidence_radius_m REAL,
+            effective_radius_m REAL,
+            freshness       REAL DEFAULT 1.0,
+            policy_disposition TEXT NOT NULL DEFAULT 'UNKNOWN',
+            route_impact_weight REAL DEFAULT 1.0,
+            manual_status   TEXT NOT NULL DEFAULT 'unreviewed',
+            false_positive  INTEGER NOT NULL DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS surveillance_zones (
+            id              TEXT PRIMARY KEY,
+            zone_id         TEXT NOT NULL REFERENCES watch_zones(id) ON DELETE CASCADE,
+            related_device_ids TEXT NOT NULL DEFAULT '[]',
+            related_entity_ids TEXT NOT NULL DEFAULT '[]',
+            placement_confidence TEXT NOT NULL DEFAULT 'LOW'
+        );
+
+        CREATE TABLE IF NOT EXISTS enforcement_locations (
+            id              TEXT PRIMARY KEY,
+            center_latitude REAL,
+            center_longitude REAL,
+            confidence_radius_m REAL,
+            first_seen      INTEGER,
+            last_seen       INTEGER,
+            total_visits    INTEGER NOT NULL DEFAULT 0,
+            related_entity_ids TEXT NOT NULL DEFAULT '[]',
+            probable_source_vehicles TEXT NOT NULL DEFAULT '[]',
+            average_stop_duration_s REAL,
+            common_days     TEXT NOT NULL DEFAULT '[]',
+            common_times    TEXT NOT NULL DEFAULT '[]',
+            monitored_direction TEXT,
+            state           TEXT NOT NULL DEFAULT 'active',
+            confidence      TEXT NOT NULL DEFAULT 'LOW'
+        );
+
+        CREATE TABLE IF NOT EXISTS manual_confirmations (
+            id              TEXT PRIMARY KEY,
+            target_kind     TEXT NOT NULL,
+            target_id       TEXT NOT NULL,
+            confirmation    TEXT NOT NULL,
+            notes           TEXT,
+            confirmed_at    INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS dismissed_findings (
+            id              TEXT PRIMARY KEY,
+            target_kind     TEXT NOT NULL,
+            target_id       TEXT NOT NULL,
+            reason          TEXT,
+            dismissed_at    INTEGER NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_classifications_family ON classifications(family);
+        CREATE INDEX IF NOT EXISTS idx_classifications_priority ON classifications(priority);
+        CREATE INDEX IF NOT EXISTS idx_classifications_dismissed ON classifications(dismissed);
+        CREATE INDEX IF NOT EXISTS idx_classification_evidence_class ON classification_evidence(classification_id);
+        CREATE INDEX IF NOT EXISTS idx_ownership_state ON ownership_records(state);
+        CREATE INDEX IF NOT EXISTS idx_movement_obs_signal ON movement_session_observations(signal_id);
+        CREATE INDEX IF NOT EXISTS idx_network_events_family ON network_integrity_events(family);
+        CREATE INDEX IF NOT EXISTS idx_cellular_anomalies_family ON cellular_anomalies(family);
+        CREATE INDEX IF NOT EXISTS idx_entity_members_signal ON derived_entity_members(signal_id);
+        CREATE INDEX IF NOT EXISTS idx_watch_zones_classification ON watch_zones(classification);
+    """)
+
+        _record_migration(conn, 1, "linux_hub_inference_layer")
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO policy_profiles(
+                id, name, active, config_json, updated_at
+            ) VALUES ('default', 'Default local policy', 1, '{}', ?)
+            """,
+            (_now_ms(),),
+        )
+        conn.commit()
+
+    if _schema_version(conn) < 2:
+        existing = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(signal_sightings)").fetchall()
+        }
+        columns = {
+            "movement_session_id": "TEXT",
+            "speed_mps": "REAL",
+            "bearing_degrees": "REAL",
+            "location_provider": "TEXT",
+            "source_node_id": "TEXT",
+        }
+        for name, col_type in columns.items():
+            if name not in existing:
+                conn.execute(f"ALTER TABLE signal_sightings ADD COLUMN {name} {col_type}")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sightings_movement_session ON signal_sightings(movement_session_id)"
+        )
+        _record_migration(conn, 2, "android_mobile_detector_sighting_metadata")
+        conn.commit()
 
 
 # ── SDR helpers (mirrored from awareness_log.py) ───────────────────────────────
@@ -174,6 +503,7 @@ def initialize(path: str) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with _connect() as conn:
         _create_schema(conn)
+        _apply_migrations(conn)
 
     json_path = os.path.join(os.path.dirname(path), "awareness.json")
     if os.path.exists(json_path):
@@ -325,18 +655,27 @@ def write_detection(
                 """
                 INSERT INTO signal_sightings (
                     id, device_id, node_id, captured_at,
-                    signal_strength, latitude, longitude, accuracy_meters, synced_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                    signal_strength, latitude, longitude, accuracy_meters, synced_at,
+                    movement_session_id, speed_mps, bearing_degrees, location_provider,
+                    source_node_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     captured_at     = excluded.captured_at,
                     signal_strength = excluded.signal_strength,
                     latitude        = COALESCE(excluded.latitude, signal_sightings.latitude),
                     longitude       = COALESCE(excluded.longitude, signal_sightings.longitude),
                     accuracy_meters = COALESCE(excluded.accuracy_meters, signal_sightings.accuracy_meters),
-                    synced_at       = NULL
+                    synced_at       = NULL,
+                    movement_session_id = COALESCE(excluded.movement_session_id, signal_sightings.movement_session_id),
+                    speed_mps = COALESCE(excluded.speed_mps, signal_sightings.speed_mps),
+                    bearing_degrees = COALESCE(excluded.bearing_degrees, signal_sightings.bearing_degrees),
+                    location_provider = COALESCE(excluded.location_provider, signal_sightings.location_provider),
+                    source_node_id = COALESCE(excluded.source_node_id, signal_sightings.source_node_id)
                 """,
                 (sighting_id, profile_id, node_id, now_ms,
-                 strength, sig_lat, sig_lon, sig_acc),
+                 strength, sig_lat, sig_lon, sig_acc,
+                 signal.get("movementSessionId"), _to_number(signal.get("speedMetersPerSecond")),
+                 _to_number(signal.get("bearingDegrees")), signal.get("locationProvider"), node_id),
             )
 
             # Recompute estimated position from GPS sightings
@@ -361,6 +700,188 @@ def write_detection(
             conn.commit()
 
     return sighting_id
+
+
+def upsert_classifier_version(family: str, version: str, rules_path: str = "") -> None:
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO classifier_versions(family, version, rules_path, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(family) DO UPDATE SET
+                version=excluded.version,
+                rules_path=excluded.rules_path,
+                updated_at=excluded.updated_at
+            """,
+            (family, version, rules_path, _now_ms()),
+        )
+        conn.commit()
+
+
+def set_ownership_state(
+    target_id: str,
+    state: str,
+    target_kind: str = "signal",
+    label: str = "",
+    reason: str = "",
+    source: str = "manual",
+) -> None:
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO ownership_records(
+                target_id, target_kind, state, label, reason, updated_at, source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(target_id) DO UPDATE SET
+                target_kind=excluded.target_kind,
+                state=excluded.state,
+                label=excluded.label,
+                reason=excluded.reason,
+                updated_at=excluded.updated_at,
+                source=excluded.source
+            """,
+            (target_id, target_kind, state, label, reason, _now_ms(), source),
+        )
+        conn.commit()
+
+
+def get_ownership_state(target_id: str) -> dict | None:
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM ownership_records WHERE target_id=?",
+            (target_id,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def upsert_classification(record: dict, evidence: list[dict]) -> None:
+    with _write_lock:
+        with _connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO classifications(
+                    id, family, classifier_version, label, priority, confidence,
+                    policy_disposition, policy_reason, first_seen, last_seen,
+                    observation_count, source_nodes, related_signal_ids,
+                    related_entity_id, recommended_next_step, manual_status,
+                    false_positive, dismissed, recalculated_at, details_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    family=excluded.family,
+                    classifier_version=excluded.classifier_version,
+                    label=excluded.label,
+                    priority=excluded.priority,
+                    confidence=excluded.confidence,
+                    policy_disposition=excluded.policy_disposition,
+                    policy_reason=excluded.policy_reason,
+                    first_seen=excluded.first_seen,
+                    last_seen=excluded.last_seen,
+                    observation_count=excluded.observation_count,
+                    source_nodes=excluded.source_nodes,
+                    related_signal_ids=excluded.related_signal_ids,
+                    related_entity_id=excluded.related_entity_id,
+                    recommended_next_step=excluded.recommended_next_step,
+                    manual_status=excluded.manual_status,
+                    false_positive=excluded.false_positive,
+                    dismissed=excluded.dismissed,
+                    recalculated_at=excluded.recalculated_at,
+                    details_json=excluded.details_json
+                """,
+                (
+                    record["id"],
+                    record["family"],
+                    record["classifier_version"],
+                    record["label"],
+                    record["priority"],
+                    record["confidence"],
+                    record.get("policy_disposition", "UNKNOWN"),
+                    record.get("policy_reason", ""),
+                    record.get("first_seen"),
+                    record.get("last_seen"),
+                    int(record.get("observation_count") or 0),
+                    json.dumps(record.get("source_nodes") or []),
+                    json.dumps(record.get("related_signal_ids") or []),
+                    record.get("related_entity_id"),
+                    record.get("recommended_next_step", ""),
+                    record.get("manual_status", "unreviewed"),
+                    1 if record.get("false_positive") else 0,
+                    1 if record.get("dismissed") else 0,
+                    int(record.get("recalculated_at") or _now_ms()),
+                    json.dumps(record.get("details") or {}),
+                ),
+            )
+            conn.execute(
+                "DELETE FROM classification_evidence WHERE classification_id=?",
+                (record["id"],),
+            )
+            for item in evidence:
+                conn.execute(
+                    """
+                    INSERT INTO classification_evidence(
+                        id, classification_id, evidence_type, summary,
+                        observed_at, source_node, signal_id, weight, raw_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        item.get("id") or uuid.uuid4().hex,
+                        record["id"],
+                        item.get("type", "observation"),
+                        item.get("summary", ""),
+                        item.get("observed_at"),
+                        item.get("source_node"),
+                        item.get("signal_id"),
+                        float(item.get("weight", 1.0)),
+                        json.dumps(item.get("raw") or {}),
+                    ),
+                )
+            conn.commit()
+
+
+def get_classifications(include_dismissed: bool = False) -> list[dict]:
+    where = "" if include_dismissed else "WHERE dismissed=0"
+    with _connect() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT * FROM classifications
+            {where}
+            ORDER BY
+                CASE priority
+                    WHEN 'CRITICAL' THEN 5
+                    WHEN 'HIGH' THEN 4
+                    WHEN 'CAUTION' THEN 3
+                    WHEN 'WATCH' THEN 2
+                    ELSE 1
+                END DESC,
+                last_seen DESC
+            """
+        ).fetchall()
+    out = []
+    for row in rows:
+        item = dict(row)
+        for key in ("source_nodes", "related_signal_ids"):
+            try:
+                item[key] = json.loads(item.get(key) or "[]")
+            except (TypeError, json.JSONDecodeError):
+                item[key] = []
+        try:
+            item["details"] = json.loads(item.get("details_json") or "{}")
+        except (TypeError, json.JSONDecodeError):
+            item["details"] = {}
+        out.append(item)
+    return out
+
+
+def get_classification_evidence(classification_id: str) -> list[dict]:
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM classification_evidence
+            WHERE classification_id=?
+            ORDER BY observed_at DESC
+            """,
+            (classification_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def get_live_profiles(type_: str, window_seconds: float) -> list[dict]:
@@ -698,24 +1219,36 @@ def merge_remote_snapshot(snapshot: dict) -> dict:
                     s_lat = _to_number(sighting.get("latitude"))
                     s_lon = _to_number(sighting.get("longitude"))
                     s_acc = _to_number(sighting.get("accuracyMeters"))
+                    s_movement = sighting.get("movementSessionId")
+                    s_speed = _to_number(sighting.get("speedMetersPerSecond"))
+                    s_bearing = _to_number(sighting.get("bearingDegrees"))
+                    s_provider = sighting.get("locationProvider")
+                    s_source_node = sighting.get("sourceNodeId") or s_node
 
                     conn.execute(
                         """
                         INSERT INTO signal_sightings (
                             id, device_id, node_id, captured_at,
                             signal_strength, latitude, longitude, accuracy_meters,
-                            synced_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            synced_at, movement_session_id, speed_mps,
+                            bearing_degrees, location_provider, source_node_id
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ON CONFLICT(id) DO UPDATE SET
                             captured_at     = MAX(signal_sightings.captured_at, excluded.captured_at),
                             signal_strength = COALESCE(excluded.signal_strength, signal_sightings.signal_strength),
                             latitude        = COALESCE(excluded.latitude, signal_sightings.latitude),
                             longitude       = COALESCE(excluded.longitude, signal_sightings.longitude),
                             accuracy_meters = COALESCE(excluded.accuracy_meters, signal_sightings.accuracy_meters),
-                            synced_at       = COALESCE(signal_sightings.synced_at, excluded.synced_at)
+                            synced_at       = COALESCE(signal_sightings.synced_at, excluded.synced_at),
+                            movement_session_id = COALESCE(excluded.movement_session_id, signal_sightings.movement_session_id),
+                            speed_mps = COALESCE(excluded.speed_mps, signal_sightings.speed_mps),
+                            bearing_degrees = COALESCE(excluded.bearing_degrees, signal_sightings.bearing_degrees),
+                            location_provider = COALESCE(excluded.location_provider, signal_sightings.location_provider),
+                            source_node_id = COALESCE(excluded.source_node_id, signal_sightings.source_node_id)
                         """,
                         (s_id, profile_id, s_node, s_at,
-                         s_sig, s_lat, s_lon, s_acc, now_ms),
+                         s_sig, s_lat, s_lon, s_acc, now_ms,
+                         s_movement, s_speed, s_bearing, s_provider, s_source_node),
                     )
 
                 # Recompute estimated position
@@ -768,6 +1301,7 @@ def build_sync_payload(
             sighting_rows = conn.execute(
                 """
                 SELECT id, captured_at, signal_strength, latitude, longitude, accuracy_meters
+                , movement_session_id, speed_mps, bearing_degrees, location_provider, source_node_id
                 FROM signal_sightings
                 WHERE device_id=? AND synced_at IS NULL
                 ORDER BY captured_at DESC
@@ -784,6 +1318,11 @@ def build_sync_payload(
                     "latitude":       s["latitude"],
                     "longitude":      s["longitude"],
                     "accuracyMeters": s["accuracy_meters"],
+                    "movementSessionId": s["movement_session_id"],
+                    "speedMetersPerSecond": s["speed_mps"],
+                    "bearingDegrees": s["bearing_degrees"],
+                    "locationProvider": s["location_provider"],
+                    "sourceNodeId": s["source_node_id"],
                 }
                 for s in sighting_rows
             ]

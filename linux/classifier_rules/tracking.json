@@ -1,0 +1,95 @@
+{
+  "version": "tracking-rules-1.0.0",
+  "definitions": [
+    {
+      "id": "apple-airtag",
+      "family": "tracking.apple_airtag",
+      "label": "Apple AirTag or Find My tracker clue",
+      "patterns": ["airtag", "apple[-_\\s]*tag"],
+      "priority": "WATCH",
+      "score": 100,
+      "evidence": "Metadata contains Apple AirTag terminology."
+    },
+    {
+      "id": "apple-findmy",
+      "family": "tracking.apple_findmy",
+      "label": "Find My-compatible tracker clue",
+      "patterns": ["find[-_\\s]*my", "nearby[-_\\s]*interaction", "offline[-_\\s]*finding"],
+      "priority": "WATCH",
+      "score": 90,
+      "evidence": "Metadata contains Find My-compatible tracker terminology."
+    },
+    {
+      "id": "samsung-smarttag",
+      "family": "tracking.samsung_smarttag",
+      "label": "Samsung SmartTag tracker clue",
+      "patterns": ["smarttag", "galaxy[-_\\s]*tag", "samsung[-_\\s]*tag"],
+      "priority": "WATCH",
+      "score": 95,
+      "evidence": "Metadata contains Samsung SmartTag terminology."
+    },
+    {
+      "id": "tile",
+      "family": "tracking.tile",
+      "label": "Tile tracker clue",
+      "patterns": ["\\btile\\b", "tile[-_\\s]*(mate|pro|slim|sticker)"],
+      "priority": "WATCH",
+      "score": 90,
+      "evidence": "Metadata contains Tile tracker terminology."
+    },
+    {
+      "id": "chipolo",
+      "family": "tracking.chipolo",
+      "label": "Chipolo tracker clue",
+      "patterns": ["chipolo", "one[-_\\s]*spot"],
+      "priority": "WATCH",
+      "score": 90,
+      "evidence": "Metadata contains Chipolo tracker terminology."
+    },
+    {
+      "id": "ble-beacon",
+      "family": "tracking.ble_beacon",
+      "label": "BLE beacon or tag clue",
+      "patterns": ["ibeacon", "eddystone", "beacon", "\\btag\\b", "tracker"],
+      "priority": "INFO",
+      "score": 60,
+      "evidence": "Metadata contains generic BLE beacon/tag terminology."
+    },
+    {
+      "id": "rotating-ble-identity",
+      "family": "tracking.rotating_ble_identity",
+      "label": "Possible rotating BLE identity",
+      "patterns": ["rotating[-_\\s]*(address|identity)", "random[-_\\s]*address", "private[-_\\s]*address", "rpa"],
+      "priority": "WATCH",
+      "score": 70,
+      "evidence": "Metadata suggests a rotating BLE identity."
+    },
+    {
+      "id": "stationary-beacon",
+      "family": "tracking.stationary_beacon",
+      "label": "Stationary BLE beacon",
+      "patterns": ["stationary[-_\\s]*beacon", "fixed[-_\\s]*beacon", "home[-_\\s]*beacon"],
+      "priority": "INFO",
+      "score": 50,
+      "evidence": "Metadata suggests fixed beacon behavior."
+    },
+    {
+      "id": "crowded-place-encounter",
+      "family": "tracking.crowded_place_encounter",
+      "label": "Crowded-place tracker encounter",
+      "patterns": ["crowded[-_\\s]*place", "mall", "airport", "stadium", "event[-_\\s]*encounter"],
+      "priority": "INFO",
+      "score": 40,
+      "evidence": "Metadata indicates a crowded-location encounter; reduce following certainty."
+    },
+    {
+      "id": "separated-after-encounter",
+      "family": "tracking.separated_after_encounter",
+      "label": "Tracker-like device separated after encounter",
+      "patterns": ["separated[-_\\s]*after", "no[-_\\s]*longer[-_\\s]*nearby", "left[-_\\s]*behind"],
+      "priority": "INFO",
+      "score": 45,
+      "evidence": "Metadata indicates separation after encounter; reduce following certainty."
+    }
+  ]
+}

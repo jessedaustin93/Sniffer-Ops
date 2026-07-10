@@ -146,6 +146,48 @@ def test_safe_threat_level_suppresses_camera_alert_keywords():
     assert alert["level"] == "NONE"
 
 
+def test_dji_tello_metadata_is_drone_signature_not_camera():
+    signal = {
+        "name": "TELLO-EDU-42",
+        "type": "WIFI",
+        "channel": 6,
+        "signalStrength": -61,
+        "notes": "Ryze DJI Tello EDU drone",
+    }
+
+    guess = signal_signatures.classify_signal_signature(signal)
+    explanation = signal_classifier.classify_wifi(signal)
+    cue = signal_signatures.live_cue(signal)
+    alert = signal_classifier.classify_alert(
+        signal["name"], "WIFI", explanation.specific_type, "", explanation.evidence
+    )
+
+    assert guess.family == "drone"
+    assert "drone" in explanation.specific_type.lower()
+    assert cue["label"] == "Drone signal detected: nearby"
+    assert alert["level"] == "MEDIUM"
+
+
+def test_395_mhz_stays_military_airband_not_drone():
+    explanation = signal_classifier.classify_sdr(395_400_000)
+
+    assert "Military aviation UHF airband" == explanation.specific_type
+    assert "drone" not in explanation.specific_type.lower()
+    assert "drone" not in explanation.meaning.lower()
+
+
+def test_dji_operating_bands_are_drone_candidates_not_confirmed_ids():
+    tello_band = signal_classifier.classify_sdr(2_412_000_000)
+    dji_51_band = signal_classifier.classify_sdr(5_180_000_000)
+    dji_58_band = signal_classifier.classify_sdr(5_800_000_000)
+
+    assert "consumer-drone" in tello_band.specific_type
+    assert "candidate" in tello_band.specific_type
+    assert "DJI RC 2" in dji_51_band.specific_type
+    assert "candidate" in dji_51_band.next_step
+    assert "consumer-drone" in dji_58_band.specific_type
+
+
 def test_new_sdr_transport_bands_have_best_guess_labels():
     cbrs = signal_classifier.classify_sdr(3_600_000_000)
     its = signal_classifier.classify_sdr(5_900_000_000)

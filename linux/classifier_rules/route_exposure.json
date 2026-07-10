@@ -1,0 +1,24 @@
+{
+  "version": "route-exposure-rules-1.0.0",
+  "profiles": {
+    "Fastest": 0.4,
+    "Balanced": 1.0,
+    "Low Exposure": 1.5,
+    "Maximum Privacy": 2.2
+  },
+  "weights": {
+    "surveillance.flock": 4.0,
+    "surveillance.flock.fixed": 4.0,
+    "surveillance.flock.mobile": 4.2,
+    "surveillance.alpr": 4.0,
+    "surveillance.license_plate_reader.generic": 3.8,
+    "surveillance.speed_camera": 2.0,
+    "surveillance.red_light_camera": 1.8,
+    "surveillance.traffic_camera": 1.2,
+    "surveillance.camera_trailer": 2.6,
+    "surveillance.roadside_sensor_cluster": 2.2,
+    "tracking.following": 3.0,
+    "public_safety.enforcement_location": 1.4,
+    "public_safety.recurring_enforcement_location": 2.0
+  }
+}

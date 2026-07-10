@@ -146,6 +146,39 @@ _ATTACK_TOOL_TERMS = (
     r"\bbadusb\b",
 )
 
+_DRONE_VENDOR_TERMS = (
+    r"\bdji\b",
+    r"\bryze\b",
+    r"\btello\b",
+    r"\btello[-_\s]*edu\b",
+    r"\bmavic\b",
+    r"\bmini\s*[234]?\b",
+    r"\bair\s*[23]?\b",
+    r"\bavata\b",
+    r"\bphantom\b",
+    r"\binspire\b",
+    r"\bspark\b",
+    r"\bautel\b",
+    r"\bevo\s*(lite|nano|max)?\b",
+    r"\bparrot\b",
+    r"\banafi\b",
+    r"\bskydio\b",
+    r"\byuneec\b",
+)
+
+_DRONE_GENERIC_TERMS = (
+    r"\bdrone\b",
+    r"\buav\b",
+    r"\buas\b",
+    r"\bquadcopter\b",
+    r"\bfpv\b",
+    r"\bremote[-_\s]*id\b",
+    r"\bocusync\b",
+    r"\bo[234]\s*(video|transmission)?\b",
+    r"\bdji[-_\s]*rc\b",
+    r"\brc[-_\s]*2\b",
+)
+
 
 def _text(signal: dict) -> str:
     parts = [
@@ -219,6 +252,36 @@ def classify_signal_signature(signal: dict) -> SignatureGuess:
             evidence=(f"Jamming keyword: {match}",),
             alert_keyword="jamming",
             alert_label="ALERT: Jamming indicator detected",
+        )
+
+    drone_vendor = _find_any(_DRONE_VENDOR_TERMS, text)
+    drone_term = _find_any(_DRONE_GENERIC_TERMS, text)
+    if drone_vendor and drone_term:
+        return SignatureGuess(
+            family="drone",
+            label="Likely consumer drone controller or aircraft",
+            confidence="High",
+            evidence=(f"Drone vendor/model clue: {drone_vendor}", f"drone/control clue: {drone_term}"),
+            alert_keyword="drone",
+            alert_label="Drone signal detected",
+        )
+    if drone_vendor:
+        return SignatureGuess(
+            family="drone",
+            label="Possible consumer drone device",
+            confidence="Medium",
+            evidence=(f"Drone vendor/model clue: {drone_vendor}",),
+            alert_keyword="drone",
+            alert_label="Drone-capable device detected",
+        )
+    if drone_term:
+        return SignatureGuess(
+            family="drone",
+            label="Possible drone controller, aircraft, or Remote ID clue",
+            confidence="Medium",
+            evidence=(f"Drone/control clue: {drone_term}",),
+            alert_keyword="drone",
+            alert_label="Drone signal detected",
         )
 
     match = _find_any(_FLOCK_TERMS, text)
@@ -365,6 +428,8 @@ def live_cue(signal: dict, previous_strength: object = None) -> dict:
         base = "ALERT: Flock hostile signal"
     elif guess.family == "attack":
         base = "ALERT: Attack indicator detected"
+    elif guess.family == "drone":
+        base = "Drone signal detected"
     elif guess.family == "surveillance":
         base = "ALERT: Surveillance device detected"
     elif guess.family == "camera":

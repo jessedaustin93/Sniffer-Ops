@@ -26,6 +26,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import awareness_log
 import signal_classifier
 import signal_signatures
+import inference_engine
 import ownership
 import db
 import map_placement
@@ -444,6 +445,7 @@ def _on_wifi(signals: list[dict]) -> None:
             s["threatLevel"] = "SUSPICIOUS" if signature.family == "surveillance" else "UNKNOWN"
         ownership.apply_trust(s)
         db.write_detection(s, NODE_ID)
+        inference_engine.recalculate_profile(db.signal_profile_id(s))
     _submit(signals, "WIFI")
     _scan_stats["wifi"] += len(signals)
 
@@ -470,6 +472,7 @@ def _on_bt(devices: list[dict]) -> None:
             d["threatLevel"] = "SUSPICIOUS" if signature.family == "surveillance" else "UNKNOWN"
         ownership.apply_trust(d)
         db.write_detection(d, NODE_ID)
+        inference_engine.recalculate_profile(db.signal_profile_id(d))
     _submit(devices, "BLUETOOTH")
     _scan_stats["bt"] += len(devices)
 
@@ -490,6 +493,7 @@ def _on_sdr(signals: list[dict]) -> None:
         if alert["level"] != "NONE":
             s["threatLevel"] = _alert_level_to_threat(alert["level"])
         db.write_detection(s, NODE_ID)
+        inference_engine.recalculate_profile(db.signal_profile_id(s))
     _submit(signals, "RTL_SDR")
     _scan_stats["sdr"] += len(signals)
 
@@ -769,6 +773,13 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
         tv.set_content(self._stack)
 
         self._build_dashboard()
+        self._finding_lists: list[tuple[str, Gtk.ListBox]] = []
+        self._build_findings_page("Priority Alerts", "priority_alerts", "dialog-warning-symbolic", None)
+        self._build_findings_page("Surveillance", "surveillance", "camera-photo-symbolic", "surveillance.")
+        self._build_findings_page("Personal Tracking", "tracking", "bluetooth-symbolic", "tracking.")
+        self._build_findings_page("Network Integrity", "network_integrity", "network-wireless-symbolic", "network.")
+        self._build_findings_page("Cellular", "cellular", "phone-symbolic", "cellular.")
+        self._build_findings_page("Entities & Zones", "entities_zones", "find-location-symbolic", ("public_safety.", "surveillance.", "tracking."))
         self._build_signal_page("WIFI",      "wifi-symbolic",
                                 "network-wireless-symbolic", "WIFI")
         self._build_signal_page("BLUETOOTH", "bluetooth-symbolic",
@@ -958,6 +969,181 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
         # Store reference by filter_type so _refresh_table can update it
         attr = f"_store_{filter_type.lower()}"
         setattr(self, attr, store)
+
+    # ── Structured findings pages ────────────────────────────────────────────
+
+    def _build_findings_page(self, title: str, name: str, icon: str, family_filter) -> None:
+        scroll = Gtk.ScrolledWindow(vexpand=True)
+        self._stack.add_titled_with_icon(scroll, name, title, icon)
+
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        outer.set_margin_start(12); outer.set_margin_end(12)
+        outer.set_margin_top(12); outer.set_margin_bottom(12)
+        scroll.set_child(outer)
+
+        hdr = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        label = _label(title.upper(), "section-label")
+        label.set_hexpand(True)
+        hdr.append(label)
+        refresh = Gtk.Button(label="Recalculate")
+        refresh.add_css_class("btn-secondary")
+        refresh.connect("clicked", lambda _b: self._recalculate_findings())
+        hdr.append(refresh)
+        outer.append(hdr)
+
+        listing = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        listing.add_css_class("boxed-list")
+        outer.append(listing)
+        self._finding_lists.append((family_filter, listing))
+
+    def _recalculate_findings(self) -> None:
+        findings = inference_engine.recalculate_all()
+        self._toast.add_toast(Adw.Toast(title=f"Recalculated {len(findings)} findings", timeout=2))
+        self._refresh_findings()
+
+    def _refresh_findings(self) -> None:
+        if not hasattr(self, "_finding_lists"):
+            return
+        findings = awareness_log.get_priority_findings()
+        for family_filter, listing in self._finding_lists:
+            while child := listing.get_first_child():
+                listing.remove(child)
+            filtered = []
+            for finding in findings:
+                family = finding.get("Family", "")
+                if family_filter is None:
+                    filtered.append(finding)
+                elif isinstance(family_filter, tuple):
+                    if family.startswith(family_filter):
+                        filtered.append(finding)
+                elif family.startswith(family_filter):
+                    filtered.append(finding)
+            if not filtered:
+                row = Adw.ActionRow(title="No findings", subtitle="No current structured findings for this lens.")
+                listing.append(row)
+                continue
+            for finding in filtered[:120]:
+                listing.append(self._finding_row(finding))
+
+    def _finding_row(self, finding: dict) -> Gtk.ListBoxRow:
+        row = Gtk.ListBoxRow()
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.set_margin_start(10); box.set_margin_end(10)
+        box.set_margin_top(8); box.set_margin_bottom(8)
+        row.set_child(box)
+
+        title = finding.get("Label", "")
+        family = finding.get("Family", "")
+        summary = (
+            f"{family} | priority {finding.get('Priority')} | confidence {finding.get('Confidence')} | "
+            f"disposition {finding.get('Disposition')} | seen {finding.get('ObservationCount')}"
+        )
+        title_lbl = _label(title, "awareness-summary")
+        sub_lbl = _label(summary, "awareness-detail")
+        ev = _label(finding.get("EvidenceSummary") or "No evidence summary", "awareness-hint")
+        action = _label(f"Next: {finding.get('RecommendedAction')}", "awareness-odd")
+        for widget in (title_lbl, sub_lbl, ev, action):
+            widget.set_wrap(True)
+            box.append(widget)
+
+        btns = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        box.append(btns)
+        for state in ("Mine", "Family", "Trusted", "Watch", "Hostile", "Ignore", "False positive"):
+            btn = Gtk.Button(label=state)
+            btn.add_css_class("btn-secondary")
+            btn.connect("clicked", self._on_ownership_action, finding, state)
+            btns.append(btn)
+
+        dismiss = Gtk.Button(label="Dismiss")
+        dismiss.add_css_class("btn-secondary")
+        dismiss.connect("clicked", self._on_dismiss_finding, finding)
+        btns.append(dismiss)
+
+        confirm_tracker = Gtk.Button(label="Confirm tracker")
+        confirm_tracker.add_css_class("btn-secondary")
+        confirm_tracker.connect("clicked", self._on_manual_confirmation, finding, "confirmed_tracker")
+        btns.append(confirm_tracker)
+
+        confirm_surv = Gtk.Button(label="Confirm surveillance")
+        confirm_surv.add_css_class("btn-secondary")
+        confirm_surv.connect("clicked", self._on_manual_confirmation, finding, "confirmed_surveillance")
+        btns.append(confirm_surv)
+
+        confirm_cruiser = Gtk.Button(label="Confirm cruiser")
+        confirm_cruiser.add_css_class("btn-secondary")
+        confirm_cruiser.connect("clicked", self._on_manual_confirmation, finding, "confirmed_cruiser")
+        btns.append(confirm_cruiser)
+        return row
+
+    def _on_ownership_action(self, _btn, finding: dict, state: str) -> None:
+        related = finding.get("RelatedSignals") or []
+        for signal_id in related:
+            db.set_ownership_state(signal_id, state, reason=f"GTK action from {finding.get('Label', '')}")
+            inference_engine.recalculate_profile(signal_id)
+        self._toast.add_toast(Adw.Toast(title=f"Marked {len(related)} signal(s) {state}", timeout=2))
+        self._refresh_findings()
+        self._refresh_all()
+
+    def _on_dismiss_finding(self, _btn, finding: dict) -> None:
+        # Store dismissal without deleting evidence or raw sightings.
+        with db._connect() as conn:
+            conn.execute(
+                "UPDATE classifications SET dismissed=1 WHERE id=?",
+                (finding.get("Id"),),
+            )
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO dismissed_findings(id, target_kind, target_id, reason, dismissed_at)
+                VALUES (?, 'classification', ?, 'GTK dismissal', ?)
+                """,
+                (uuid.uuid4().hex, finding.get("Id"), int(time.time() * 1000)),
+            )
+            conn.commit()
+        self._toast.add_toast(Adw.Toast(title="Finding dismissed", timeout=2))
+        self._refresh_findings()
+
+    def _on_manual_confirmation(self, _btn, finding: dict, confirmation: str) -> None:
+        if confirmation in {"confirmed_cruiser", "confirmed_surveillance"}:
+            dialog = Adw.MessageDialog(
+                transient_for=self,
+                heading="Confirm manual label",
+                body="Manual labels can misidentify vehicles or public-safety entities. Confirm only from direct evidence.",
+            )
+            dialog.add_response("cancel", "Cancel")
+            dialog.add_response("confirm", "Confirm")
+            dialog.set_response_appearance("confirm", Adw.ResponseAppearance.DESTRUCTIVE)
+            dialog.connect("response", lambda d, r: self._finish_manual_confirmation(d, r, finding, confirmation))
+            dialog.present()
+            return
+        self._record_manual_confirmation(finding, confirmation)
+
+    def _finish_manual_confirmation(self, dialog, response: str, finding: dict, confirmation: str) -> None:
+        dialog.close()
+        if response == "confirm":
+            self._record_manual_confirmation(finding, confirmation)
+
+    def _record_manual_confirmation(self, finding: dict, confirmation: str) -> None:
+        with db._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO manual_confirmations(id, target_kind, target_id, confirmation, notes, confirmed_at)
+                VALUES (?, 'classification', ?, ?, ?, ?)
+                """,
+                (
+                    uuid.uuid4().hex,
+                    finding.get("Id"),
+                    confirmation,
+                    finding.get("Label", ""),
+                    int(time.time() * 1000),
+                ),
+            )
+            conn.execute(
+                "UPDATE classifications SET manual_status=? WHERE id=?",
+                (confirmation, finding.get("Id")),
+            )
+            conn.commit()
+        self._toast.add_toast(Adw.Toast(title="Manual confirmation recorded", timeout=2))
+        self._refresh_findings()
 
     # ── Map page ──────────────────────────────────────────────────────────────
 
@@ -1492,6 +1678,7 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
             for p in live_sdr:
                 store_sdr.append(SignalRow(_p2row(p, "RTL_SDR")))
 
+        self._refresh_findings()
         return GLib.SOURCE_REMOVE
 
     def _append_log(self, text: str) -> None:

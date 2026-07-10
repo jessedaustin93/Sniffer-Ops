@@ -1,0 +1,17 @@
+{
+  "version": "public-safety-rules-1.0.0",
+  "definitions": [
+    {"id": "work-vehicle", "family": "public_safety.work_vehicle_cluster", "label": "Work-vehicle equipment cluster", "patterns": ["work[-_\\s]*vehicle", "fleet[-_\\s]*router", "rugged[-_\\s]*laptop"], "priority": "INFO", "confidence": "LOW"},
+    {"id": "fleet-vehicle", "family": "public_safety.fleet_vehicle_cluster", "label": "Fleet vehicle equipment cluster", "patterns": ["fleet[-_\\s]*vehicle", "fleet[-_\\s]*hotspot", "vehicle[-_\\s]*router"], "priority": "INFO", "confidence": "MEDIUM"},
+    {"id": "bodycam", "family": "public_safety.bodycam_vendor_clue", "label": "Body-camera vendor clue", "patterns": ["body[-_\\s]*cam", "body[-_\\s]*camera", "axon[-_\\s]*body", "watchguard"], "priority": "INFO", "confidence": "LOW"},
+    {"id": "mdt", "family": "public_safety.mdt_vendor_clue", "label": "Mobile data terminal vendor clue", "patterns": ["mobile[-_\\s]*data[-_\\s]*terminal", "\\bmdt\\b", "getac", "panasonic[-_\\s]*toughbook", "cradlepoint"], "priority": "INFO", "confidence": "LOW"},
+    {"id": "dashcam", "family": "public_safety.dashcam_vendor_clue", "label": "Dash-camera vendor clue", "patterns": ["dash[-_\\s]*cam", "dash[-_\\s]*camera", "watchguard", "digital[-_\\s]*ally"], "priority": "INFO", "confidence": "LOW"},
+    {"id": "vehicle-alpr", "family": "public_safety.alpr_vehicle_equipment", "label": "Vehicle-mounted ALPR equipment clue", "patterns": ["vehicle[-_\\s]*alpr", "mobile[-_\\s]*alpr", "patrol[-_\\s]*lpr"], "priority": "WATCH", "confidence": "MEDIUM"},
+    {"id": "stationary-roadside", "family": "public_safety.stationary_roadside_observation", "label": "Stationary roadside public-safety observation", "patterns": ["stationary[-_\\s]*roadside", "roadside[-_\\s]*stop", "enforcement[-_\\s]*position"], "priority": "WATCH", "confidence": "MEDIUM"}
+  ],
+  "recommended_language": [
+    "Possible public-safety vehicle cluster.",
+    "Probable cruiser cluster based on repeated equipment correlation.",
+    "Recurring enforcement position ahead. Check speed and drive legally."
+  ]
+}

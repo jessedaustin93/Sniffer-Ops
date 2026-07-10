@@ -1,0 +1,17 @@
+{
+  "version": "linux-inference-1.0.0",
+  "following_thresholds": {
+    "watch": 35,
+    "possible": 55,
+    "probable": 75
+  },
+  "route_weights": {
+    "surveillance.flock": 4.0,
+    "surveillance.alpr": 4.0,
+    "surveillance.camera": 1.8,
+    "surveillance.infrastructure": 2.2,
+    "tracking.following": 3.0,
+    "public_safety.enforcement_location": 1.4,
+    "public_safety.recurring_enforcement_location": 2.0
+  }
+}

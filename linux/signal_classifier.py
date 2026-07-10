@@ -43,13 +43,13 @@ def classify_wifi(signal: dict) -> SignalExplanation:
 
     evidence_parts = [band]
     signature = signal_signatures.classify_signal_signature(signal)
-    if signature.matched and signature.family in ("attack", "surveillance", "camera", "network-camera"):
+    if signature.matched and signature.family in ("attack", "drone", "surveillance", "camera", "network-camera"):
         return SignalExplanation(
             category="WiFi",
             specific_type=signature.label,
             confidence=signature.confidence,
             evidence=_join(band, signature.evidence_text()),
-            meaning="WiFi metadata matched a passive attack, camera, ALPR, or surveillance-device signature.",
+            meaning="WiFi metadata matched a passive attack, drone, camera, ALPR, or surveillance-device signature.",
             next_step="Treat high-alert signatures as hostile until ruled out; correlate location, repeated sightings, and signal-strength changes before calling identity confirmed.",
         )
 
@@ -155,7 +155,7 @@ def classify_bluetooth(device: dict) -> SignalExplanation:
             specific_type=signature.label,
             confidence=signature.confidence,
             evidence=_join(evidence, signature.evidence_text()),
-            meaning="Bluetooth metadata matched a passive tracker, camera, or surveillance-device signature.",
+            meaning="Bluetooth metadata matched a passive tracker, drone, camera, or surveillance-device signature.",
             next_step="Use repeated sightings and RSSI changes to localize; Bluetooth names alone are not proof of ownership or intent.",
         )
 
@@ -291,18 +291,30 @@ _SDR_RULES = [
     (1710.0, 1990.0, "AWS/PCS cellular band", "Cellular digital", "Medium",
      "Cellular uplink/downlink energy depending on exact frequency.",
      "Use as a cellular presence clue; not an audio target."),
-    (2400.0, 2500.0, "2.4 GHz WiFi, Bluetooth, or ISM device", "OFDM/FHSS/digital", "Medium",
-     "Very crowded unlicensed band used by WiFi, Bluetooth, ZigBee, cameras, controllers, and IoT.",
-     "Correlate with WiFi/Bluetooth lists and movement."),
+    (2400.0, 2483.5, "2.4 GHz WiFi/Bluetooth/ISM or consumer-drone control/video candidate",
+     "OFDM/FHSS/digital", "Medium",
+     "Very crowded unlicensed band used by WiFi, Bluetooth, ZigBee, cameras, IoT, and many consumer drone control/video links including Tello-class WiFi drones.",
+     "Do not call this a drone from SDR power alone; correlate with DJI/Tello/Remote ID WiFi/BLE metadata, motion, and repeated peaks."),
+    (2483.5, 2500.0, "2.4 GHz upper ISM-adjacent data", "OFDM/FHSS/digital", "Low",
+     "Upper edge of the 2.4 GHz region; wide power alone is only a band-occupancy clue.",
+     "Correlate with WiFi/Bluetooth lists before assigning a device class."),
     (3300.0, 3500.0, "3.4 GHz CBRS / private LTE / 5G-adjacent data", "Cellular/OFDM", "Medium",
      "Private LTE, CBRS, and nearby 5G-style systems can show as wide digital energy.",
      "Correlate with cellular/router devices and local infrastructure; SDR power alone cannot identify the operator."),
     (3550.0, 3700.0, "CBRS private LTE / fixed wireless", "Cellular/OFDM", "Medium",
      "Common for private LTE, fixed wireless, and enterprise/municipal data links.",
      "Correlate with cameras, gateways, and outdoor antennas if this repeats at one location."),
-    (5150.0, 5850.0, "5 GHz WiFi or unlicensed data", "OFDM/digital", "Medium",
+    (5150.0, 5250.0, "5.1 GHz WiFi/unlicensed or DJI RC 2 control/video candidate",
+     "OFDM/digital", "Medium",
+     "This overlaps WiFi UNII-1 and DJI RC 2 5.1 GHz operating ranges where allowed.",
+     "Treat as a candidate only; do not call this a drone from SDR power alone; correlate with DJI controller/aircraft WiFi/BLE metadata and movement."),
+    (5250.0, 5725.0, "5 GHz WiFi or unlicensed data", "OFDM/digital", "Medium",
      "Common for WiFi APs, mesh nodes, cameras, and high-rate unlicensed devices.",
      "Correlate with WiFi SSIDs and channel details."),
+    (5725.0, 5850.0, "5.8 GHz WiFi/unlicensed or DJI/consumer-drone control/video candidate",
+     "OFDM/digital", "Medium",
+     "This overlaps WiFi UNII-3/ISM and common DJI/consumer-drone 5.8 GHz operating ranges.",
+     "Do not call this a drone from SDR power alone; correlate with DJI/Tello/Remote ID WiFi/BLE metadata, movement, and repeated peaks."),
     (5850.0, 5925.0, "5.9 GHz ITS / C-V2X / DSRC or upper unlicensed data", "OFDM/data", "Low",
      "Vehicle-to-infrastructure, transportation, or upper unlicensed data systems may appear here.",
      "Treat as a location clue and compare against traffic infrastructure before labeling it."),
@@ -340,7 +352,9 @@ def classify_alert(name: str, type_: str, specific_type: str,
                   r'traffic\s*reader|traffic\s*camera|speed\s*camera|red\s*light|'
                   r'surveillance|cctv|doorbell|verkada|avigilon|hikvision|dahua|'
                   r'axis|vigilant|genetec|motorola|fusus|briefcam|openpath)')
-    medium_pat = (r'(camera\s*service|rtsp|onvif|open\s*port|hidden\s*wifi|'
+    medium_pat = (r'(drone|uav|uas|quadcopter|remote[- ]?id|dji|tello|ryze|'
+                  r'mavic|avata|phantom|inspire|autel|parrot|skydio|'
+                  r'camera\s*service|rtsp|onvif|open\s*port|hidden\s*wifi|'
                   r'open\s*wifi|open\s*security|unsecured|rogue|spoof|unexpected)')
     low_pat = (r'(unknown\s*ble|beacon|tracker|airtag|tile|hidden\s*wifi|'
                r'burst|unclassified\s*rf|odd|weird)')

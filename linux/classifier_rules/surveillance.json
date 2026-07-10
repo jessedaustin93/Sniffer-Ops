@@ -1,0 +1,180 @@
+{
+  "version": "surveillance-rules-1.0.0",
+  "notes": "Passive deterministic classifier definitions. Deflock/OSM terms are evidence references only; this file does not fetch external data.",
+  "definitions": [
+    {
+      "id": "deflock-osm-flock",
+      "family": "surveillance.flock",
+      "label": "Flock Safety ALPR reference",
+      "patterns": ["deflock", "openstreetmap", "osm", "surveillance:type=alpr"],
+      "required_patterns": ["flock"],
+      "priority": "HIGH",
+      "confidence": "HIGH",
+      "policy_disposition": "HOSTILE",
+      "policy_reason": "User policy marks positively identified Flock infrastructure hostile.",
+      "score": 130,
+      "evidence": "External/reference metadata indicates Flock-associated ALPR infrastructure."
+    },
+    {
+      "id": "deflock-osm-alpr",
+      "family": "surveillance.alpr",
+      "label": "ALPR reference from public map metadata",
+      "patterns": ["deflock", "openstreetmap", "osm", "surveillance:type=alpr", "camera:type=alpr"],
+      "priority": "HIGH",
+      "confidence": "HIGH",
+      "policy_disposition": "HOSTILE",
+      "policy_reason": "User policy marks strongly matched ALPR infrastructure hostile.",
+      "score": 120,
+      "evidence": "External/reference metadata indicates ALPR infrastructure."
+    },
+    {
+      "id": "flock-fixed",
+      "family": "surveillance.flock.fixed",
+      "label": "Likely fixed Flock Safety ALPR camera",
+      "patterns": ["flock", "flock safety", "flocksafety"],
+      "required_patterns": ["fixed|pole|roadside|intersection|mounted|install"],
+      "priority": "HIGH",
+      "confidence": "HIGH",
+      "policy_disposition": "HOSTILE",
+      "policy_reason": "User policy marks positively identified Flock infrastructure hostile.",
+      "score": 115,
+      "evidence": "Flock clue plus fixed roadside placement clue."
+    },
+    {
+      "id": "flock-mobile",
+      "family": "surveillance.flock.mobile",
+      "label": "Possible mobile Flock Safety ALPR platform",
+      "patterns": ["flock", "flock safety", "flocksafety"],
+      "required_patterns": ["mobile|trailer|vehicle|portable|temporary"],
+      "priority": "HIGH",
+      "confidence": "MEDIUM",
+      "policy_disposition": "HOSTILE",
+      "policy_reason": "User policy marks strongly matched Flock infrastructure hostile.",
+      "score": 110,
+      "evidence": "Flock clue plus mobile or temporary placement clue."
+    },
+    {
+      "id": "generic-lpr",
+      "family": "surveillance.license_plate_reader.generic",
+      "label": "License plate reader infrastructure",
+      "patterns": ["alpr", "\\blpr\\b", "license[-_\\s]*plate", "plate[-_\\s]*reader", "vehicle[-_\\s]*reader"],
+      "priority": "HIGH",
+      "confidence": "HIGH",
+      "policy_disposition": "HOSTILE",
+      "policy_reason": "User policy marks strongly matched ALPR infrastructure hostile.",
+      "score": 105,
+      "evidence": "Metadata contains license-plate-reader terminology."
+    },
+    {
+      "id": "red-light-camera",
+      "family": "surveillance.red_light_camera",
+      "label": "Possible red-light camera",
+      "patterns": ["red[-_\\s]*light", "rlc", "intersection camera"],
+      "priority": "CAUTION",
+      "confidence": "MEDIUM",
+      "policy_disposition": "WATCH",
+      "score": 90,
+      "evidence": "Metadata contains red-light camera terminology."
+    },
+    {
+      "id": "speed-camera",
+      "family": "surveillance.speed_camera",
+      "label": "Possible speed camera",
+      "patterns": ["speed[-_\\s]*camera", "speedcam", "photo[-_\\s]*enforcement"],
+      "priority": "CAUTION",
+      "confidence": "MEDIUM",
+      "policy_disposition": "WATCH",
+      "score": 90,
+      "evidence": "Metadata contains speed camera terminology."
+    },
+    {
+      "id": "traffic-camera",
+      "family": "surveillance.traffic_camera",
+      "label": "Traffic camera or transportation camera",
+      "patterns": ["traffic[-_\\s]*camera", "traffic[-_\\s]*cam", "dot camera", "transportation camera"],
+      "exclude_patterns": ["license[-_\\s]*plate", "alpr", "\\blpr\\b"],
+      "priority": "WATCH",
+      "confidence": "MEDIUM",
+      "policy_disposition": "WATCH",
+      "score": 80,
+      "evidence": "Metadata contains traffic camera terminology without explicit ALPR clue."
+    },
+    {
+      "id": "camera-trailer",
+      "family": "surveillance.camera_trailer",
+      "label": "Possible mobile camera trailer",
+      "patterns": ["camera[-_\\s]*trailer", "surveillance[-_\\s]*trailer", "mobile[-_\\s]*camera", "portable[-_\\s]*camera"],
+      "priority": "CAUTION",
+      "confidence": "MEDIUM",
+      "policy_disposition": "WATCH",
+      "score": 85,
+      "evidence": "Metadata suggests a temporary or mobile camera platform."
+    },
+    {
+      "id": "roadside-sensor-cluster",
+      "family": "surveillance.roadside_sensor_cluster",
+      "label": "Roadside sensor cluster",
+      "patterns": ["roadside[-_\\s]*sensor", "sensor[-_\\s]*cluster", "intersection[-_\\s]*sensor", "vehicle[-_\\s]*detection"],
+      "priority": "WATCH",
+      "confidence": "MEDIUM",
+      "policy_disposition": "WATCH",
+      "score": 70,
+      "evidence": "Metadata suggests recurring roadside sensing equipment."
+    },
+    {
+      "id": "fusus",
+      "family": "surveillance.fusus",
+      "label": "Fusus surveillance platform clue",
+      "patterns": ["fusus"],
+      "priority": "HIGH",
+      "confidence": "MEDIUM",
+      "policy_disposition": "HOSTILE",
+      "score": 75,
+      "evidence": "Metadata contains Fusus surveillance platform clue."
+    },
+    {
+      "id": "axon",
+      "family": "surveillance.axon",
+      "label": "Axon public-safety camera platform clue",
+      "patterns": ["axon", "evidence.com", "evidence[-_\\s]*system"],
+      "priority": "WATCH",
+      "confidence": "MEDIUM",
+      "policy_disposition": "WATCH",
+      "score": 70,
+      "evidence": "Metadata contains Axon/evidence-system clue."
+    },
+    {
+      "id": "genetec",
+      "family": "surveillance.genetec",
+      "label": "Genetec surveillance platform clue",
+      "patterns": ["genetec", "autovu"],
+      "priority": "HIGH",
+      "confidence": "MEDIUM",
+      "policy_disposition": "HOSTILE",
+      "score": 78,
+      "evidence": "Metadata contains Genetec/AutoVu clue."
+    },
+    {
+      "id": "vigilant",
+      "family": "surveillance.vigilant",
+      "label": "Vigilant ALPR platform clue",
+      "patterns": ["vigilant", "vigilant solutions", "\\blearn\\b"],
+      "priority": "HIGH",
+      "confidence": "MEDIUM",
+      "policy_disposition": "HOSTILE",
+      "score": 78,
+      "evidence": "Metadata contains Vigilant ALPR platform clue."
+    },
+    {
+      "id": "motorola-solutions",
+      "family": "surveillance.motorola_solutions",
+      "label": "Motorola Solutions surveillance platform clue",
+      "patterns": ["motorola solutions", "motorola[-_\\s]*lpr", "vigilant motorola"],
+      "priority": "HIGH",
+      "confidence": "MEDIUM",
+      "policy_disposition": "HOSTILE",
+      "score": 76,
+      "evidence": "Metadata contains Motorola Solutions surveillance platform clue."
+    }
+  ]
+}

@@ -18,6 +18,7 @@ from urllib.parse import urlparse
 from typing import Any
 
 import db
+import inference_engine
 import ownership
 import signal_classifier as _sc
 import signal_signatures as _sig
@@ -204,7 +205,12 @@ def _profile_class(profile: dict) -> str:
 
 def merge_snapshot(snapshot: dict) -> dict:
     """Merge a remote sync snapshot into the local DB. Returns merge stats."""
-    return db.merge_remote_snapshot(snapshot)
+    stats = db.merge_remote_snapshot(snapshot)
+    try:
+        inference_engine.recalculate_all()
+    except Exception:
+        pass
+    return stats
 
 
 def get_sync_payload() -> dict:
@@ -390,6 +396,32 @@ def get_scan_locations() -> list[dict]:
             points[loc_key]["interesting_count"] += 1
 
     return sorted(points.values(), key=lambda p: p["signal_count"], reverse=True)
+
+
+def get_priority_findings() -> list[dict]:
+    """Return structured Linux-hub findings for alert/evidence lenses."""
+    findings = db.get_classifications()
+    out = []
+    for item in findings:
+        evidence = db.get_classification_evidence(item["id"])
+        out.append({
+            "Id": item["id"],
+            "Label": item.get("label", ""),
+            "Family": item.get("family", ""),
+            "Priority": item.get("priority", ""),
+            "Confidence": item.get("confidence", ""),
+            "Disposition": item.get("policy_disposition", ""),
+            "PolicyReason": item.get("policy_reason", ""),
+            "FirstSeen": _ms_to_iso(item.get("first_seen")),
+            "LastSeen": _ms_to_iso(item.get("last_seen")),
+            "ObservationCount": item.get("observation_count", 0),
+            "SourceNodes": ", ".join(item.get("source_nodes") or []),
+            "RelatedSignals": item.get("related_signal_ids") or [],
+            "RecommendedAction": item.get("recommended_next_step", ""),
+            "EvidenceSummary": "; ".join(e.get("summary", "") for e in evidence[:3] if e.get("summary")),
+            "Evidence": evidence,
+        })
+    return out
 
 
 # ── Web dashboard helpers ────────────────────────────────────────────────────
