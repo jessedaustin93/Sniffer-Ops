@@ -11,7 +11,9 @@ data class NodeLocation(
     val longitude: Double,
     val accuracyMeters: Float,
     val provider: String,
-    val timestamp: Long
+    val timestamp: Long,
+    val speedMetersPerSecond: Float? = null,
+    val bearingDegrees: Float? = null
 )
 
 class NodeLocationProvider(private val context: Context) {
@@ -31,7 +33,9 @@ class NodeLocationProvider(private val context: Context) {
                 longitude = location.longitude,
                 accuracyMeters = location.accuracy,
                 provider = location.provider ?: "unknown",
-                timestamp = location.time
+                timestamp = location.time,
+                speedMetersPerSecond = if (location.hasSpeed()) location.speed else null,
+                bearingDegrees = if (location.hasBearing()) location.bearing else null
             )
         }
     } catch (error: SecurityException) {

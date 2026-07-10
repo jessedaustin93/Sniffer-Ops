@@ -31,11 +31,25 @@ class SignalDetectionStore(context: Context) {
                     latitude = location?.latitude,
                     longitude = location?.longitude,
                     accuracyMeters = location?.accuracyMeters,
-                    signalStrength = incoming.signalStrength
+                    signalStrength = incoming.signalStrength,
+                    movementSessionId = movementSessionId(location, now),
+                    speedMetersPerSecond = location?.speedMetersPerSecond,
+                    bearingDegrees = location?.bearingDegrees,
+                    locationProvider = location?.provider
                 )
             }
         }
         dao.storeDetectionBatch(profiles, sightings)
+    }
+
+    private fun movementSessionId(location: com.snifferops.sync.NodeLocation?, now: Long): String {
+        val bucket = now / MOVEMENT_SESSION_BUCKET_MS
+        val mobility = when {
+            (location?.speedMetersPerSecond ?: 0f) >= 1.0f -> "moving"
+            location != null -> "stationary"
+            else -> "unknown"
+        }
+        return "android-$mobility-$bucket"
     }
 
     private fun SignalDevice.mergeWith(
@@ -59,5 +73,6 @@ class SignalDetectionStore(context: Context) {
 
     private companion object {
         const val SIGHTING_INTERVAL_MS = 10_000L
+        const val MOVEMENT_SESSION_BUCKET_MS = 30 * 60 * 1000L
     }
 }

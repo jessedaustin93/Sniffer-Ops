@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Sync
@@ -43,7 +42,7 @@ fun SyncScreen(
             TopAppBar(
                 title = {
                     Text(
-                        "PC SYNC",
+                        "LINUX HUB SYNC",
                         fontFamily = FontFamily.Monospace,
                         color = syncColor,
                         letterSpacing = 2.sp
@@ -77,14 +76,14 @@ fun SyncScreen(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            Icons.Default.Computer,
+                            Icons.Default.Sync,
                             contentDescription = null,
                             tint = if (connected) RadarGreen else syncColor
                         )
                         Spacer(Modifier.width(10.dp))
                         Column {
                             Text(
-                                if (connected) "PC CONNECTED" else "PC CONNECTION",
+                                if (connected) "LINUX HUB CONNECTED" else "LINUX HUB VIA TAILSCALE",
                                 color = if (connected) RadarGreen else syncColor,
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.Bold
@@ -104,7 +103,7 @@ fun SyncScreen(
                             onValueChange = { onAwarenessEndpointChange(it, port) },
                             modifier = Modifier.weight(1f),
                             singleLine = true,
-                            label = { Text("PC Host") }
+                            label = { Text("Hub Tailscale host") }
                         )
                         OutlinedTextField(
                             value = port,
@@ -140,7 +139,7 @@ fun SyncScreen(
                         Icon(Icons.Default.Sync, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            if (syncing) "SENDING STORED HISTORY" else "SEND STORED HISTORY",
+                            if (syncing) "SENDING STORED HISTORY" else "SEND TO LINUX HUB",
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold
                         )
@@ -174,7 +173,7 @@ fun SyncScreen(
             }
 
             Text(
-                "The phone records independently. Sending copies saved sightings to Windows; compaction unlocks only after Windows confirms assimilation.",
+                "The phone records independently. Enter the Linux hub's Tailscale address locally. Compaction unlocks only after the hub confirms assimilation.",
                 color = OnSurfaceMuted,
                 fontFamily = FontFamily.Monospace,
                 fontSize = 11.sp

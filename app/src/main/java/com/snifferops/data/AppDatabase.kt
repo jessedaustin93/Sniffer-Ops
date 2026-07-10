@@ -27,7 +27,7 @@ class Converters {
     fun toThreatLevel(value: String): ThreatLevel = ThreatLevel.valueOf(value)
 }
 
-@Database(entities = [SignalDevice::class, SignalSighting::class], version = 2, exportSchema = false)
+@Database(entities = [SignalDevice::class, SignalSighting::class], version = 3, exportSchema = false)
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun signalDeviceDao(): SignalDeviceDao
@@ -75,10 +75,19 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE signal_sightings ADD COLUMN movementSessionId TEXT")
+                db.execSQL("ALTER TABLE signal_sightings ADD COLUMN speedMetersPerSecond REAL")
+                db.execSQL("ALTER TABLE signal_sightings ADD COLUMN bearingDegrees REAL")
+                db.execSQL("ALTER TABLE signal_sightings ADD COLUMN locationProvider TEXT")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 Room.databaseBuilder(context, AppDatabase::class.java, "snifferops.db")
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build()
                     .also { INSTANCE = it }
             }

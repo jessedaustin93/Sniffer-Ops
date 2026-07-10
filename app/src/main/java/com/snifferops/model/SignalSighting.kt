@@ -17,5 +17,9 @@ data class SignalSighting(
     val longitude: Double?,
     val accuracyMeters: Float?,
     val signalStrength: Int,
-    val syncedAt: Long? = null
+    val syncedAt: Long? = null,
+    val movementSessionId: String? = null,
+    val speedMetersPerSecond: Float? = null,
+    val bearingDegrees: Float? = null,
+    val locationProvider: String? = null
 )

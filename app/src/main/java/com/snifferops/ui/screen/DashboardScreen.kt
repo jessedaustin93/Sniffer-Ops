@@ -502,7 +502,7 @@ private fun ScannerGrid(state: AppState, onNavigate: (Screen) -> Unit) {
         ScannerTile("NFC", Icons.Default.Nfc, Screen.Nfc, if (state.lastNfcTag != null) 1 else 0, false, Color(0xFFEC4899)),
         ScannerTile("Cellular", Icons.Default.CellTower, Screen.Cellular, summary.cellCount, state.cellScanActive, WarningOrange),
         ScannerTile("SDR Radio", Icons.Default.Radio, Screen.Sdr, summary.sdrCount, state.sdrScanActive, Color(0xFF8B5CF6)),
-        ScannerTile("PC Sync", Icons.Default.Sync, Screen.Sync, state.awarenessCompactionReadyCount, state.awarenessSyncInProgress, Color(0xFF22D3EE)),
+        ScannerTile("Hub Sync", Icons.Default.Sync, Screen.Sync, state.awarenessCompactionReadyCount, state.awarenessSyncInProgress, Color(0xFF22D3EE)),
         ScannerTile("Alerts", Icons.Default.Warning, Screen.Alerts, alertTotal, false, AlertRed)
     )
 

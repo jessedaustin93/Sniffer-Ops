@@ -275,7 +275,7 @@ private fun AwarenessSyncPanel(
             ) {
                 Column {
                     Text(
-                        "PC AWARENESS SYNC",
+                        "LINUX HUB AWARENESS SYNC",
                         color = if (connected) RadarGreen else Color(0xFF22D3EE),
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
@@ -298,7 +298,7 @@ private fun AwarenessSyncPanel(
                     modifier = Modifier.weight(1f),
                     enabled = !enabled,
                     singleLine = true,
-                    label = { Text("PC Host") },
+                    label = { Text("Hub Tailscale host") },
                     textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 12.sp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = OnSurface,
@@ -339,7 +339,7 @@ private fun AwarenessSyncPanel(
                 Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    if (connected) "PC SYNC CONNECTED" else "CONNECT PC SYNC",
+                    if (connected) "LINUX HUB CONNECTED" else "CONNECT LINUX HUB",
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
                     fontSize = 12.sp
@@ -357,7 +357,7 @@ private fun AwarenessSyncPanel(
                 Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    if (syncing) "SENDING SAVED HISTORY" else "SEND SAVED HISTORY TO PC",
+                    if (syncing) "SENDING SAVED HISTORY" else "SEND SAVED HISTORY TO HUB",
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
                     fontSize = 12.sp

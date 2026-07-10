@@ -83,6 +83,29 @@ class BluetoothScanner(private val context: Context) {
                 } catch (_: Exception) { "Unknown BLE" }
                 val address = device.address ?: return
                 val (mfr, cls, threat) = DeviceClassifier.classifyBluetooth(name, address)
+                val record = result.scanRecord
+                val serviceUuids = record?.serviceUuids.orEmpty().joinToString(",") { it.uuid.toString() }
+                val manufacturerData = record?.manufacturerSpecificData?.let { sparse ->
+                    buildList {
+                        for (i in 0 until sparse.size()) {
+                            val key = sparse.keyAt(i)
+                            val bytes = sparse.valueAt(i)
+                            add("$key:${bytes.toHex()}")
+                        }
+                    }.joinToString(",")
+                }.orEmpty()
+                val serviceData = record?.serviceData?.entries.orEmpty().joinToString(",") { entry ->
+                    "${entry.key.uuid}:${entry.value.toHex()}"
+                }
+                val txPower = record?.txPowerLevel?.takeIf { it != Int.MIN_VALUE }
+                val notes = buildList {
+                    if (serviceUuids.isNotBlank()) add("serviceUuids=$serviceUuids")
+                    if (manufacturerData.isNotBlank()) add("manufacturerData=$manufacturerData")
+                    if (serviceData.isNotBlank()) add("serviceData=$serviceData")
+                    if (txPower != null) add("txPower=$txPower")
+                    add("connectable=${result.isConnectable}")
+                    if (record?.deviceName != null) add("advertisedName=${record.deviceName}")
+                }.joinToString("; ")
 
                 val sd = SignalDevice(
                     id = "ble_$address",
@@ -92,7 +115,8 @@ class BluetoothScanner(private val context: Context) {
                     signalStrength = result.rssi,
                     manufacturer = mfr,
                     deviceClass = cls,
-                    threatLevel = threat
+                    threatLevel = threat,
+                    notes = notes
                 )
                 trySend(listOf(sd))
             }
@@ -108,4 +132,6 @@ class BluetoothScanner(private val context: Context) {
 
         awaitClose { scanner?.stopScan(callback) }
     }
+
+    private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
 }

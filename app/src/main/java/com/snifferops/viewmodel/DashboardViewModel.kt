@@ -79,7 +79,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
     companion object {
         private const val TAG = "SnifferOpsWearSync"
-        private const val SERVER_PREFS = "snifferops_windows_server"
+        private const val SERVER_PREFS = "snifferops_endpoints"
         private const val PREF_NETWORK_HOST = "network_sdr_host"
         private const val PREF_NETWORK_PORT = "network_sdr_port"
         private const val PREF_AWARENESS_HOST = "awareness_sync_host"
@@ -118,14 +118,14 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private var persistedDevices: List<SignalDevice> = emptyList()
 
     init {
-        restoreWindowsServerSettings()
+        restoreEndpointSettings()
         loadPersistedSignals()
         startLivePresenceRefresh()
         loadCompactionState()
         checkSdrConnection()
         startSdrConnectionMonitor()
         startWearSync()
-        autoConnectWindowsServer()
+        autoConnectLinuxHub()
     }
 
     fun startAllScans() {
@@ -246,7 +246,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun startSdrScan(centerFreq: Long = 100_000_000L) {
         val current = _state.value
-        val windowsHost = current.awarenessSyncHost.ifBlank { current.networkSdrHost }
+        val windowsHost = current.networkSdrHost
         if (windowsHost.isNotBlank()) {
             startWindowsSdrDeepScan(windowsHost, current.awarenessSyncPort.toIntOrNull() ?: 8766)
             return
@@ -356,7 +356,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun setNetworkSdrEndpoint(host: String, port: String) {
         _state.update { it.copy(networkSdrHost = host, networkSdrPort = port) }
-        saveWindowsServerSettings()
+        saveEndpointSettings()
     }
 
     private fun startWindowsSdrDeepScan(host: String, port: Int) {
@@ -458,11 +458,10 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         _state.update {
             it.copy(
                 awarenessSyncHost = host,
-                awarenessSyncPort = port,
-                networkSdrHost = host
+                awarenessSyncPort = port
             )
         }
-        saveWindowsServerSettings()
+        saveEndpointSettings()
     }
 
     fun setAwarenessSyncEnabled(enabled: Boolean) {
@@ -473,10 +472,10 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 awarenessSyncStatus = if (enabled) "Manual sync ready" else "Sync off"
             )
         }
-        saveWindowsServerSettings()
+        saveEndpointSettings()
     }
 
-    fun syncSavedAwarenessToWindows() {
+    fun syncSavedAwarenessToHub() {
         triggerAwarenessSync()
     }
 
@@ -487,7 +486,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 it.copy(
                     awarenessCompactionReadyCount = 0,
                     awarenessSyncStatus = if (removed > 0) {
-                        "Compacted $removed PC-confirmed sightings; phone profiles retained"
+                        "Compacted $removed hub-confirmed sightings; phone profiles retained"
                     } else {
                         "Nothing confirmed for compaction"
                     }
@@ -498,10 +497,10 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun connectAwarenessSyncServer() {
         val current = _state.value
-        val host = current.awarenessSyncHost.ifBlank { current.networkSdrHost }
+        val host = current.awarenessSyncHost
         val port = current.awarenessSyncPort.toIntOrNull() ?: 8766
         if (host.isBlank()) {
-            _state.update { it.copy(awarenessSyncConnected = false, awarenessSyncStatus = "Enter PC host") }
+            _state.update { it.copy(awarenessSyncConnected = false, awarenessSyncStatus = "Enter Linux hub Tailscale host") }
             return
         }
 
@@ -509,7 +508,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             _state.update {
                 it.copy(
                     awarenessSyncInProgress = true,
-                    awarenessSyncStatus = "Connecting to PC..."
+                    awarenessSyncStatus = "Connecting to Linux hub..."
                 )
             }
             runCatching {
@@ -520,11 +519,11 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                         awarenessSyncConnected = ok,
                         awarenessSyncEnabled = ok || it.awarenessSyncEnabled,
                         awarenessSyncInProgress = false,
-                        awarenessSyncStatus = if (ok) "PC sync connected" else "PC sync offline"
+                        awarenessSyncStatus = if (ok) "Linux hub connected" else "Linux hub offline"
                     )
                 }
                 if (ok) {
-                    saveWindowsServerSettings()
+                    saveEndpointSettings()
                 }
             }.onFailure { error ->
                 _state.update {
@@ -553,7 +552,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 errorMessage = null
             )
         }
-        saveWindowsServerSettings()
+        saveEndpointSettings()
     }
 
     fun disconnectNetworkSdr() {
@@ -584,16 +583,16 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    private fun restoreWindowsServerSettings() {
+    private fun restoreEndpointSettings() {
         val savedNetworkHost = serverPrefs.getString(PREF_NETWORK_HOST, "").orEmpty()
         val networkPort = serverPrefs.getString(PREF_NETWORK_PORT, "1234").orEmpty().ifBlank { "1234" }
-        val awarenessHost = serverPrefs.getString(PREF_AWARENESS_HOST, "").orEmpty().ifBlank { savedNetworkHost }
+        val awarenessHost = serverPrefs.getString(PREF_AWARENESS_HOST, "").orEmpty()
         val awarenessPort = serverPrefs.getString(PREF_AWARENESS_PORT, "8766").orEmpty().ifBlank { "8766" }
         val awarenessEnabled = serverPrefs.getBoolean(PREF_AWARENESS_ENABLED, false)
 
         _state.update {
             it.copy(
-                networkSdrHost = awarenessHost,
+                networkSdrHost = savedNetworkHost,
                 networkSdrPort = networkPort,
                 awarenessSyncHost = awarenessHost,
                 awarenessSyncPort = awarenessPort,
@@ -603,7 +602,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    private fun autoConnectWindowsServer() {
+    private fun autoConnectLinuxHub() {
         val current = _state.value
         if (current.networkSdrHost.isNotBlank()) {
             connectNetworkSdr()
@@ -613,13 +612,12 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    private fun saveWindowsServerSettings() {
+    private fun saveEndpointSettings() {
         val current = _state.value
-        val pcHost = current.awarenessSyncHost.ifBlank { current.networkSdrHost }.trim()
         serverPrefs.edit()
-            .putString(PREF_NETWORK_HOST, pcHost)
+            .putString(PREF_NETWORK_HOST, current.networkSdrHost.trim())
             .putString(PREF_NETWORK_PORT, current.networkSdrPort.ifBlank { "1234" })
-            .putString(PREF_AWARENESS_HOST, pcHost)
+            .putString(PREF_AWARENESS_HOST, current.awarenessSyncHost.trim())
             .putString(PREF_AWARENESS_PORT, current.awarenessSyncPort.ifBlank { "8766" })
             .putBoolean(PREF_AWARENESS_ENABLED, current.awarenessSyncEnabled)
             .apply()
@@ -691,10 +689,10 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
     private fun triggerAwarenessSync() {
         val current = _state.value
-        val host = current.awarenessSyncHost.ifBlank { current.networkSdrHost }
+        val host = current.awarenessSyncHost
         val port = current.awarenessSyncPort.toIntOrNull() ?: 8766
         if (host.isBlank()) {
-            _state.update { it.copy(awarenessSyncConnected = false, awarenessSyncStatus = "Enter PC host") }
+            _state.update { it.copy(awarenessSyncConnected = false, awarenessSyncStatus = "Enter Linux hub Tailscale host") }
             return
         }
 
@@ -723,7 +721,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                     it.copy(
                         awarenessSyncInProgress = false,
                         awarenessCompactionReadyCount = confirmed,
-                        awarenessSyncStatus = "PC confirmed ${result.acknowledgedSightingIds.size}/${sightings.size} sightings; review then compact"
+                        awarenessSyncStatus = "Linux hub confirmed ${result.acknowledgedSightingIds.size}/${sightings.size} sightings; review then compact"
                     )
                 }
             }.onFailure { error ->
@@ -732,7 +730,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                         awarenessSyncConnected = it.awarenessSyncConnected,
                         awarenessSyncInProgress = false,
                         awarenessSyncStatus = if (error is SocketTimeoutException) {
-                            "PC is busy; saved history queued locally"
+                            "Linux hub is busy; saved history queued locally"
                         } else {
                             "Sync offline: ${error.message ?: "connection failed"}"
                         }

@@ -98,7 +98,7 @@ fun SnifferOpsNavHost(
         }
         composable(Screen.Sync.route) {
             SyncScreen(
-                host = state.awarenessSyncHost.ifBlank { state.networkSdrHost },
+                host = state.awarenessSyncHost,
                 port = state.awarenessSyncPort,
                 connected = state.awarenessSyncConnected,
                 syncing = state.awarenessSyncInProgress,
@@ -107,7 +107,7 @@ fun SnifferOpsNavHost(
                 knownSignalCount = state.awarenessSignalCount,
                 onAwarenessEndpointChange = { host, port -> viewModel.setAwarenessSyncEndpoint(host, port) },
                 onConnectAwarenessSync = { viewModel.connectAwarenessSyncServer() },
-                onSyncAwarenessNow = { viewModel.syncSavedAwarenessToWindows() },
+                onSyncAwarenessNow = { viewModel.syncSavedAwarenessToHub() },
                 onCompactAwareness = { viewModel.compactConfirmedPhoneHistory() },
                 onBack = { navController.popBackStack() }
             )

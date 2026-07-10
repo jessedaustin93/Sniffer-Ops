@@ -17,7 +17,7 @@ SnifferOps combines a simple tactical dashboard with real Android sensor APIs:
 - Samsung watch monitor status display
 - Durable on-phone sighting journal with detection-time GPS
 - Background Wi-Fi, Bluetooth, BLE, and cellular recording through a foreground service
-- Optional replication to the Windows awareness companion
+- Optional replication to the Linux T5810B awareness hub over Tailscale
 
 The app is intended for authorized security auditing, network management, and educational use on networks and devices you own or have explicit permission to inspect.
 
@@ -52,18 +52,30 @@ Each journal row records the signal ID, detection time, signal strength, and the
 
 Sightings are sampled per device to preserve route movement without recording every repeated callback.
 
-## Windows Replication And Compaction
+## Linux Hub Replication And Compaction
 
-Windows sync is optional replication, not required operation.
+Linux hub sync is optional replication, not required operation. The Android phone is the mobile detector; the Linux T5810B node is the primary awareness, persistence, classification, and correlation hub. Windows is a secondary companion and RTL-SDR host, not the hub.
 
-1. `SYNC` sends queued journal rows with their original timestamps and GPS coordinates.
-2. Windows assimilates them into its persistent awareness state and returns the exact confirmed sighting IDs.
+Do not hardcode private Tailscale IPs or MagicDNS names in source. Enter the Linux hub Tailscale address locally on the Hub Sync screen.
+
+1. `SEND TO LINUX HUB` sends queued journal rows with their original timestamps, GPS coordinates, movement-session IDs, and optional motion metadata.
+2. Linux assimilates them into its persistent SQLite/WAL awareness state and returns the exact confirmed sighting IDs.
 3. Only after that handshake does `COMPACT PHONE` become available.
-4. Compaction deletes only PC-confirmed journal rows. Compact phone profiles and the awareness copy returned by Windows remain available locally.
+4. Compaction deletes only hub-confirmed journal rows. Compact phone profiles and the awareness copy returned by Linux remain available locally.
 
 A failed, partial, or interrupted send deletes nothing. Confirmed rows also survive an app restart until the user explicitly presses `COMPACT PHONE`.
 
-PC transfer and compaction controls live on the dedicated `PC Sync` screen. The SDR screen only manages SDR connection and measured RF scans. High-rate Bluetooth callbacks are coalesced before batched Room writes while the journal keeps its 10-second per-signal sighting cadence.
+Hub transfer and compaction controls live on the dedicated Hub Sync screen. The SDR screen still manages direct USB SDR, Network SDR, and Windows/PC SDR deep scans. High-rate Bluetooth callbacks are coalesced before batched Room writes while the journal keeps its 10-second per-signal sighting cadence.
+
+Android sends schema-1-compatible sync JSON plus optional Linux-hub fields:
+
+- `protocolVersion: 2`
+- `nodeRole: mobile_detector`
+- capability list for mobile detection, detection-time GPS, movement sessions, BLE advertisement metadata, cellular baseline inputs, and schema-1 backward compatibility
+- current node location when permission allows
+- per-sighting movement session ID
+- per-sighting speed, bearing, and location provider when Android exposes them
+- BLE service UUIDs, manufacturer data, service data, Tx power, connectability, and advertised name in the notes field
 
 Scanner type screens show only recently available signals. Older Wi-Fi, Bluetooth, cellular, NFC, and SDR observations remain in durable history and on the awareness map instead of filling the live lists.
 
@@ -123,7 +135,7 @@ The phone app requests:
 - `READ_PHONE_STATE` for cellular tower info
 - `POST_NOTIFICATIONS` for alert notifications
 - `FOREGROUND_SERVICE_LOCATION` for persistent background recording
-- `INTERNET` for optional Windows replication and Network SDR mode
+- `INTERNET` for optional Linux hub replication and Network SDR mode
 - `NFC` for NFC tag detection
 - USB Host support for optional direct RTL-SDR mode
 
@@ -137,6 +149,7 @@ app/
   data/           Room profiles, append-only sighting journal, DAO, detection store
   viewmodel/      DashboardViewModel
   ui/             Compose screens and theme
+  sync/           AwarenessSyncClient and NodeLocationProvider
   service/        Foreground Wi-Fi/Bluetooth/BLE/cellular recorder
   util/           DeviceClassifier
 

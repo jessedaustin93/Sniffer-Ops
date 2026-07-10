@@ -37,10 +37,12 @@ data class WindowsSdrDeepScanResult(
 
 class AwarenessSyncClient(private val context: Context) {
 
+    private val locationProvider = NodeLocationProvider(context)
+
     suspend fun healthCheck(host: String, port: Int): Boolean =
         withContext(Dispatchers.IO) {
             val cleanHost = host.trim()
-            require(cleanHost.isNotBlank()) { "PC sync host is blank" }
+            require(cleanHost.isNotBlank()) { "Linux hub sync host is blank" }
 
             val url = URL("http://$cleanHost:$port/snifferops/health")
             val connection = (url.openConnection() as HttpURLConnection).apply {
@@ -63,7 +65,7 @@ class AwarenessSyncClient(private val context: Context) {
     ): AwarenessSyncResult =
         withContext(Dispatchers.IO) {
             val cleanHost = host.trim()
-            require(cleanHost.isNotBlank()) { "PC sync host is blank" }
+            require(cleanHost.isNotBlank()) { "Linux hub sync host is blank" }
 
             val url = URL("http://$cleanHost:$port/snifferops/sync")
             val connection = (url.openConnection() as HttpURLConnection).apply {
@@ -84,7 +86,7 @@ class AwarenessSyncClient(private val context: Context) {
                 connection.inputStream.bufferedReader().use { it.readText() }
             } else {
                 val error = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
-                throw IllegalStateException("PC sync returned HTTP $status $error")
+                throw IllegalStateException("Linux hub sync returned HTTP $status $error")
             }
 
             parseResult(JSONObject(body))
@@ -93,7 +95,7 @@ class AwarenessSyncClient(private val context: Context) {
     suspend fun fetchAwareness(host: String, port: Int): AwarenessSyncResult =
         withContext(Dispatchers.IO) {
             val cleanHost = host.trim()
-            require(cleanHost.isNotBlank()) { "PC sync host is blank" }
+            require(cleanHost.isNotBlank()) { "Linux hub sync host is blank" }
 
             val url = URL("http://$cleanHost:$port/snifferops/awareness")
             val connection = (url.openConnection() as HttpURLConnection).apply {
@@ -107,7 +109,7 @@ class AwarenessSyncClient(private val context: Context) {
                 connection.inputStream.bufferedReader().use { it.readText() }
             } else {
                 val error = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
-                throw IllegalStateException("PC awareness returned HTTP $status $error")
+                throw IllegalStateException("Linux hub awareness returned HTTP $status $error")
             }
 
             parseResult(JSONObject(body))
@@ -167,12 +169,34 @@ class AwarenessSyncClient(private val context: Context) {
 
     private fun buildSnapshot(devices: List<SignalDevice>, sightings: List<SignalSighting>): JSONObject {
         val sightingsByDevice = sightings.groupBy { it.deviceId }
+        val location = locationProvider.bestLastKnownLocation()
         return JSONObject().apply {
             put("schema", 1)
+            put("protocolVersion", 2)
             put("nodeId", nodeId())
             put("nodeName", "${Build.MANUFACTURER} ${Build.MODEL}".trim())
+            put("nodeRole", "mobile_detector")
+            put("hubPreference", "linux_primary")
             put("capturedAt", System.currentTimeMillis())
-            put("location", JSONObject())
+            put("capabilities", JSONArray().apply {
+                put("mobile_detector")
+                put("detection_time_gps")
+                put("movement_sessions")
+                put("ble_advertisement_metadata")
+                put("cellular_baseline_inputs")
+                put("schema1_backward_compatible")
+            })
+            put("location", JSONObject().apply {
+                if (location != null) {
+                    put("latitude", location.latitude)
+                    put("longitude", location.longitude)
+                    put("accuracyMeters", location.accuracyMeters.toDouble())
+                    put("provider", location.provider)
+                    put("timestamp", location.timestamp)
+                    location.speedMetersPerSecond?.let { put("speedMetersPerSecond", it.toDouble()) }
+                    location.bearingDegrees?.let { put("bearingDegrees", it.toDouble()) }
+                }
+            })
             put("completeTypes", JSONArray().apply {
                 devices.map { it.signalType.name }.distinct().forEach { put(it) }
             })
@@ -210,6 +234,11 @@ class AwarenessSyncClient(private val context: Context) {
                     put("id", sighting.id)
                     put("capturedAt", sighting.capturedAt)
                     put("signalStrength", sighting.signalStrength)
+                    put("movementSessionId", sighting.movementSessionId ?: movementSessionId(sighting))
+                    sighting.speedMetersPerSecond?.let { put("speedMetersPerSecond", it.toDouble()) }
+                    sighting.bearingDegrees?.let { put("bearingDegrees", it.toDouble()) }
+                    sighting.locationProvider?.let { put("locationProvider", it) }
+                    put("sourceNodeId", nodeId())
                     if (sighting.latitude != null && sighting.longitude != null) {
                         put("latitude", sighting.latitude)
                         put("longitude", sighting.longitude)
@@ -348,8 +377,18 @@ class AwarenessSyncClient(private val context: Context) {
         Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
             ?: "${Build.MANUFACTURER}-${Build.MODEL}"
 
-    private fun parseTime(value: String): Long =
-        runCatching { java.time.Instant.parse(value).toEpochMilli() }.getOrDefault(System.currentTimeMillis())
+    private fun movementSessionId(sighting: SignalSighting): String {
+        val bucket = sighting.capturedAt / (30 * 60 * 1000L)
+        val mobility = if ((sighting.speedMetersPerSecond ?: 0f) >= 1.0f) "moving" else "unknown"
+        return "android-$mobility-$bucket"
+    }
+
+    private fun parseTime(value: String): Long {
+        val clean = value.trim()
+        if (clean.isBlank()) return System.currentTimeMillis()
+        clean.toLongOrNull()?.let { return it }
+        return runCatching { java.time.Instant.parse(clean).toEpochMilli() }.getOrDefault(System.currentTimeMillis())
+    }
 
     private companion object {
         const val TAG = "AwarenessSyncClient"
