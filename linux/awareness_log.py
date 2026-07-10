@@ -18,6 +18,7 @@ from urllib.parse import urlparse
 from typing import Any
 
 import db
+import ownership
 import signal_classifier as _sc
 import signal_signatures as _sig
 
@@ -158,6 +159,9 @@ def _class_rank(class_name: str) -> int:
 
 def _profile_class(profile: dict) -> str:
     """Compute the display class (Alert/Watch/Noticed/One-off/Learning/Normal)."""
+    if ownership.is_trusted(profile):
+        return "Normal"
+
     # Timeline is stored as a JSON string in the db row
     raw_timeline = profile.get("timeline") or profile.get("Timeline") or []
     if isinstance(raw_timeline, str):

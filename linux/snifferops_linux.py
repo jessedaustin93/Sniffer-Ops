@@ -25,6 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import awareness_log
 import signal_classifier
 import signal_signatures
+import ownership
 import db
 from lenses.all_lenses import ALL_LENSES, route
 from scanners.wifi_scanner import WifiScanner
@@ -71,6 +72,7 @@ def _on_wifi(signals: list[dict]) -> None:
                 s.get("notes", ""),
                 f"Live cue: {cue['label']}",
             ) if part)
+        ownership.apply_trust(s)
     _submit_snapshot(signals, "WIFI")
     _scan_stats["wifi"] += len(signals)
 
@@ -87,6 +89,7 @@ def _on_bluetooth(devices: list[dict]) -> None:
                 d.get("notes", ""),
                 f"Live cue: {cue['label']}",
             ) if part)
+        ownership.apply_trust(d)
     _submit_snapshot(devices, "BLUETOOTH")
     _scan_stats["bt"] += len(devices)
 

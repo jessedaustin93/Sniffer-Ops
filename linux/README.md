@@ -138,6 +138,30 @@ After device classification, the alert engine (`signal_classifier.classify_alert
 
 Flock Safety, ALPR, license-plate readers, traffic cameras, and similar surveillance-platform clues are treated as hostile policy signals in SnifferOps and render as HIGH/Alert until ruled out. That is a field-warning policy, not proof of device identity or illegal activity.
 
+### Trusted home devices
+
+Local trusted devices can be suppressed from the hostile-alert path without
+removing their identity/classification. Put private SSIDs, camera names, MACs,
+or profile IDs in `~/.snifferops/trusted_devices.json`; do not commit that file.
+
+Example shape:
+
+```json
+{
+  "owner_label": "Jesse/home trusted device",
+  "trusted_profiles": ["WIFI|AA:BB:CC:DD:EE:FF"],
+  "trusted_addresses": ["aa:bb:cc:dd:ee:ff"],
+  "trusted_names": ["known camera setup ssid"],
+  "trusted_name_patterns": ["\\\\bhome-network-name\\\\b", "\\\\bknown-camera-brand\\\\b"]
+}
+```
+
+Trusted matches keep showing in the dashboard and sync payloads, but the
+dashboard class becomes Normal and scanner callbacks write `threatLevel: SAFE`.
+Use `python3 linux/tools/trust_home_devices.py --pattern <text>` to preview
+matching local Wi-Fi profiles and add `--apply` to write matching profile IDs to
+the local trust file.
+
 ### Live cues
 
 SnifferOps builds a short live cue for matched signatures from the passive device guess plus signal strength trend. Examples include `ALERT: Flock hostile signal: closing`, `ALERT: Deauth detected: close`, `ALERT: Evil portal detected: nearby`, `ALERT: Camera service exposed: detected`, and `Tracker/beacon detected: fading`. RSSI-based proximity is approximate; use it as a field cue, not a physical range measurement.

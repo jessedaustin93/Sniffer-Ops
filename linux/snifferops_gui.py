@@ -26,6 +26,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import awareness_log
 import signal_classifier
 import signal_signatures
+import ownership
 import db
 import map_placement
 from lenses.all_lenses import route
@@ -441,6 +442,7 @@ def _on_wifi(signals: list[dict]) -> None:
             s["threatLevel"] = _alert_level_to_threat(alert["level"])
         elif signature.alert_keyword:
             s["threatLevel"] = "SUSPICIOUS" if signature.family == "surveillance" else "UNKNOWN"
+        ownership.apply_trust(s)
         db.write_detection(s, NODE_ID)
     _submit(signals, "WIFI")
     _scan_stats["wifi"] += len(signals)
@@ -466,6 +468,7 @@ def _on_bt(devices: list[dict]) -> None:
             d["threatLevel"] = _alert_level_to_threat(alert["level"])
         elif signature.alert_keyword:
             d["threatLevel"] = "SUSPICIOUS" if signature.family == "surveillance" else "UNKNOWN"
+        ownership.apply_trust(d)
         db.write_detection(d, NODE_ID)
     _submit(devices, "BLUETOOTH")
     _scan_stats["bt"] += len(devices)

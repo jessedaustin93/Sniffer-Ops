@@ -134,6 +134,18 @@ def test_evil_portal_and_pwnagotchi_are_high_alerts():
     assert pwnagotchi_alert["level"] == "HIGH"
 
 
+def test_safe_threat_level_suppresses_camera_alert_keywords():
+    alert = signal_classifier.classify_alert(
+        "Driveway camera",
+        "WIFI",
+        "Likely surveillance camera",
+        "SAFE",
+        "trusted home device",
+    )
+
+    assert alert["level"] == "NONE"
+
+
 def test_new_sdr_transport_bands_have_best_guess_labels():
     cbrs = signal_classifier.classify_sdr(3_600_000_000)
     its = signal_classifier.classify_sdr(5_900_000_000)

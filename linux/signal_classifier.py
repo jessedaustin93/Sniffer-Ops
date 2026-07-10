@@ -320,6 +320,14 @@ def classify_alert(name: str, type_: str, specific_type: str,
     """
     text = " ".join(filter(None, [name, type_, specific_type, threat_level, notes])).lower()
     threat = threat_level.strip().upper()
+    if threat == "SAFE":
+        return {
+            "level": "NONE",
+            "evidence": "Threat level is SAFE",
+            "meaning": "Signal is locally trusted and should not trigger hostile-signal alerts.",
+            "next_step": "",
+            "notes": "",
+        }
 
     high_pat = (r'(imsi|stingray|fake\s*sim|fake\s*cell|rogue\s*cell|'
                 r'cell\s*site\s*simulator|evil\s*twin|wifi\s*pineapple|pineapple|'
