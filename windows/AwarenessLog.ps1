@@ -749,10 +749,15 @@ function Receive-AwarenessSyncRequests {
         $script:AwarenessSyncAsyncResult = $script:AwarenessSyncListener.BeginAcceptTcpClient($null, $null)
     }
     while ($script:AwarenessSyncAsyncResult -and $script:AwarenessSyncAsyncResult.IsCompleted) {
+        # Capture the completed accept and queue the next one BEFORE calling
+        # EndAcceptTcpClient. If End/processing throws (e.g. an aborted client),
+        # the stale completed result is never re-evaluated by the loop condition,
+        # so this can't spin at 100% CPU on the UI thread and hang the whole app.
+        $pending = $script:AwarenessSyncAsyncResult
+        $script:AwarenessSyncAsyncResult = $script:AwarenessSyncListener.BeginAcceptTcpClient($null, $null)
         $client = $null
         try {
-            $client = $script:AwarenessSyncListener.EndAcceptTcpClient($script:AwarenessSyncAsyncResult)
-            $script:AwarenessSyncAsyncResult = $script:AwarenessSyncListener.BeginAcceptTcpClient($null, $null)
+            $client = $script:AwarenessSyncListener.EndAcceptTcpClient($pending)
             $request = Read-AwarenessHttpRequest -Client $client
             $path = (($request.Path -split '\?')[0]).ToLowerInvariant()
             if ($request.Method -eq "GET" -and $path -eq "/snifferops/health") {
