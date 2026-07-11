@@ -66,6 +66,12 @@ Assert "payload advertises exact ack capability" (@($payload.capabilities) -cont
 Assert "movement session preserved" ($sighting.MovementSessionId -eq "android-moving-1")
 Assert "motion fields preserved" ($sighting.SpeedMetersPerSecond -eq 8.0 -and $sighting.BearingDegrees -eq 90.0)
 
+$script:AwarenessMetadataOnlyPayload = $true
+$metadataPayload = Get-AwarenessSyncPayload
+Assert "metadata-only satellite payload suppresses history" ($metadataPayload.returnedSignals -eq 0 -and @($metadataPayload.signals).Count -eq 0)
+Assert "metadata-only satellite payload advertises capability" (@($metadataPayload.capabilities) -contains "metadata_only_companion_awareness_payload")
+$script:AwarenessMetadataOnlyPayload = $false
+
 Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
 
 if ($failures -eq 0) {

@@ -513,6 +513,7 @@ $AwarenessSyncPort = 8766
 $script:BindAddress = $BindAddress
 $script:RtlTcpPort = $Port
 $script:AwarenessSyncPort = $AwarenessSyncPort
+$script:WindowsSatelliteMode = $true
 $script:RtlTcpProcess = $null
 $script:ScanTimer = $null
 $script:SweepTimer = $null
@@ -2955,15 +2956,17 @@ function Set-UiStatus {
     )
 
     $LiveText.Text = $State
-    $SdrStatusText.Text = $Message
-    $ConnectButton.Content = if ($Active) { "STOP LOCAL RTL_TCP" } else { "START LOCAL RTL_TCP" }
-    if ($Window -and $Window.Resources) {
-        $ConnectButton.Background = if ($Active) { $Window.Resources["ButtonRedBrush"] } else { $Window.Resources["ButtonBlueBrush"] }
-    } else {
-        $ConnectButton.Background = $script:BrushConverter.ConvertFromString($(if ($Active) { "#EF4444" } else { "#0EA5E9" }))
+    if ($SdrStatusText) { $SdrStatusText.Text = $Message }
+    if (-not $script:WindowsSatelliteMode -and $ConnectButton) {
+        $ConnectButton.Content = if ($Active) { "STOP LOCAL RTL_TCP" } else { "START LOCAL RTL_TCP" }
+        if ($Window -and $Window.Resources) {
+            $ConnectButton.Background = if ($Active) { $Window.Resources["ButtonRedBrush"] } else { $Window.Resources["ButtonBlueBrush"] }
+        } else {
+            $ConnectButton.Background = $script:BrushConverter.ConvertFromString($(if ($Active) { "#EF4444" } else { "#0EA5E9" }))
+        }
+        $ConnectButton.Foreground = $script:BrushConverter.ConvertFromString("White")
     }
-    $ConnectButton.Foreground = $script:BrushConverter.ConvertFromString("White")
-    $script:ScanActive = $Active
+    $script:ScanActive = ($Active -and -not $script:WindowsSatelliteMode)
 }
 
 function Show-ConnectionSettingsWindow {
@@ -2995,7 +2998,7 @@ function Show-ConnectionSettingsWindow {
     [void]$root.Children.Add($title)
 
     $summary = New-Object System.Windows.Controls.TextBlock
-    $summary.Text = "Use this host and sync port in the phone or Linux build. Tailscale is preferred when available."
+    $summary.Text = "Use this host and sync port only for satellite awareness sync. Tailscale is preferred when available. RTL-SDR scanning belongs on the Linux hub."
     $summary.Foreground = $script:BrushConverter.ConvertFromString("#9CA3AF")
     $summary.TextWrapping = "Wrap"
     $summary.FontSize = 12
@@ -3039,8 +3042,7 @@ function Show-ConnectionSettingsWindow {
     }
 
     $bindBox = Add-ConnectionInput -Label "Listen/bind address (0.0.0.0 accepts LAN + Tailscale)" -Value $script:BindAddress
-    $syncPortBox = Add-ConnectionInput -Label "PC sync/deep-scan port" -Value ([string]$script:AwarenessSyncPort)
-    $rtlPortBox = Add-ConnectionInput -Label "RTL_TCP port" -Value ([string]$script:RtlTcpPort)
+    $syncPortBox = Add-ConnectionInput -Label "Satellite awareness sync port" -Value ([string]$script:AwarenessSyncPort)
 
     $status = New-Object System.Windows.Controls.TextBlock
     $status.Text = "Ready"
@@ -3076,21 +3078,14 @@ function Show-ConnectionSettingsWindow {
 
     $saveButton.Add_Click({
         $newSyncPort = 0
-        $newRtlPort = 0
         if (-not [int]::TryParse($syncPortBox.Text, [ref]$newSyncPort) -or $newSyncPort -lt 1 -or $newSyncPort -gt 65535) {
             $status.Text = "Invalid sync port."
-            $status.Foreground = $script:BrushConverter.ConvertFromString("#EF4444")
-            return
-        }
-        if (-not [int]::TryParse($rtlPortBox.Text, [ref]$newRtlPort) -or $newRtlPort -lt 1 -or $newRtlPort -gt 65535) {
-            $status.Text = "Invalid RTL_TCP port."
             $status.Foreground = $script:BrushConverter.ConvertFromString("#EF4444")
             return
         }
 
         $script:BindAddress = if ([string]::IsNullOrWhiteSpace($bindBox.Text)) { "0.0.0.0" } else { $bindBox.Text.Trim() }
         $script:AwarenessSyncPort = $newSyncPort
-        $script:RtlTcpPort = $newRtlPort
         Stop-AwarenessSyncServer
         Start-AwarenessSyncServer -BindAddress $script:BindAddress -Port $script:AwarenessSyncPort -LogPath $AppLog
         Refresh-ScannerCounts
@@ -3126,7 +3121,6 @@ function Refresh-ScannerCounts {
     [void](Sync-LocalAwarenessSnapshot)
     $wifi = Get-WifiCount
     $bt = Get-BluetoothCount
-    $running = Get-Process rtl_tcp -ErrorAction SilentlyContinue
     $sdr = @($script:SdrSignals | Where-Object { $_.Source -eq "rtl_power" }).Count
     $alertRows = @(Get-AlertDetails | Where-Object { $_.Level -ne "CLEAR" })
     $alertCountValue = $alertRows.Count
@@ -3145,19 +3139,14 @@ function Refresh-ScannerCounts {
     $AlertTileCount.Text = [string]$alertCountValue
 
     $pcHost = Get-PrimaryPcHost
-    $LocalIpText.Text = "${pcHost}:$($script:RtlTcpPort)"
-    $EndpointText.Text = "SDR ${pcHost}:$($script:RtlTcpPort)  |  SYNC ${pcHost}:$($script:AwarenessSyncPort)"
+    $LocalIpText.Text = "${pcHost}:$($script:AwarenessSyncPort)"
+    $EndpointText.Text = "SYNC ${pcHost}:$($script:AwarenessSyncPort)  |  role: secondary companion"
     if ($MainSignalGrid) {
         $MainSignalGrid.ItemsSource = @(Get-MainSignalRows)
     }
     Update-AwarenessMapPanel
 
-    if ($running) {
-        $hitText = if ($sdr -gt 0) { " - $sdr measured RF peak(s)" } else { " - no measured peaks yet" }
-        Set-UiStatus "LIVE" "Network SDR: rtl_tcp on ${pcHost}:$($script:RtlTcpPort)$hitText" $true
-    } else {
-        Set-UiStatus "IDLE" (Get-RtlStatusText) $false
-    }
+    Set-UiStatus "SYNC" "Windows satellite node listening on ${pcHost}:$($script:AwarenessSyncPort)" $false
 }
 
 function Start-RtlTcpServer {
@@ -3539,21 +3528,21 @@ function Test-RtlSdrDongle {
                             <Image x:Name="StatusIconImage" Width="34" Height="34"/>
                         </Border>
                         <StackPanel Grid.Column="1" Margin="10,0,0,0">
-                            <TextBlock x:Name="SdrStatusText" Text="RTL-SDR READY" Foreground="#21F982"
+                            <TextBlock x:Name="SdrStatusText" Text="WINDOWS SATELLITE NODE" Foreground="#21F982"
                                        FontFamily="Consolas" FontWeight="Bold" FontSize="14"/>
-                            <TextBlock Text="Start the Windows RTL server when the Android app needs RTL data. The endpoint below is what the phone connects to."
+                            <TextBlock Text="Receives and displays awareness history. Linux T5810B owns SDR scanning, classification, and correlation."
                                        Foreground="#8390A1" TextWrapping="Wrap" FontSize="12" Margin="0,4,0,0"/>
-                            <TextBlock x:Name="EndpointText" Text="127.0.0.1:1234" Foreground="#22D3EE"
+                            <TextBlock x:Name="EndpointText" Text="SYNC 127.0.0.1:8766" Foreground="#22D3EE"
                                        FontFamily="Consolas" FontSize="17" FontWeight="Bold" Margin="0,7,0,0"/>
                         </StackPanel>
                     </Grid>
                 </Border>
 
-                <Button x:Name="ConnectButton" Content="START LOCAL RTL_TCP" Height="64"
+                <Button x:Name="ConnectButton" Content="START LOCAL RTL_TCP" Height="64" Visibility="Collapsed"
                         Background="{StaticResource ButtonBlueBrush}" Foreground="White" BorderBrush="#0EA5E9"
                         FontFamily="Consolas" FontSize="18" FontWeight="Bold" Margin="0,0,0,12"/>
 
-                <Button x:Name="StartRemoteServerButton" Content="OPEN RTL SERVER SCRIPT" Height="56"
+                <Button x:Name="StartRemoteServerButton" Content="OPEN RTL SERVER SCRIPT" Height="56" Visibility="Collapsed"
                         Background="{StaticResource ButtonBlueBrush}" Foreground="White" BorderBrush="#0EA5E9"
                         FontFamily="Consolas" FontSize="17" FontWeight="Bold" Margin="0,0,0,12"/>
 
@@ -3567,15 +3556,15 @@ function Test-RtlSdrDongle {
                         <ColumnDefinition Width="12"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
-                    <Button x:Name="TestButton" Content="TEST DONGLE" Grid.Column="0" Height="42"
+                    <Button x:Name="TestButton" Content="TEST DONGLE" Grid.Column="0" Height="42" Visibility="Collapsed"
                             Background="#111827" Foreground="#E5E7EB" BorderBrush="#255866"
                             FontFamily="Consolas" FontWeight="Bold"/>
-                    <Button x:Name="OpenLogsButton" Content="OPEN LOGS" Grid.Column="2" Height="42"
+                    <Button x:Name="OpenLogsButton" Content="OPEN LOGS" Grid.Column="2" Height="42" Visibility="Collapsed"
                             Background="#111827" Foreground="#E5E7EB" BorderBrush="#255866"
                             FontFamily="Consolas" FontWeight="Bold"/>
                 </Grid>
 
-                <Button x:Name="RadioButton" Content="FM / AM RADIO TUNER" Height="48"
+                <Button x:Name="RadioButton" Content="FM / AM RADIO TUNER" Height="48" Visibility="Collapsed"
                         Background="{StaticResource ButtonGreenBrush}" Foreground="White" BorderBrush="#3B82F6"
                         FontFamily="Consolas" FontSize="15" FontWeight="Bold" Margin="0,0,0,16"/>
 
@@ -3614,8 +3603,8 @@ function Test-RtlSdrDongle {
                     <Border x:Name="SdrTile" Cursor="Hand" Background="{StaticResource PanelBrush}" BorderBrush="#255866" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,6,6,0">
                         <StackPanel>
                             <TextBlock x:Name="SdrTileCount" Text="0" Foreground="#8B5CF6" FontFamily="Consolas" FontSize="28" FontWeight="Bold"/>
-                            <TextBlock Text="SDR RADIO" Foreground="#9CA3AF" FontFamily="Consolas" FontSize="12"/>
-                            <TextBlock Tag="Condensed" x:Name="LocalIpText" Text="127.0.0.1:1234" Foreground="#6B7280" FontFamily="Consolas" FontSize="12"/>
+                            <TextBlock Text="HUB SYNC" Foreground="#9CA3AF" FontFamily="Consolas" FontSize="12"/>
+                            <TextBlock Tag="Condensed" x:Name="LocalIpText" Text="127.0.0.1:8766" Foreground="#6B7280" FontFamily="Consolas" FontSize="12"/>
                         </StackPanel>
                     </Border>
                     <Border x:Name="AlertTile" Cursor="Hand" Background="{StaticResource PanelBrush}" BorderBrush="#255866" BorderThickness="1" CornerRadius="6" Padding="12" Margin="6,6,0,0">
@@ -3707,21 +3696,23 @@ Set-SnifferOpsImageSource -TargetImage $StatusIconImage
 Apply-SnifferOpsFont -Root $Window
 Apply-SnifferOpsSpecialFonts -Root $Window
 
-$ConnectButton.Add_Click({
-    Invoke-AppAction -Context "Toggle rtl_tcp" -Action {
-        if (Get-Process rtl_tcp -ErrorAction SilentlyContinue) {
-            Stop-RtlTcpServer
-        } else {
-            Start-RtlTcpServer
+if (-not $script:WindowsSatelliteMode) {
+    $ConnectButton.Add_Click({
+        Invoke-AppAction -Context "Toggle rtl_tcp" -Action {
+            if (Get-Process rtl_tcp -ErrorAction SilentlyContinue) {
+                Stop-RtlTcpServer
+            } else {
+                Start-RtlTcpServer
+            }
         }
-    }
-})
+    })
 
-$StartRemoteServerButton.Add_Click({
-    Invoke-AppAction -Context "Start Windows RTL server" -Action {
-        Start-RemoteRtlServerFromScript
-    }
-})
+    $StartRemoteServerButton.Add_Click({
+        Invoke-AppAction -Context "Start Windows RTL server" -Action {
+            Start-RemoteRtlServerFromScript
+        }
+    })
+}
 
 $ConnectionSettingsButton.Add_Click({
     Invoke-AppAction -Context "Open PC connection settings" -Action {
@@ -3729,23 +3720,27 @@ $ConnectionSettingsButton.Add_Click({
     }
 })
 
-$TestButton.Add_Click({ Invoke-AppAction -Context "Test dongle" -Action { Test-RtlSdrDongle } })
-$RadioButton.Add_Click({ Invoke-AppAction -Context "Open radio tuner" -Action { Show-RadioTunerWindow } })
+if (-not $script:WindowsSatelliteMode) {
+    $TestButton.Add_Click({ Invoke-AppAction -Context "Test dongle" -Action { Test-RtlSdrDongle } })
+    $RadioButton.Add_Click({ Invoke-AppAction -Context "Open radio tuner" -Action { Show-RadioTunerWindow } })
+}
 $RefreshButton.Add_Click({
     Invoke-AppAction -Context "Refresh scanner counts" -Action {
         Refresh-ScannerCounts
         Add-LogLine "Refreshed local scanner counts."
     }
 })
-$OpenLogsButton.Add_Click({
-    Invoke-AppAction -Context "Open logs" -Action {
-        if (Test-Path $ErrLog) {
-            Start-Process notepad.exe $ErrLog
-        } else {
-            Add-LogLine "No rtl_tcp error log exists yet."
+if (-not $script:WindowsSatelliteMode) {
+    $OpenLogsButton.Add_Click({
+        Invoke-AppAction -Context "Open logs" -Action {
+            if (Test-Path $ErrLog) {
+                Start-Process notepad.exe $ErrLog
+            } else {
+                Add-LogLine "No rtl_tcp error log exists yet."
+            }
         }
-    }
-})
+    })
+}
 
 $WifiTile.Add_MouseLeftButtonUp({
     Invoke-AppAction -Context "Open WiFi details" -Action {
@@ -3800,16 +3795,18 @@ $MainSignalGrid.Add_MouseDoubleClick({
 })
 
 $script:ScanTimer = New-Object Windows.Threading.DispatcherTimer
-$script:ScanTimer.Interval = [TimeSpan]::FromSeconds(4)
+$script:ScanTimer.Interval = [TimeSpan]::FromSeconds(30)
 $script:ScanTimer.Add_Tick({
-    Invoke-AppAction -Context "Auto refresh" -Action {
-        [void](Invoke-PendingAwarenessSdrDeepScan -LogPath $AppLog)
+    if (-not $script:WindowsSatelliteMode) {
+        Invoke-AppAction -Context "Auto refresh" -Action {
+            [void](Invoke-PendingAwarenessSdrDeepScan -LogPath $AppLog)
+        }
     }
 })
 $script:ScanTimer.Start()
 
 $script:SyncTimer = New-Object Windows.Threading.DispatcherTimer
-$script:SyncTimer.Interval = [TimeSpan]::FromMilliseconds(250)
+$script:SyncTimer.Interval = [TimeSpan]::FromSeconds(1)
 $script:SyncTimer.Add_Tick({
     Invoke-AppAction -Context "Awareness sync pump" -Action {
         [void](Receive-AwarenessSyncRequests -LogPath $AppLog)
@@ -3817,15 +3814,17 @@ $script:SyncTimer.Add_Tick({
 })
 $script:SyncTimer.Start()
 
-$script:SweepTimer = New-Object Windows.Threading.DispatcherTimer
-$script:SweepTimer.Interval = [TimeSpan]::FromMilliseconds(40)
-$script:SweepTimer.Add_Tick({
-    if ($script:ScanActive) {
-        $script:SweepAngle = ($script:SweepAngle + 4) % 360
-        $SweepRotate.Angle = $script:SweepAngle
-    }
-})
-$script:SweepTimer.Start()
+if (-not $script:WindowsSatelliteMode) {
+    $script:SweepTimer = New-Object Windows.Threading.DispatcherTimer
+    $script:SweepTimer.Interval = [TimeSpan]::FromMilliseconds(40)
+    $script:SweepTimer.Add_Tick({
+        if ($script:ScanActive) {
+            $script:SweepAngle = ($script:SweepAngle + 4) % 360
+            $SweepRotate.Angle = $script:SweepAngle
+        }
+    })
+    $script:SweepTimer.Start()
+}
 
 $Window.Add_Closed({
     if ($script:ScanTimer) { $script:ScanTimer.Stop() }
@@ -3843,7 +3842,7 @@ Invoke-AppAction -Context "Startup refresh" -Action {
         Add-LogLine "Awareness sync unavailable: $($_.Exception.Message)"
     }
     Add-LogLine "SnifferOps Windows ready."
-    Add-LogLine "Click START WINDOWS RTL SERVER when the Android app needs RTL data."
+    Add-LogLine "Windows is configured as a secondary companion. Linux T5810B owns SDR scanning and hub analysis."
 }
 
 if ($SmokeTest) {

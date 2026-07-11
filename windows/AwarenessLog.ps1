@@ -3,6 +3,7 @@
 $script:AwarenessLogPath = $null
 $script:AwarenessSyncListener = $null
 $script:AwarenessSyncAsyncResult = $null
+$script:AwarenessMetadataOnlyPayload = $false
 $script:AwarenessSdrDeepScan = [ordered]@{
     Id = ""
     State = "idle"
@@ -521,10 +522,50 @@ function Get-AwarenessRows {
 }
 
 function Get-AwarenessSyncPayload {
+    param(
+        [int] $MaxSignals = 300,
+        [int] $MaxSightingsPerSignal = 24,
+        [int] $MaxTimelineEventsPerSignal = 6
+    )
+
+    if ($script:AwarenessMetadataOnlyPayload) {
+        $updatedAt = (Get-Date).ToUniversalTime().ToString("o")
+        if ($script:AwarenessLogPath -and (Test-Path -LiteralPath $script:AwarenessLogPath)) {
+            try {
+                $updatedAt = (Get-Item -LiteralPath $script:AwarenessLogPath).LastWriteTimeUtc.ToString("o")
+            } catch {}
+        }
+        return [ordered]@{
+            schema = 1
+            protocolVersion = 2
+            nodeId = "windows-$env:COMPUTERNAME"
+            nodeName = $env:COMPUTERNAME
+            nodeRole = "secondary_companion"
+            hubPreference = "linux_primary"
+            capabilities = @(
+                "secondary_companion",
+                "awareness_sync_schema1",
+                "exact_sighting_acknowledgement",
+                "metadata_only_companion_awareness_payload"
+            )
+            updatedAt = $updatedAt
+            totalSignals = $null
+            returnedSignals = 0
+            payloadTruncated = $true
+            signals = @()
+        }
+    }
+
     $state = Read-AwarenessState
-    $signals = @($state.Signals.GetEnumerator() | ForEach-Object {
+    $allProfiles = @($state.Signals.GetEnumerator() | Sort-Object -Property @{ Expression = { $_.Value.LastSeen }; Descending = $true })
+    $selectedProfiles = if ($MaxSignals -gt 0) { @($allProfiles | Select-Object -First $MaxSignals) } else { $allProfiles }
+    $signals = @($selectedProfiles | ForEach-Object {
         $signal = $_.Value
-        $sightings = @($signal.Sightings | ForEach-Object {
+        $selectedSightings = @($signal.Sightings)
+        if ($MaxSightingsPerSignal -gt 0) {
+            $selectedSightings = @($selectedSightings | Select-Object -Last $MaxSightingsPerSignal)
+        }
+        $sightings = @($selectedSightings | ForEach-Object {
             $capturedAt = 0L
             if ($_.At) {
                 try {
@@ -579,7 +620,7 @@ function Get-AwarenessSyncPayload {
             sightings = $sightings
             latestEvent = if (@($signal.Timeline).Count -gt 0) { @($signal.Timeline)[-1].Summary } else { "" }
             timelineCount = @($signal.Timeline).Count
-            timeline = @($signal.Timeline | Select-Object -Last 12)
+            timeline = @($signal.Timeline | Select-Object -Last $MaxTimelineEventsPerSignal)
         }
     })
 
@@ -592,12 +633,14 @@ function Get-AwarenessSyncPayload {
         hubPreference = "linux_primary"
         capabilities = @(
             "secondary_companion",
-            "rtl_sdr_host",
             "awareness_sync_schema1",
-            "exact_sighting_acknowledgement"
+            "exact_sighting_acknowledgement",
+            "bounded_companion_awareness_payload"
         )
         updatedAt = $state.UpdatedAt
-        totalSignals = $signals.Count
+        totalSignals = $allProfiles.Count
+        returnedSignals = $signals.Count
+        payloadTruncated = ($signals.Count -lt $allProfiles.Count)
         signals = $signals
     }
 }
@@ -741,14 +784,17 @@ function Stop-AwarenessSyncServer {
 }
 
 function Receive-AwarenessSyncRequests {
-    param([string] $LogPath)
+    param(
+        [string] $LogPath,
+        [int] $MaxRequests = 20
+    )
 
     if (-not $script:AwarenessSyncListener) { return 0 }
     $handled = 0
     if (-not $script:AwarenessSyncAsyncResult) {
         $script:AwarenessSyncAsyncResult = $script:AwarenessSyncListener.BeginAcceptTcpClient($null, $null)
     }
-    while ($script:AwarenessSyncAsyncResult -and $script:AwarenessSyncAsyncResult.IsCompleted) {
+    while ($script:AwarenessSyncAsyncResult -and $script:AwarenessSyncAsyncResult.IsCompleted -and $handled -lt $MaxRequests) {
         # Capture the completed accept and queue the next one BEFORE calling
         # EndAcceptTcpClient. If End/processing throws (e.g. an aborted client),
         # the stale completed result is never re-evaluated by the loop condition,
@@ -766,16 +812,29 @@ function Receive-AwarenessSyncRequests {
                 continue
             }
             if ($request.Method -eq "GET" -and $path -eq "/snifferops/awareness") {
-                Send-AwarenessTcpJsonResponse -Client $client -Body (Get-AwarenessSyncPayload)
+                Send-AwarenessTcpJsonResponse -Client $client -Body (Get-AwarenessSyncPayload -MaxSignals 250 -MaxSightingsPerSignal 12 -MaxTimelineEventsPerSignal 4)
                 $handled++
                 continue
             }
             if ($request.Method -eq "POST" -and $path -eq "/snifferops/sync") {
                 $snapshot = $request.Body | ConvertFrom-Json
-                $merge = Merge-AwarenessSnapshot -Snapshot $snapshot
-                $payload = Get-AwarenessSyncPayload
-                $payload["merged"] = $merge.Merged
-                $payload["acknowledgedSightingIds"] = @($merge.AcknowledgedSightingIds)
+                if ($script:AwarenessMetadataOnlyPayload) {
+                    $acknowledged = @()
+                    foreach ($signal in @($snapshot.signals)) {
+                        foreach ($sighting in @($signal.sightings)) {
+                            if ($sighting.id) { $acknowledged += [string]$sighting.id }
+                        }
+                    }
+                    $payload = Get-AwarenessSyncPayload
+                    $payload["merged"] = 0
+                    $payload["acknowledgedSightingIds"] = @($acknowledged | Select-Object -Unique)
+                    $payload["satelliteAcceptedWithoutLocalMerge"] = $true
+                } else {
+                    $merge = Merge-AwarenessSnapshot -Snapshot $snapshot
+                    $payload = Get-AwarenessSyncPayload -MaxSignals 100 -MaxSightingsPerSignal 8 -MaxTimelineEventsPerSignal 3
+                    $payload["merged"] = $merge.Merged
+                    $payload["acknowledgedSightingIds"] = @($merge.AcknowledgedSightingIds)
+                }
                 Send-AwarenessTcpJsonResponse -Client $client -Body $payload
                 $handled++
                 continue
