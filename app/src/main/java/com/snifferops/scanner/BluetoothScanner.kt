@@ -11,6 +11,8 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.os.Handler
+import android.os.Looper
 import com.snifferops.model.SignalDevice
 import com.snifferops.model.SignalType
 import com.snifferops.util.DeviceClassifier
@@ -23,6 +25,7 @@ class BluetoothScanner(private val context: Context) {
 
     private val btManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
     private val btAdapter: BluetoothAdapter? = btManager.adapter
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     fun scanClassic(): Flow<List<SignalDevice>> = callbackFlow {
         val receiver = object : BroadcastReceiver() {
@@ -53,7 +56,9 @@ class BluetoothScanner(private val context: Context) {
                         trySend(listOf(sd))
                     }
                     BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
-                        btAdapter?.startDiscovery()
+                        mainHandler.postDelayed({
+                            runCatching { btAdapter?.startDiscovery() }
+                        }, CLASSIC_DISCOVERY_RESTART_DELAY_MS)
                     }
                 }
             }
@@ -67,6 +72,7 @@ class BluetoothScanner(private val context: Context) {
         btAdapter?.startDiscovery()
 
         awaitClose {
+            mainHandler.removeCallbacksAndMessages(null)
             btAdapter?.cancelDiscovery()
             context.unregisterReceiver(receiver)
         }
@@ -125,7 +131,7 @@ class BluetoothScanner(private val context: Context) {
         }
 
         val settings = ScanSettings.Builder()
-            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+            .setScanMode(ScanSettings.SCAN_MODE_BALANCED)
             .build()
 
         scanner?.startScan(null, settings, callback)
@@ -134,4 +140,8 @@ class BluetoothScanner(private val context: Context) {
     }
 
     private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
+
+    private companion object {
+        const val CLASSIC_DISCOVERY_RESTART_DELAY_MS = 10_000L
+    }
 }

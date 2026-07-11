@@ -52,9 +52,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -82,10 +80,6 @@ import com.snifferops.ui.theme.SurfaceDark
 import com.snifferops.ui.theme.TacticalBlue
 import com.snifferops.ui.theme.WarningOrange
 import com.snifferops.viewmodel.AppState
-import com.snifferops.viewmodel.compactAwarenessProfiles
-import com.snifferops.model.AwarenessProfile
-import com.snifferops.model.AwarenessStatus
-import com.snifferops.model.overview
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -204,7 +198,6 @@ fun DashboardScreen(
                             StatusRow("ALERTS", alertTotal, AlertRed)
                         }
                     }
-                    SignalMapStrip(profiles = state.compactAwarenessProfiles())
                 }
             }
 
@@ -292,140 +285,6 @@ private fun RadarScope(active: Boolean, sweepAngle: Float, modifier: Modifier = 
             fontWeight = FontWeight.Bold
         )
     }
-}
-
-@Composable
-private fun SignalMapStrip(profiles: List<AwarenessProfile>) {
-    var expanded by remember { mutableStateOf(false) }
-    val overview = profiles.overview()
-    val important = profiles
-        .filter { it.status != AwarenessStatus.NORMAL }
-        .take(4)
-        .ifEmpty { profiles.take(4) }
-
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(if (expanded) 206.dp else 86.dp)
-            .clickable { expanded = !expanded },
-        color = Color(0x66111827),
-        shape = RoundedCornerShape(8.dp),
-        border = BorderStroke(1.dp, Color(0xFF164E3A))
-    ) {
-        Column(
-            modifier = Modifier.fillMaxSize().padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                MiniAwarenessMap(profiles = profiles, modifier = Modifier.size(62.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        "AWARENESS TIMELINE",
-                        color = Color(0xFF22D3EE),
-                        fontFamily = SnifferOpsCondensedFont,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp,
-                        letterSpacing = 1.sp
-                    )
-                    Text(
-                        "${overview.total} known / ${overview.scanSpots} spots",
-                        color = OnSurface,
-                        fontFamily = SnifferOpsCondensedFont,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
-                    )
-                    Text(
-                        "Normal ${overview.normal}  Watch ${overview.watch}  One-offs ${overview.oneOff}",
-                        color = OnSurfaceMuted,
-                        fontFamily = SnifferOpsCondensedFont,
-                        fontSize = 10.sp
-                    )
-                }
-            }
-            if (expanded) {
-                important.forEach { profile ->
-                    AwarenessProfileLine(profile)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun MiniAwarenessMap(profiles: List<AwarenessProfile>, modifier: Modifier = Modifier) {
-    val gpsProfiles = profiles.filter { it.latitude != 0.0 || it.longitude != 0.0 }
-    Canvas(modifier = modifier.clip(RoundedCornerShape(6.dp)).background(Color(0xFF0B1120))) {
-        val grid = Color(0xFF143B46)
-        drawLine(grid, Offset(size.width / 3f, 0f), Offset(size.width / 3f, size.height), strokeWidth = 1f)
-        drawLine(grid, Offset(size.width * 2f / 3f, 0f), Offset(size.width * 2f / 3f, size.height), strokeWidth = 1f)
-        drawLine(grid, Offset(0f, size.height / 2f), Offset(size.width, size.height / 2f), strokeWidth = 1f)
-        if (gpsProfiles.isEmpty()) {
-            drawCircle(RadarGreen.copy(alpha = 0.85f), radius = 7f, center = Offset(size.width / 2f, size.height / 2f))
-            return@Canvas
-        }
-
-        val minLat = gpsProfiles.minOf { it.latitude }
-        val maxLat = gpsProfiles.maxOf { it.latitude }.takeUnless { it == minLat } ?: (minLat + 0.001)
-        val minLon = gpsProfiles.minOf { it.longitude }
-        val maxLon = gpsProfiles.maxOf { it.longitude }.takeUnless { it == minLon } ?: (minLon + 0.001)
-        gpsProfiles.takeLast(12).forEach { profile ->
-            val x = 7f + (((profile.longitude - minLon) / (maxLon - minLon)).toFloat() * (size.width - 14f))
-            val y = 7f + (((maxLat - profile.latitude) / (maxLat - minLat)).toFloat() * (size.height - 14f))
-            val color = when (profile.status) {
-                AwarenessStatus.NORMAL, AwarenessStatus.NOTICED -> RadarGreen
-                AwarenessStatus.LEARNING -> TacticalBlue
-                AwarenessStatus.ALERT -> AlertRed
-                else -> WarningOrange
-            }
-            drawCircle(color, radius = 5f, center = Offset(x, y))
-        }
-    }
-}
-
-@Composable
-private fun AwarenessProfileLine(profile: AwarenessProfile) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        val color = when (profile.status) {
-            AwarenessStatus.NORMAL -> RadarGreen
-            AwarenessStatus.LEARNING -> TacticalBlue
-            AwarenessStatus.NOTICED -> RadarGreen
-            AwarenessStatus.ONE_OFF -> WarningOrange
-            AwarenessStatus.WATCH -> WarningOrange
-            AwarenessStatus.ALERT -> AlertRed
-        }
-        Box(Modifier.size(7.dp).clip(CircleShape).background(color))
-        Text(
-            profile.name.take(18),
-            color = OnSurface,
-            fontFamily = SnifferOpsCondensedFont,
-            fontSize = 10.sp,
-            modifier = Modifier.width(112.dp)
-        )
-        Text(
-            "${profile.status.label()}  ${profile.seenCount}x  ${profile.latestEvent.ifBlank { profile.deviceClass }}".take(58),
-            color = OnSurfaceMuted,
-            fontFamily = SnifferOpsCondensedFont,
-            fontSize = 9.sp,
-            modifier = Modifier.weight(1f)
-        )
-    }
-}
-
-private fun AwarenessStatus.label(): String = when (this) {
-    AwarenessStatus.NORMAL -> "NORMAL"
-    AwarenessStatus.LEARNING -> "LEARNING"
-    AwarenessStatus.NOTICED -> "NOTICED"
-    AwarenessStatus.ONE_OFF -> "ONE-OFF"
-    AwarenessStatus.WATCH -> "WATCH"
-    AwarenessStatus.ALERT -> "ALERT"
 }
 
 @Composable

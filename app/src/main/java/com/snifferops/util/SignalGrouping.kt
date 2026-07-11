@@ -1,6 +1,7 @@
 package com.snifferops.util
 
 import com.snifferops.model.SignalDevice
+import com.snifferops.model.ThreatLevel
 
 data class SignalDeviceGroup(
     val key: String,
@@ -20,14 +21,48 @@ fun List<SignalDevice>.groupSignalDevices(): List<SignalDeviceGroup> =
     groupBy { it.signalGroupKey() }
         .values
         .map { group ->
-            val primary = group.maxByOrNull { it.signalStrength } ?: group.first()
+            val primary = group.maxWithOrNull(
+                compareBy<SignalDevice> { it.localAlertRank() }
+                    .thenBy { it.signalStrength }
+                    .thenBy { it.lastSeen }
+            ) ?: group.first()
             SignalDeviceGroup(
                 key = primary.signalGroupKey(),
                 primary = primary,
-                devices = group.sortedByDescending { it.signalStrength }
+                devices = group.sortedForLocalDisplay()
             )
         }
-        .sortedByDescending { it.strongestSignal }
+        .sortedWith(
+            compareByDescending<SignalDeviceGroup> { it.primary.localAlertRank() }
+                .thenByDescending { it.strongestSignal }
+                .thenByDescending { it.primary.lastSeen }
+        )
+
+fun List<SignalDevice>.sortedForLocalDisplay(): List<SignalDevice> =
+    sortedWith(
+        compareByDescending<SignalDevice> { it.localAlertRank() }
+            .thenByDescending { it.signalStrength }
+            .thenByDescending { it.lastSeen }
+    )
+
+fun SignalDevice.localAlertRank(): Int {
+    val text = listOf(name, signalType.name, deviceClass, manufacturer, notes)
+        .joinToString(" ")
+        .lowercase()
+    val hostileInfrastructure = Regex("flock|alpr|lpr|license\\s*plate|plate\\s*reader|traffic\\s*reader|traffic\\s*camera|speed\\s*camera|red\\s*light")
+    val activeThreat = Regex("evil\\s*twin|pineapple|deauther|marauder|pwnagotchi|badusb|credential|password|phish|skimmer|sniffer|rogue\\s*ap")
+    val tracker = Regex("airtag|find\\s*my|smarttag|tile|chipolo|tracker|unknown\\s*ble|ble\\s*tag")
+    val surveillance = Regex("surveillance|camera|cctv|verkada|avigilon|hikvision|dahua|axis|vigilant|genetec|motorola")
+
+    return when {
+        threatLevel == ThreatLevel.ALERT || activeThreat.containsMatchIn(text) -> 400
+        hostileInfrastructure.containsMatchIn(text) -> 350
+        threatLevel == ThreatLevel.SUSPICIOUS || surveillance.containsMatchIn(text) -> 300
+        tracker.containsMatchIn(text) -> 220
+        threatLevel == ThreatLevel.UNKNOWN -> 120
+        else -> 0
+    }
+}
 
 private fun SignalDevice.signalGroupKey(): String {
     val type = deviceClass.ifBlank { signalType.name }.lowercase()

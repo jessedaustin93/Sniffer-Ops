@@ -2,22 +2,20 @@ package com.snifferops.viewmodel
 
 import android.app.Application
 import android.content.Context
-import android.content.Intent
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.core.content.ContextCompat
 import com.google.android.gms.wearable.PutDataMapRequest
 import com.google.android.gms.wearable.Wearable
 import com.snifferops.data.AppDatabase
 import com.snifferops.data.SignalDetectionStore
 import com.snifferops.model.*
 import com.snifferops.scanner.*
-import com.snifferops.service.ScannerService
 import com.snifferops.sync.AwarenessSyncClient
 import com.snifferops.util.groupSignalDevices
+import com.snifferops.util.sortedForLocalDisplay
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import java.net.SocketTimeoutException
@@ -85,7 +83,9 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         private const val PREF_AWARENESS_HOST = "awareness_sync_host"
         private const val PREF_AWARENESS_PORT = "awareness_sync_port"
         private const val PREF_AWARENESS_ENABLED = "awareness_sync_enabled"
-        private const val LIVE_REFRESH_INTERVAL_MS = 5_000L
+        private const val LIVE_REFRESH_INTERVAL_MS = 1_000L
+        private const val LIVE_STATE_LIMIT = 300
+        private const val PERSIST_BATCH_DELAY_MS = 2_000L
         private const val WIFI_LIVE_WINDOW_MS = 45_000L
         private const val BLUETOOTH_LIVE_WINDOW_MS = 20_000L
         private const val CELLULAR_LIVE_WINDOW_MS = 45_000L
@@ -115,7 +115,10 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private var sdrJob: Job? = null
     private var sdrCheckJob: Job? = null
     private var pcSdrScanJob: Job? = null
+    private var persistBatchJob: Job? = null
     private var persistedDevices: List<SignalDevice> = emptyList()
+    private val liveDevicesById = LinkedHashMap<String, SignalDevice>()
+    private val pendingPersistById = LinkedHashMap<String, SignalDevice>()
 
     init {
         restoreEndpointSettings()
@@ -129,11 +132,6 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun startAllScans() {
-        ContextCompat.startForegroundService(
-            appContext,
-            Intent(appContext, ScannerService::class.java).setAction(ScannerService.ACTION_START)
-        )
-        if (_state.value.sdrConnected) startSdrScan()
         _state.update {
             it.copy(
                 scanActive = true,
@@ -143,6 +141,11 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 cellScanActive = true
             )
         }
+        startWifiScan()
+        startBluetoothScan()
+        startBleScan()
+        startCellularScan()
+        if (_state.value.sdrConnected) startSdrScan()
     }
 
     fun stopAllScans() {
@@ -151,9 +154,6 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         bleJob?.cancel(); bleJob = null
         cellJob?.cancel(); cellJob = null
         sdrJob?.cancel(); sdrJob = null
-        appContext.startService(
-            Intent(appContext, ScannerService::class.java).setAction(ScannerService.ACTION_STOP)
-        )
         _state.update { it.copy(
             scanActive = false,
             wifiScanActive = false,
@@ -165,7 +165,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun startWifiScan() {
-        if (_state.value.scanActive) {
+        if (wifiJob?.isActive == true) {
             _state.update { it.copy(wifiScanActive = true) }
             return
         }
@@ -173,7 +173,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         _state.update { it.copy(wifiScanActive = true) }
         wifiJob = viewModelScope.launch {
             wifiScanner.scan().collect { devices ->
-                persistSignals(devices)
+                recordLiveSignals(devices)
             }
         }
     }
@@ -188,7 +188,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun startBluetoothScan() {
-        if (_state.value.scanActive) {
+        if (btJob?.isActive == true) {
             _state.update { it.copy(btScanActive = true) }
             return
         }
@@ -196,7 +196,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         _state.update { it.copy(btScanActive = true) }
         btJob = viewModelScope.launch {
             btScanner.scanClassic().collect { devices ->
-                persistSignals(devices)
+                recordLiveSignals(devices)
             }
         }
     }
@@ -207,7 +207,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun startBleScan() {
-        if (_state.value.scanActive) {
+        if (bleJob?.isActive == true) {
             _state.update { it.copy(bleScanActive = true) }
             return
         }
@@ -215,7 +215,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         _state.update { it.copy(bleScanActive = true) }
         bleJob = viewModelScope.launch {
             btScanner.scanBle().collect { devices ->
-                persistSignals(devices)
+                recordLiveSignals(devices)
             }
         }
     }
@@ -226,7 +226,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun startCellularScan() {
-        if (_state.value.scanActive) {
+        if (cellJob?.isActive == true) {
             _state.update { it.copy(cellScanActive = true) }
             return
         }
@@ -234,7 +234,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         _state.update { it.copy(cellScanActive = true) }
         cellJob = viewModelScope.launch {
             cellularScanner.scan().collect { towers ->
-                persistSignals(towers.toCellSignalDevices())
+                recordLiveSignals(towers.toCellSignalDevices())
             }
         }
     }
@@ -261,7 +261,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         _state.update { it.copy(sdrScanActive = true) }
         sdrJob = viewModelScope.launch {
             sdrScanner.sweepFrequencies().collect { signals ->
-                persistSignals(signals.toSdrSignalDevices())
+                recordLiveSignals(signals.toSdrSignalDevices())
             }
         }
     }
@@ -273,7 +273,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun onNfcTagDetected(tag: com.snifferops.model.NfcTag) {
         viewModelScope.launch {
-            persistSignals(listOf(tag.toSignalDevice()))
+            recordLiveSignals(listOf(tag.toSignalDevice()))
         }
     }
 
@@ -332,7 +332,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         sdrJob = viewModelScope.launch {
             runCatching {
                 networkSdrScanner.sweepFrequencies(current.networkSdrHost, port).collect { signals ->
-                    persistSignals(signals.toSdrSignalDevices())
+                    recordLiveSignals(signals.toSdrSignalDevices())
                     _state.update { it.copy(networkSdrConnected = true) }
                 }
             }.onFailure { error ->
@@ -437,7 +437,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         host: String,
         port: Int
     ) {
-        persistSignals(result.sdrSignals.toSdrSignalDevices())
+        recordLiveSignals(result.sdrSignals.toSdrSignalDevices())
         db.signalDeviceDao().insertAll(result.awareness.updatedDevices)
         _state.update {
             it.copy(
@@ -629,8 +629,8 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 .conflate()
                 .debounce(250)
                 .collect { devices ->
-                    persistedDevices = devices
-                    applyPersistedSignalsToState(devices)
+                    persistedDevices = devices.take(1_000)
+                    applyPersistedHistoryToState(devices)
                 }
         }
     }
@@ -639,7 +639,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             while (isActive) {
                 delay(LIVE_REFRESH_INTERVAL_MS)
-                applyPersistedSignalsToState(persistedDevices)
+                pruneAndPublishLiveSignals()
             }
         }
     }
@@ -651,30 +651,97 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    private suspend fun persistSignals(devices: List<SignalDevice>) {
-        detectionStore.record(devices)
+    private fun recordLiveSignals(devices: List<SignalDevice>) {
+        if (devices.isEmpty()) return
+        val now = System.currentTimeMillis()
+        val stamped = devices.map { device ->
+            device.copy(
+                firstSeen = if (device.firstSeen > 0L) device.firstSeen else now,
+                lastSeen = now
+            )
+        }
+        synchronized(liveDevicesById) {
+            stamped.forEach { liveDevicesById[it.id] = it }
+            trimLiveDeviceCacheLocked()
+        }
+        synchronized(pendingPersistById) {
+            stamped.forEach { pendingPersistById[it.id] = it }
+        }
+        publishLiveSignals(now)
+        schedulePersistFlush()
     }
 
-    private fun applyPersistedSignalsToState(devices: List<SignalDevice>) {
+    private fun applyPersistedHistoryToState(devices: List<SignalDevice>) {
         val localDevices = devices.filter { !it.id.startsWith("awareness_") }
-        val now = System.currentTimeMillis()
         _state.update {
             it.copy(
-                historyDevices = localDevices,
-                wifiDevices = localDevices.liveSince(now, WIFI_LIVE_WINDOW_MS, SignalType.WIFI),
-                bluetoothDevices = localDevices.liveSince(now, BLUETOOTH_LIVE_WINDOW_MS, SignalType.BLUETOOTH),
-                bleDevices = localDevices.liveSince(now, BLUETOOTH_LIVE_WINDOW_MS, SignalType.BLE),
+                historyDevices = localDevices.take(1_000),
+                awarenessSignalCount = devices.size,
+                alertCount = it.summary.alertCount
+            )
+        }
+    }
+
+    private fun schedulePersistFlush() {
+        if (persistBatchJob?.isActive == true) return
+        persistBatchJob = viewModelScope.launch {
+            delay(PERSIST_BATCH_DELAY_MS)
+            flushPendingPersist()
+        }
+    }
+
+    private suspend fun flushPendingPersist() {
+        val batch = synchronized(pendingPersistById) {
+            pendingPersistById.values.toList().also { pendingPersistById.clear() }
+        }
+        if (batch.isEmpty()) return
+        withContext(Dispatchers.IO) {
+            detectionStore.record(batch)
+        }
+    }
+
+    private fun pruneAndPublishLiveSignals() {
+        publishLiveSignals(System.currentTimeMillis())
+    }
+
+    private fun publishLiveSignals(now: Long) {
+        val localDevices = synchronized(liveDevicesById) {
+            liveDevicesById.entries.removeAll { (_, device) ->
+                now - device.lastSeen > maxOf(WIFI_LIVE_WINDOW_MS, BLUETOOTH_LIVE_WINDOW_MS, CELLULAR_LIVE_WINDOW_MS, SDR_LIVE_WINDOW_MS, NFC_LIVE_WINDOW_MS)
+            }
+            liveDevicesById.values.toList()
+        }
+        _state.update {
+            it.copy(
+                wifiDevices = localDevices.liveSince(now, WIFI_LIVE_WINDOW_MS, SignalType.WIFI)
+                    .sortedForLocalDisplay()
+                    .take(LIVE_STATE_LIMIT),
+                bluetoothDevices = localDevices.liveSince(now, BLUETOOTH_LIVE_WINDOW_MS, SignalType.BLUETOOTH)
+                    .sortedForLocalDisplay()
+                    .take(LIVE_STATE_LIMIT),
+                bleDevices = localDevices.liveSince(now, BLUETOOTH_LIVE_WINDOW_MS, SignalType.BLE)
+                    .sortedForLocalDisplay()
+                    .take(LIVE_STATE_LIMIT),
                 cellTowers = localDevices.liveSince(now, CELLULAR_LIVE_WINDOW_MS, SignalType.CELLULAR)
+                    .sortedForLocalDisplay()
+                    .take(LIVE_STATE_LIMIT)
                     .map { device -> device.toCellTower() },
                 sdrSignals = localDevices.liveSince(now, SDR_LIVE_WINDOW_MS, SignalType.RTL_SDR)
+                    .sortedForLocalDisplay()
+                    .take(LIVE_STATE_LIMIT)
                     .map { device -> device.toSdrSignal() },
                 lastNfcTag = localDevices
                     .liveSince(now, NFC_LIVE_WINDOW_MS, SignalType.NFC)
                     .firstOrNull()
-                    ?.toNfcTag(),
-                awarenessSignalCount = devices.size,
-                alertCount = it.summary.alertCount
+                    ?.toNfcTag()
             )
+        }
+    }
+
+    private fun trimLiveDeviceCacheLocked() {
+        while (liveDevicesById.size > LIVE_STATE_LIMIT * 5) {
+            val firstKey = liveDevicesById.keys.firstOrNull() ?: break
+            liveDevicesById.remove(firstKey)
         }
     }
 
@@ -960,6 +1027,7 @@ private fun SignalDevice.toNfcTag(): NfcTag = NfcTag(
         sdrJob?.cancel()
         sdrCheckJob?.cancel()
         pcSdrScanJob?.cancel()
+        persistBatchJob?.cancel()
     }
 }
 

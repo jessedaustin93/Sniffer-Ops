@@ -39,9 +39,14 @@ class WifiScanner(private val context: Context) {
 
         val scanJob = launch {
             trySend(readCurrentDevices())
+            var lastScanRequest = 0L
             while (true) {
-                triggerScan()
-                delay(15_000)
+                val now = System.currentTimeMillis()
+                if (now - lastScanRequest >= SCAN_REQUEST_INTERVAL_MS) {
+                    triggerScan()
+                    lastScanRequest = now
+                }
+                delay(LIVE_READ_INTERVAL_MS)
                 trySend(readCurrentDevices())
             }
         }
@@ -140,5 +145,7 @@ class WifiScanner(private val context: Context) {
 
     private companion object {
         const val TAG = "WifiScanner"
+        const val LIVE_READ_INTERVAL_MS = 2_000L
+        const val SCAN_REQUEST_INTERVAL_MS = 10_000L
     }
 }
