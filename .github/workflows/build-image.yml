@@ -97,6 +97,9 @@ jobs:
         working-directory: pi-gen
         run: |
           set -euo pipefail
+          # pi-gen's docker build deploys as root; take ownership so we can write
+          # the checksum sidecar next to the image.
+          sudo chown -R "$(id -u):$(id -g)" deploy
           # pi-gen deploys a ready-to-flash *.img.xz (DEPLOY_COMPRESSION=xz).
           OUT="$(find deploy -name '*.img.xz' | head -n1)"
           test -n "$OUT"
