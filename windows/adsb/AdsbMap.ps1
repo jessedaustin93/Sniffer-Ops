@@ -21,7 +21,7 @@ function Export-AircraftJson {
         [string]   $Path
     )
     $payload = [pscustomobject][ordered]@{
-        schema    = "snifferops.adsb/1"
+        schema    = "ethrox-detect.adsb/1"
         generated = (Get-Date).ToString("o")
         count     = @($Aircraft).Count
         aircraft  = @($Aircraft)

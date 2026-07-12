@@ -806,17 +806,17 @@ function Receive-AwarenessSyncRequests {
             $client = $script:AwarenessSyncListener.EndAcceptTcpClient($pending)
             $request = Read-AwarenessHttpRequest -Client $client
             $path = (($request.Path -split '\?')[0]).ToLowerInvariant()
-            if ($request.Method -eq "GET" -and $path -eq "/snifferops/health") {
+            if ($request.Method -eq "GET" -and $path -eq "/ethrox-detect/health") {
                 Send-AwarenessTcpJsonResponse -Client $client -Body @{ ok = $true; service = "ethrox-detect-awareness" }
                 $handled++
                 continue
             }
-            if ($request.Method -eq "GET" -and $path -eq "/snifferops/awareness") {
+            if ($request.Method -eq "GET" -and $path -eq "/ethrox-detect/awareness") {
                 Send-AwarenessTcpJsonResponse -Client $client -Body (Get-AwarenessSyncPayload -MaxSignals 250 -MaxSightingsPerSignal 12 -MaxTimelineEventsPerSignal 4)
                 $handled++
                 continue
             }
-            if ($request.Method -eq "POST" -and $path -eq "/snifferops/sync") {
+            if ($request.Method -eq "POST" -and $path -eq "/ethrox-detect/sync") {
                 $snapshot = $request.Body | ConvertFrom-Json
                 if ($script:AwarenessMetadataOnlyPayload) {
                     $acknowledged = @()
@@ -839,12 +839,12 @@ function Receive-AwarenessSyncRequests {
                 $handled++
                 continue
             }
-            if ($request.Method -eq "GET" -and $path -eq "/snifferops/sdr/deep-scan/status") {
+            if ($request.Method -eq "GET" -and $path -eq "/ethrox-detect/sdr/deep-scan/status") {
                 Send-AwarenessTcpJsonResponse -Client $client -Body (Get-AwarenessSdrDeepScanPayload)
                 $handled++
                 continue
             }
-            if ($request.Method -eq "POST" -and $path -eq "/snifferops/sdr/deep-scan") {
+            if ($request.Method -eq "POST" -and $path -eq "/ethrox-detect/sdr/deep-scan") {
                 if (-not (Get-Command Start-SdrPowerScan -ErrorAction SilentlyContinue)) {
                     Send-AwarenessTcpJsonResponse -Client $client -StatusCode 503 -Body @{ error = "SDR deep scan is not available" }
                     $handled++

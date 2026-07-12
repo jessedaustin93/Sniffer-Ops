@@ -1,6 +1,7 @@
 param(
     [string] $BindAddress = "0.0.0.0",
     [int] $Port = 1234,
+    [switch] $Version,
     [switch] $SmokeTest
 )
 
@@ -11,6 +12,18 @@ $ErrorActionPreference = "Stop"
 # to a dedicated log so failures during development are easy to inspect.
 $script:RepoRootEarly = Split-Path -Parent $PSScriptRoot
 $script:CrashLog = Join-Path $script:RepoRootEarly "ethrox-detect-crash.log"
+
+function Get-EthroxDetectVersion {
+    $versionPath = Join-Path $script:RepoRootEarly "version.json"
+    $info = Get-Content -LiteralPath $versionPath -Raw | ConvertFrom-Json
+    return $info
+}
+
+if ($Version) {
+    $info = Get-EthroxDetectVersion
+    Write-Host ("{0} {1} (build {2})" -f $info.product, $info.version, $info.build)
+    return
+}
 
 function Write-CrashLog {
     param(
@@ -3102,7 +3115,7 @@ function Show-ConnectionSettingsWindow {
 
     $testButton.Add_Click({
         try {
-            $uri = "http://127.0.0.1:$($script:AwarenessSyncPort)/snifferops/health"
+            $uri = "http://127.0.0.1:$($script:AwarenessSyncPort)/ethrox-detect/health"
             $response = Invoke-WebRequest -Uri $uri -UseBasicParsing -TimeoutSec 3
             $status.Text = "Health OK: $($response.Content)"
             $status.Foreground = $script:BrushConverter.ConvertFromString("#21F982")
@@ -3837,7 +3850,7 @@ $Window.Add_Closed({
 Invoke-AppAction -Context "Startup refresh" -Action {
     try {
         Start-AwarenessSyncServer -BindAddress $script:BindAddress -Port $script:AwarenessSyncPort -LogPath $AppLog
-        Add-LogLine "Awareness sync listening at http://$(Get-PrimaryPcHost):$($script:AwarenessSyncPort)/snifferops/sync"
+        Add-LogLine "Awareness sync listening at http://$(Get-PrimaryPcHost):$($script:AwarenessSyncPort)/ethrox-detect/sync"
     } catch {
         Add-LogLine "Awareness sync unavailable: $($_.Exception.Message)"
     }
