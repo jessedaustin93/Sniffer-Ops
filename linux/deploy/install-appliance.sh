@@ -70,6 +70,9 @@ install -m 0644 "$SCRIPT_DIR/firstboot/snifferops-firstboot.service" \
     /etc/systemd/system/snifferops-firstboot.service
 systemctl daemon-reload
 
+# ── 5b. SD-card durability baseline ──────────────────────────────────────────
+apply_durability
+
 if [ "$ENABLE_SERVICE" -eq 1 ]; then
     systemctl enable snifferops.service
     systemctl enable snifferops-firstboot.service

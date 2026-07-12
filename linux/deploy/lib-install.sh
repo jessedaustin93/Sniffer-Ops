@@ -76,6 +76,22 @@ EOF
     fi
 }
 
+# ── SD-card durability ────────────────────────────────────────────────────────
+# Keep journald in RAM so normal operation doesn't write the SD card. Data lives
+# on /var/lib/snifferops (StateDirectory). This is the baseline hardening applied
+# to both hand-installs and the image; a true read-only root / A/B image is the
+# stronger follow-up (see deploy/README.md). Validated on a Pi Zero 2W: survives
+# clean reboots with a stable node id.
+apply_durability() {
+    install -d /etc/systemd/journald.conf.d
+    install -m 0644 /dev/stdin /etc/systemd/journald.conf.d/snifferops.conf <<'EOF'
+[Journal]
+Storage=volatile
+RuntimeMaxUse=32M
+EOF
+    log "journald set to volatile (SD-write reduction)"
+}
+
 # ── Spy Agency fonts (desktop only) ───────────────────────────────────────────
 # copy_fonts <repo_dir> <target_font_dir>
 copy_fonts() {

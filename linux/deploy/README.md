@@ -69,12 +69,30 @@ it into place and removes it from `/boot`.
 
 Data is isolated on `/var/lib/snifferops` and SQLite runs in WAL mode, so a
 power cut can't corrupt the OS — only the data partition is at risk, and WAL
-recovers it. journald is set to `Storage=volatile` so normal operation doesn't
-write the card. For maximum safety, mount root read-only (updates remount rw,
-apply, remount ro — or reflash).
+recovers it. The installer (`apply_durability`) sets journald to
+`Storage=volatile` so normal operation doesn't write the card.
+
+Recommended additional hand-tuning on the SD image (not yet automated):
+
+- root mount options `commit=30,noatime` (batch writes),
+- boot partition `sync` (protect the FAT boot partition).
+
+For maximum safety, mount root **read-only** (updates remount rw, apply, remount
+ro — or reflash), or move to an A/B appliance image. That read-only-root / A/B
+work is the stronger follow-up; until then stable power still matters.
 
 **HW acceptance:** pull power 20× mid-scan; the OS should boot clean every time
 and the DB should open without corruption.
+
+## Validation status
+
+Phase 1 was validated on a real **Pi Zero 2W** (Debian 13 / trixie, hand-install
+via `install-appliance.sh`): the service runs headless under the `snifferops`
+user with `ProtectSystem=strict` (no polkit relaxation needed), Wi-Fi **and**
+onboard Bluetooth scanning work, the API answers on 8766 with a stable node id,
+and the node survived repeated clean reboots with `selftest.sh` green each time.
+Still outstanding: destructive power-loss testing, read-only-root/A-B, and the
+CI-built pi-gen `.img.xz` (Bookworm target).
 
 ## Build the image (pi-gen)
 

@@ -17,17 +17,9 @@ tar -C "${SNIFFEROPS_REPO}/linux" \
 #    service user, venv, udev rule, and enables the systemd units.
 on_chroot << 'CHROOT'
 set -e
+# install-appliance.sh creates the user/venv/units and applies the journald
+# durability baseline (apply_durability in lib-install.sh).
 /opt/snifferops/deploy/install-appliance.sh
-
-# Durability (Step 4): keep journald in RAM so normal ops never write the SD
-# card. Data lives on /var/lib/snifferops (StateDirectory, writable); the
-# read-only-root overlay is applied at flash time / documented in the README.
-mkdir -p /etc/systemd/journald.conf.d
-cat > /etc/systemd/journald.conf.d/snifferops.conf << 'JCONF'
-[Journal]
-Storage=volatile
-RuntimeMaxUse=32M
-JCONF
 
 # Stamp provenance.
 install -d /etc
