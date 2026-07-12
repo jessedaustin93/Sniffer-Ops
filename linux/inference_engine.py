@@ -1,5 +1,5 @@
 """
-Linux hub inference engine for SnifferOps.
+Linux hub inference engine forEthrox Detect.
 
 This module keeps raw observations separate from inferred identity, policy
 disposition, alert priority, and supporting evidence.
@@ -167,7 +167,7 @@ class Finding:
     @property
     def id(self) -> str:
         subject = ",".join(sorted(self.related_signal_ids)) or self.related_entity_id or self.label
-        return uuid.uuid5(uuid.NAMESPACE_URL, f"snifferops:{self.family}:{subject}").hex
+        return uuid.uuid5(uuid.NAMESPACE_URL, f"ethrox-detect:{self.family}:{subject}").hex
 
     def as_record(self) -> dict:
         return {

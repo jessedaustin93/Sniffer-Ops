@@ -1,4 +1,4 @@
-# Python dependencies for SnifferOps Linux Companion
+# Python dependencies forEthrox Detect Linux Companion
 # GTK4 / Adwaita bindings come from the system package manager, not pip.
 # See install.sh for the apt-get install block.
 #

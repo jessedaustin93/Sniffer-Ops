@@ -1,5 +1,5 @@
 """
-Passive device-signature guesses for SnifferOps.
+Passive device-signature guesses forEthrox Detect.
 
 These rules do not prove device identity. They turn observed metadata
 (SSID/name/address/vendor/notes) into explicit evidence that the UI and alert

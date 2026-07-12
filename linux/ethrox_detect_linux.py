@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-SnifferOps Linux Companion
+Ethrox Detect Linux Companion
 - Awareness map consolidation hub (same HTTP API as Windows on port 8766)
 - WiFi + Bluetooth scanning
 - RTL-SDR spectrum sweeps (if hardware present)
-- Android sync (receives POST /snifferops/sync)
+- Android sync (receives POST /snifferops/sync legacy compatibility endpoint)
 - Windows / Linux peer sync (push/pull)
 - Terminal UI powered by Rich
 """
@@ -46,7 +46,7 @@ except ImportError:
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-DATA_DIR = os.path.expanduser("~/.snifferops")
+DATA_DIR = os.path.expanduser("~/.ethrox-detect")
 LOG_PATH = os.path.join(DATA_DIR, "awareness.json")
 SYNC_PORT = 8766
 NODE_ID = str(uuid.uuid4())[:16]
@@ -124,7 +124,7 @@ def _submit_snapshot(signals: list[dict], signal_type: str) -> None:
 
 def _build_table(rows: list[dict]) -> "Table":
     t = Table(
-        title="[bold green]SnifferOps Awareness Map[/bold green]",
+        title="[bold green]Ethrox Detect Awareness Map[/bold green]",
         box=box.SIMPLE_HEAVY,
         show_lines=False,
         header_style="bold cyan",
@@ -177,7 +177,7 @@ def _run_tui(sync_manager: NodeSyncManager) -> None:
             rows = awareness_log.get_rows()
             table = _build_table(rows)
             status = _build_status(sync_manager._peers)
-            panel = Panel(table, title="[bold green]SnifferOps Linux[/bold green]",
+            panel = Panel(table, title="[bold green]Ethrox Detect Linux[/bold green]",
                           subtitle=status, border_style="green")
             live.update(panel)
             time.sleep(2)
@@ -186,7 +186,7 @@ def _run_tui(sync_manager: NodeSyncManager) -> None:
 def _run_plain(sync_manager: NodeSyncManager) -> None:
     while True:
         rows = awareness_log.get_rows()
-        print(f"\n=== SnifferOps Linux ({NODE_NAME}) — port {SYNC_PORT} ===")
+        print(f"\n=== Ethrox Detect Linux ({NODE_NAME}) — port {SYNC_PORT} ===")
         print(f"WiFi:{_scan_stats['wifi']} BT:{_scan_stats['bt']} "
               f"SDR:{_scan_stats['sdr']} Syncs:{_scan_stats['syncs']}")
         print(f"{'Type':<10} {'Signal':<25} {'Addr/Freq':<20} {'Strength':<10} {'Class':<25}")
@@ -202,7 +202,7 @@ def _run_plain(sync_manager: NodeSyncManager) -> None:
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="SnifferOps Linux Companion")
+    parser = argparse.ArgumentParser(description="Ethrox Detect Linux Companion")
     parser.add_argument("--port", type=int, default=SYNC_PORT,
                         help="HTTP sync server port (default 8766)")
     parser.add_argument("--bind", default="0.0.0.0",
@@ -228,7 +228,7 @@ def main() -> None:
 
     # Start HTTP sync server (serves Android, Windows, and other Linux nodes)
     awareness_log.start_server(bind=args.bind, port=args.port)
-    print(f"[snifferops] Sync server listening on {args.bind}:{args.port}")
+    print(f"[ethrox-detect] Sync server listening on {args.bind}:{args.port}")
 
     # Build peer list from --peer args
     peers = []
@@ -246,11 +246,11 @@ def main() -> None:
     # Start scanners
     if not args.no_wifi:
         WifiScanner(_on_wifi).start()
-        print("[snifferops] WiFi scanner started")
+        print("[ethrox-detect] WiFi scanner started")
 
     if not args.no_bt:
         BluetoothScanner(_on_bluetooth).start()
-        print("[snifferops] Bluetooth scanner started")
+        print("[ethrox-detect] Bluetooth scanner started")
 
     if not args.no_sdr:
         if args.sdr_remote:
@@ -259,14 +259,14 @@ def main() -> None:
             rhost = parts[0]
             rport = int(parts[1]) if len(parts) > 1 else 1234
             NetworkRtlSdrScanner(rhost, rport, _on_sdr).start()
-            print(f"[snifferops] RTL-SDR remote scanner → {rhost}:{rport}")
+            print(f"[ethrox-detect] RTL-SDR remote scanner → {rhost}:{rport}")
         else:
             from scanners.rtl_sdr_scanner import RtlSdrScanner
             RtlSdrScanner(_on_sdr).start()
-            print("[snifferops] RTL-SDR local scanner started")
+            print("[ethrox-detect] RTL-SDR local scanner started")
 
-    print(f"[snifferops] Node ID: {NODE_ID}")
-    print("[snifferops] Press Ctrl+C to stop\n")
+    print(f"[ethrox-detect] Node ID: {NODE_ID}")
+    print("[ethrox-detect] Press Ctrl+C to stop\n")
 
     if args.plain or not RICH:
         _run_plain(sync_manager)
@@ -278,6 +278,6 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\n[snifferops] Stopped.")
+        print("\n[ethrox-detect] Stopped.")
         awareness_log.stop_server()
         sys.exit(0)

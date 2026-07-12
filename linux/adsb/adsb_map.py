@@ -42,7 +42,7 @@ def generate_map_html(aircraft_list: list[dict], output_path: str) -> str:
 <html>
 <head>
 <meta charset="utf-8"/>
-<title>SnifferOps ADS-B Map</title>
+<title>Ethrox Detect ADS-B Map</title>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -55,7 +55,7 @@ body {{margin:0;background:#0a0a0a;color:#00ff88;font-family:monospace;}}
 </style>
 </head>
 <body>
-<div id="title">SnifferOps &mdash; ADS-B ({len(features)} aircraft)</div>
+<div id="title">Ethrox Detect &mdash; ADS-B ({len(features)} aircraft)</div>
 <div id="map"></div>
 <script>
 var map = L.map('map').setView([39.5,-98.35],5);

@@ -245,7 +245,7 @@ def get_rows() -> list[dict]:
 def get_display_profiles() -> list[dict]:
     """
     Grouped, classified profiles ready for the awareness strip and timeline view.
-    Mirrors Get-AwarenessDisplayProfiles from SnifferOps.Windows.ps1.
+    Mirrors Get-AwarenessDisplayProfiles from Ethrox Detect Windows.
     """
     profiles = db.get_all_profiles()
 
@@ -482,7 +482,7 @@ _WEB_APP_HTML = """<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SnifferOps</title>
+  <title>Ethrox Detect</title>
   <style>
     :root {
       color-scheme: dark;
@@ -816,7 +816,7 @@ _WEB_APP_HTML = """<!doctype html>
 <body>
   <header>
     <div>
-      <h1>SnifferOps</h1>
+      <h1>Ethrox Detect</h1>
       <div class="sub" id="node">Loading T5810B awareness hub...</div>
     </div>
     <div class="status" id="status">Connecting</div>
@@ -940,7 +940,7 @@ _WEB_APP_HTML = """<!doctype html>
         setText("aw-summary", `${data.profileCount} known / ${data.locationCount} locations`);
         setText("aw-detail", `${normal} normal / ${data.profileCount} total profiles`);
         setText("aw-odd", `Alerts: ${alerts} / Watch: ${watch} / Noticed: ${noticed}`);
-        setText("node", `${data.nodeName || "SnifferOps node"} - ${data.nodeId || "unknown node"}`);
+        setText("node", `${data.nodeName || "Ethrox Detect node"} - ${data.nodeId || "unknown node"}`);
         setText("status", `Live - ${fmtTime(data.generatedAt)}`);
 
         const rows = $("rows");
@@ -1048,7 +1048,7 @@ class _SyncHandler(BaseHTTPRequestHandler):
         elif path == "/snifferops/web/status":
             self._send_json(get_web_status())
         elif path == "/snifferops/health":
-            self._send_json({"ok": True, "service": "snifferops-awareness", "platform": "linux"})
+            self._send_json({"ok": True, "service": "ethrox-detect-awareness", "platform": "linux"})
         elif path == "/snifferops/awareness":
             self._send_json(get_sync_payload())
         elif path == "/snifferops/sdr/deep-scan/status":

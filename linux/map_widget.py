@@ -11,7 +11,7 @@ The deflock.org look is preserved: dark CARTO basemap, clustered counted badges
 (via the Leaflet.markercluster plugin), and clickable per-type coloured dots.
 
 The full-featured MapLibre/WebGL version is kept alongside as
-``map_widget_maplibre.py`` — swap the import in snifferops_gui.py to use it on a
+``map_widget_maplibre.py`` — swap the import in ethrox_detect_gui.py to use it on a
 machine with a real GPU.
 
 Page is written to ~/.snifferops/map.html and loaded via file:// (WebKit's

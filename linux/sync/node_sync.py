@@ -8,7 +8,7 @@ Sync protocol (wire-compatible across Linux / Windows / Android):
 
 Tailscale auto-discovery:
   On startup and every DISCOVERY_INTERVAL seconds, query `tailscale status --json`,
-  probe each peer's :8766 health endpoint, and add any SnifferOps nodes automatically.
+  probe each peer's :8766 health endpoint, and add any Ethrox Detect nodes automatically.
   Discovered peers are tagged {"via": "tailscale"} and persisted to config.json.
 
 New in v2 (sighting UUIDs + acknowledgment protocol):
@@ -259,7 +259,7 @@ class NodeSyncManager:
             name = node["name"]
             if ip in existing_hosts:
                 continue
-            # Probe for SnifferOps
+            # Probe for Ethrox Detect
             if check_peer_health(ip, 8766, timeout=self.PROBE_TIMEOUT):
                 if self.add_peer(ip, 8766, name, via="tailscale"):
                     added.append({"host": ip, "port": 8766, "name": name, "via": "tailscale"})

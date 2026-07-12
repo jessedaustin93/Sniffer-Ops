@@ -30,6 +30,6 @@ if ($existing) {
 }
 
 Write-Host "Starting rtl_tcp on ${BindAddress}:$Port"
-Write-Host "Use this computer's LAN IP address and port $Port in SnifferOps."
+Write-Host "Use this computer's LAN IP address and port $Port inEthrox Detect."
 Set-Location -LiteralPath $toolRoot
 & $rtlTcp -a $BindAddress -p $Port

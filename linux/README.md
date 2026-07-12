@@ -1,8 +1,8 @@
-# SnifferOps Linux Hub
+# Ethrox Detect Linux Hub
 
-Linux is the primary SnifferOps awareness hub for the Dell Precision T5810B. It is the local-first persistence, classification, correlation, mapping, and sync authority for the current architecture. Android is the mobile detector, and Windows is the secondary companion/RTL-SDR host.
+Linux is the primaryEthrox Detect awareness hub for the Dell Precision T5810B. It is the local-first persistence, classification, correlation, mapping, and sync authority for the current architecture. Android is the mobile detector, and Windows is the secondary companion/RTL-SDR host.
 
-SnifferOps is passive defensive awareness software. It stores local observations, preserves evidence, explains inferences, and supports lawful situational awareness. It does not attack equipment, inject packets, capture credentials, exploit devices, interfere with police, or support pursuit/traffic-stop/checkpoint evasion.
+Ethrox Detect is passive defensive awareness software. It stores local observations, preserves evidence, explains inferences, and supports lawful situational awareness. It does not attack equipment, inject packets, capture credentials, exploit devices, interfere with police, or support pursuit/traffic-stop/checkpoint evasion.
 
 ## Architecture
 
@@ -18,56 +18,56 @@ Existing Android and Windows schema-1 payloads still ingest. New Linux-generated
 ## Install
 
 ```bash
-git clone https://github.com/jessedaustin93/Sniffer-Ops
-cd Sniffer-Ops
+git clone https://github.com/Ethrox-Systems/ethrox-detect
+cd ethrox-detect
 git checkout codex/linux-companion
 cd linux
 bash install.sh
 ```
 
-`install.sh` installs GTK4/libadwaita, BlueZ, NetworkManager, optional RTL-SDR tools, the bundled fonts, icon, GNOME desktop launcher, GNOME autostart entry, `snifferops` command, and `~/.config/systemd/user/snifferops.service`.
+`install.sh` installs GTK4/libadwaita, BlueZ, NetworkManager, optional RTL-SDR tools, the bundled fonts, icon, GNOME desktop launcher, GNOME autostart entry, `ethrox-detect` command, and `~/.config/systemd/user/ethrox-detect.service`.
 
 ## Launch And Startup
 
 ```bash
-snifferops
-python3 /path/to/Sniffer-Ops/linux/snifferops_gui.py
-systemctl --user status snifferops
-systemctl --user restart snifferops
+ethrox-detect
+python3 /path/to/ethrox-detect/linux/ethrox_detect_gui.py
+systemctl --user status ethrox-detect
+systemctl --user restart ethrox-detect
 ```
 
-The app binds the awareness API to `0.0.0.0:8766` by default and registers the D-Bus name `com.snifferops.linux` so duplicate launches do not create competing GUI instances.
+The app binds the awareness API to `0.0.0.0:8766` by default and registers the D-Bus name `com.ethrox.detect.linux` so duplicate launches do not create competing GUI instances.
 
 GNOME autostart:
 
 ```bash
-~/.config/autostart/com.snifferops.linux.desktop
+~/.config/autostart/com.ethrox.detect.linux.desktop
 ```
 
 Systemd user service:
 
 ```bash
-~/.config/systemd/user/snifferops.service
+~/.config/systemd/user/ethrox-detect.service
 ```
 
 ## Data Location
 
 | Path | Contents |
 |---|---|
-| `~/.snifferops/awareness.db` | Primary SQLite/WAL database |
-| `~/.snifferops/awareness.json` | Legacy JSON migration source, kept for compatibility |
-| `~/.snifferops/config.json` | Scanner toggles, sync port, peers, map defaults |
-| `~/.snifferops/node_id` | Stable Linux node identity |
-| `~/.snifferops/trusted_devices.json` | Private local trust overrides; do not commit |
-| `~/.snifferops/network-captures/` | Optional local rotating packet summaries, not part of sync |
+| `~/.ethrox-detect/awareness.db` | Primary SQLite/WAL database |
+| `~/.ethrox-detect/awareness.json` | Legacy JSON migration source, kept for compatibility |
+| `~/.ethrox-detect/config.json` | Scanner toggles, sync port, peers, map defaults |
+| `~/.ethrox-detect/node_id` | Stable Linux node identity |
+| `~/.ethrox-detect/trusted_devices.json` | Private local trust overrides; do not commit |
+| `~/.ethrox-detect/network-captures/` | Optional local rotating packet summaries, not part of sync |
 
 Back up before migration or deployment:
 
 ```bash
-mkdir -p ~/.snifferops/backups
-cp -a ~/.snifferops/awareness.db ~/.snifferops/backups/awareness.db.$(date -u +%Y%m%dT%H%M%SZ)
-cp -a ~/.snifferops/awareness.db-wal ~/.snifferops/backups/ 2>/dev/null || true
-cp -a ~/.snifferops/awareness.db-shm ~/.snifferops/backups/ 2>/dev/null || true
+mkdir -p ~/.ethrox-detect/backups
+cp -a ~/.ethrox-detect/awareness.db ~/.ethrox-detect/backups/awareness.db.$(date -u +%Y%m%dT%H%M%SZ)
+cp -a ~/.ethrox-detect/awareness.db-wal ~/.ethrox-detect/backups/ 2>/dev/null || true
+cp -a ~/.ethrox-detect/awareness.db-shm ~/.ethrox-detect/backups/ 2>/dev/null || true
 ```
 
 ## Schema Migrations
@@ -89,11 +89,11 @@ Linux keeps the existing schema-1 awareness endpoints:
 
 | Endpoint | Method | Use |
 |---|---|---|
-| `/snifferops/health` | GET | Peer health and node identity |
-| `/snifferops/awareness` | GET | Merged awareness state |
-| `/snifferops/sync` | POST | Merge peer snapshot and return local snapshot |
-| `/snifferops/sdr/deep-scan` | POST | Existing SDR deep-scan compatibility |
-| `/snifferops/sdr/deep-scan/status` | GET | Existing SDR status compatibility |
+| `/snifferops/health` | GET | Legacy compatibility peer health and node identity |
+| `/snifferops/awareness` | GET | Legacy compatibility merged awareness state |
+| `/snifferops/sync` | POST | Legacy compatibility merge peer snapshot and return local snapshot |
+| `/snifferops/sdr/deep-scan` | POST | Legacy compatibility SDR deep-scan |
+| `/snifferops/sdr/deep-scan/status` | GET | Legacy compatibility SDR status |
 
 Linux still accepts old Android and Windows payloads with missing richer metadata. Android protocol-version-2 payloads may include `nodeRole: mobile_detector`, capability metadata, node location, movement-session IDs, BLE advertisement notes, and per-sighting speed/bearing/location-provider fields. Missing fields degrade gracefully: partial observations are retained, unknown values stay unknown, and classifiers avoid false certainty.
 
@@ -239,7 +239,7 @@ Mine, Family, Trusted, Known neighbor, Unknown, Watch, Hostile, Ignore, False po
 
 Ownership and trust are not identity. Marking a tracker `Mine` or `Trusted` suppresses personal-tracking alerts but keeps sightings and evidence.
 
-Private pattern-based trust remains in `~/.snifferops/trusted_devices.json`; durable manual ownership records are stored in `ownership_records`.
+Private pattern-based trust remains in `~/.ethrox-detect/trusted_devices.json`; durable manual ownership records are stored in `ownership_records`.
 
 ## GTK4 Interface
 
@@ -362,7 +362,7 @@ This is not navigation software and does not perform active police-evasion routi
 Run the Linux tests:
 
 ```bash
-cd /home/jesse/Sniffer-Ops
+cd /home/jesse/ethrox-detect
 pytest -q linux/tests
 ```
 
@@ -374,7 +374,7 @@ Synthetic coverage includes migration creation, classifier version recording, co
 - Do not commit runtime databases, logs, captures, map tiles, GPS history, secrets, private SSIDs, MAC allowlists, or personal identifiers.
 - Keep published default coordinates generic.
 - Preserve raw evidence for recalculation.
-- Use SnifferOps for passive awareness and defensive inspection only.
+- UseEthrox Detect for passive awareness and defensive inspection only.
 - Public-safety alerts should advise lawful driving, not evasion.
 
 ## Android Mobile Detector Fields
