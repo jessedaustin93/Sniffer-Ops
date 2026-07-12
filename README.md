@@ -1,8 +1,8 @@
-# SnifferOps Windows Companion
+# Ethrox Detect Windows Companion
 
-This branch contains the Windows secondary companion version of SnifferOps.
+This branch contains the Windows secondary companion version of Ethrox Detect.
 
-Use this branch on the Windows machine that hosts the RTL-SDR dongle. The Linux T5810B node is the primary SnifferOps hub; Windows is not intended to run the hub role. The Windows companion can start `rtl_tcp` so the Android app can use Network SDR data over the local network, and it also includes Windows-side SDR testing, scanning, ADS-B helpers, radio listening tools, and schema-1-compatible awareness sync.
+Use this branch on the Windows machine that hosts the RTL-SDR dongle. The Linux T5810B node is the primary Ethrox Detect hub; Windows is not intended to run the hub role. The Windows companion can start `rtl_tcp` so the Android app can use Network SDR data over the local network, and it also includes Windows-side SDR testing, scanning, ADS-B helpers, radio listening tools, and schema-1-compatible awareness sync.
 
 The Android phone remains the standalone recorder. This companion receives durable copies later, compiles them into awareness profiles, and acknowledges exactly which phone sightings were safely assimilated.
 
@@ -13,13 +13,13 @@ For the Samsung-focused Android phone app and Samsung watch monitor companion, u
 From Windows Explorer:
 
 ```text
-windows\Launch-SnifferOps-Windows.bat
+windows\Launch-EthroxDetect-Windows.bat
 ```
 
 From PowerShell:
 
 ```powershell
-powershell -STA -ExecutionPolicy Bypass -File windows\SnifferOps.Windows.ps1
+powershell -STA -ExecutionPolicy Bypass -File windows\EthroxDetect.Windows.ps1
 ```
 
 ## RTL-SDR Setup
@@ -110,7 +110,7 @@ Windows can acknowledge exact Android/Linux sighting IDs when it receives them, 
 
 ## Icon
 
-The Windows app and desktop shortcut use `windows\assets\snifferops.ico`, generated from `windows\assets\snifferops-tile.png`.
+The Windows app and desktop shortcut use `windows\assets\ethrox-detect.ico`, generated from `windows\assets\ethrox-detect-tile.png`.
 
 ## Font
 

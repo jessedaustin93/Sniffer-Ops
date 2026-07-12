@@ -10,7 +10,7 @@ $ErrorActionPreference = "Stop"
 # Captures fatal/unhandled errors (startup, background threads, WPF dispatcher)
 # to a dedicated log so failures during development are easy to inspect.
 $script:RepoRootEarly = Split-Path -Parent $PSScriptRoot
-$script:CrashLog = Join-Path $script:RepoRootEarly "snifferops-crash.log"
+$script:CrashLog = Join-Path $script:RepoRootEarly "ethrox-detect-crash.log"
 
 function Write-CrashLog {
     param(
@@ -483,7 +483,7 @@ public static class TaskbarIdentity
     }
 }
 "@
-[TaskbarIdentity]::Set("SnifferOps.Windows")
+[TaskbarIdentity]::Set("EthroxDetect.Windows")
 
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSCommandPath)
 # Tool bitness varies by install; prefer x64 but fall back to x86 (the only one
@@ -500,14 +500,14 @@ $RtlFmPath = Join-Path $ToolRoot "rtl_fm.exe"
 $RtlAdsbPath = Join-Path $ToolRoot "rtl_adsb.exe"
 $RtlPowerPath = Join-Path $ToolRoot "rtl_power.exe"
 $StartRtlTcpScript = Join-Path $RepoRoot "scripts\start-rtl-tcp.ps1"
-$AppIconPath = Join-Path $PSScriptRoot "assets\snifferops.ico"
-$AppIconImagePath = Join-Path $PSScriptRoot "assets\snifferops-tile.png"
+$AppIconPath = Join-Path $PSScriptRoot "assets\ethrox-detect.ico"
+$AppIconImagePath = Join-Path $PSScriptRoot "assets\ethrox-detect-tile.png"
 $AppFontPath = Join-Path $PSScriptRoot "assets\fonts\spyagency3ital.ttf"
 $AppCondensedFontPath = Join-Path $PSScriptRoot "assets\fonts\spyagency3cond.ttf"
 $AppGradientFontPath = Join-Path $PSScriptRoot "assets\fonts\spyagency3gradital.ttf"
 $OutLog = Join-Path $RepoRoot "rtl_tcp.out.log"
 $ErrLog = Join-Path $RepoRoot "rtl_tcp.err.log"
-$AppLog = Join-Path $RepoRoot "snifferops-windows.log"
+$AppLog = Join-Path $RepoRoot "ethrox-detect-windows.log"
 $AwarenessLog = Join-Path $RepoRoot "data\signal-awareness.json"
 $AwarenessSyncPort = 8766
 $script:BindAddress = $BindAddress
@@ -686,15 +686,15 @@ function Invoke-AppAction {
     } catch {
         Write-AppError -Context $Context -ErrorObject $_
         [System.Windows.MessageBox]::Show(
-            "SnifferOps hit an error in $Context.`r`n`r`n$($_.Exception.Message)`r`n`r`nThe app stayed open and wrote details to snifferops-windows.log.",
-            "SnifferOps Windows",
+            "Ethrox Detect hit an error in $Context.`r`n`r`n$($_.Exception.Message)`r`n`r`nThe app stayed open and wrote details to ethrox-detect-windows.log.",
+            "Ethrox Detect Windows",
             [System.Windows.MessageBoxButton]::OK,
             [System.Windows.MessageBoxImage]::Warning
         ) | Out-Null
     }
 }
 
-function Set-SnifferOpsWindowIcon {
+function Set-EthroxDetectWindowIcon {
     param([System.Windows.Window] $TargetWindow)
 
     if ($TargetWindow -and (Test-Path -LiteralPath $AppIconPath)) {
@@ -704,7 +704,7 @@ function Set-SnifferOpsWindowIcon {
     }
 }
 
-function Set-SnifferOpsImageSource {
+function Set-EthroxDetectImageSource {
     param([System.Windows.Controls.Image] $TargetImage)
 
     if ($TargetImage -and (Test-Path -LiteralPath $AppIconImagePath)) {
@@ -714,7 +714,7 @@ function Set-SnifferOpsImageSource {
     }
 }
 
-function Apply-SnifferOpsFont {
+function Apply-EthroxDetectFont {
     param([System.Windows.DependencyObject] $Root)
 
     if (-not $script:AppFontFamily -or -not $Root) { return }
@@ -727,11 +727,11 @@ function Apply-SnifferOpsFont {
 
     $count = [System.Windows.Media.VisualTreeHelper]::GetChildrenCount($Root)
     for ($i = 0; $i -lt $count; $i++) {
-        Apply-SnifferOpsFont -Root ([System.Windows.Media.VisualTreeHelper]::GetChild($Root, $i))
+        Apply-EthroxDetectFont -Root ([System.Windows.Media.VisualTreeHelper]::GetChild($Root, $i))
     }
 }
 
-function Apply-SnifferOpsSpecialFonts {
+function Apply-EthroxDetectSpecialFonts {
     param([System.Windows.DependencyObject] $Root)
 
     if (-not $Root) { return }
@@ -751,7 +751,7 @@ function Apply-SnifferOpsSpecialFonts {
 
     $count = [System.Windows.Media.VisualTreeHelper]::GetChildrenCount($Root)
     for ($i = 0; $i -lt $count; $i++) {
-        Apply-SnifferOpsSpecialFonts -Root ([System.Windows.Media.VisualTreeHelper]::GetChild($Root, $i))
+        Apply-EthroxDetectSpecialFonts -Root ([System.Windows.Media.VisualTreeHelper]::GetChild($Root, $i))
     }
 }
 
@@ -1981,8 +1981,8 @@ function Show-SignalDetailWindow {
     if (-not $Item) { return }
 
     $detailWindow = New-Object System.Windows.Window
-    Set-SnifferOpsWindowIcon -TargetWindow $detailWindow
-    $detailWindow.Title = "SnifferOps - Signal Details"
+    Set-EthroxDetectWindowIcon -TargetWindow $detailWindow
+    $detailWindow.Title = "Ethrox Detect - Signal Details"
     $detailWindow.Width = 780
     $detailWindow.Height = 520
     $detailWindow.MinWidth = 520
@@ -2041,8 +2041,8 @@ function Show-SignalDetailWindow {
     [void]$root.Children.Add($grid)
 
     $detailWindow.Content = $root
-    Apply-SnifferOpsFont -Root $detailWindow
-    Apply-SnifferOpsSpecialFonts -Root $detailWindow
+    Apply-EthroxDetectFont -Root $detailWindow
+    Apply-EthroxDetectSpecialFonts -Root $detailWindow
     [void]$detailWindow.ShowDialog()
 }
 
@@ -2247,8 +2247,8 @@ function Start-RadioTuner {
 
 function Show-RadioTunerWindow {
     $win = New-Object System.Windows.Window
-    Set-SnifferOpsWindowIcon -TargetWindow $win
-    $win.Title = "SnifferOps - FM/AM Radio Tuner"
+    Set-EthroxDetectWindowIcon -TargetWindow $win
+    $win.Title = "Ethrox Detect - FM/AM Radio Tuner"
     $win.Width = 440
     $win.SizeToContent = "Height"
     $win.ResizeMode = "NoResize"
@@ -2398,8 +2398,8 @@ function Show-RadioTunerWindow {
     }.GetNewClosure())
 
     $win.Content = $stack
-    Apply-SnifferOpsFont -Root $win
-    Apply-SnifferOpsSpecialFonts -Root $win
+    Apply-EthroxDetectFont -Root $win
+    Apply-EthroxDetectSpecialFonts -Root $win
     [void]$win.ShowDialog()
 }
 # ---------------------------------------------------------------------------
@@ -2419,7 +2419,7 @@ function Invoke-SignalLens {
             Add-LogLine "No decoder available for $($Signal.Label) ($($Signal.Frequency))."
             [System.Windows.MessageBox]::Show(
                 "No decoder available for this signal type.",
-                "SnifferOps", [System.Windows.MessageBoxButton]::OK,
+                "Ethrox Detect", [System.Windows.MessageBoxButton]::OK,
                 [System.Windows.MessageBoxImage]::Information) | Out-Null
             return
         }
@@ -2453,7 +2453,7 @@ function Invoke-LensDirective {
             Add-LogLine "$($Lens.GetDisplayName()): $($directive.Message)"
             [System.Windows.MessageBox]::Show(
                 $directive.Message,
-                "SnifferOps - $($Lens.GetDisplayName())",
+                "Ethrox Detect - $($Lens.GetDisplayName())",
                 [System.Windows.MessageBoxButton]::OK,
                 [System.Windows.MessageBoxImage]::Information) | Out-Null
         }
@@ -2471,8 +2471,8 @@ function Show-LensChooserWindow {
     )
 
     $chooser = New-Object System.Windows.Window
-    Set-SnifferOpsWindowIcon -TargetWindow $chooser
-    $chooser.Title = "SnifferOps - Choose viewer"
+    Set-EthroxDetectWindowIcon -TargetWindow $chooser
+    $chooser.Title = "Ethrox Detect - Choose viewer"
     $chooser.Width = 420
     $chooser.SizeToContent = "Height"
     $chooser.ResizeMode = "NoResize"
@@ -2521,8 +2521,8 @@ function Show-LensChooserWindow {
     }
 
     $chooser.Content = $stack
-    Apply-SnifferOpsFont -Root $chooser
-    Apply-SnifferOpsSpecialFonts -Root $chooser
+    Apply-EthroxDetectFont -Root $chooser
+    Apply-EthroxDetectSpecialFonts -Root $chooser
     [void]$chooser.ShowDialog()
 }
 
@@ -2618,8 +2618,8 @@ function Show-ListenerWindow {
     )
 
     $listenWindow = New-Object System.Windows.Window
-    Set-SnifferOpsWindowIcon -TargetWindow $listenWindow
-    $listenWindow.Title = "SnifferOps - Listening"
+    Set-EthroxDetectWindowIcon -TargetWindow $listenWindow
+    $listenWindow.Title = "Ethrox Detect - Listening"
     $listenWindow.Width = 420
     $listenWindow.SizeToContent = "Height"
     $listenWindow.ResizeMode = "NoResize"
@@ -2709,8 +2709,8 @@ function Show-ListenerWindow {
     })
 
     $listenWindow.Content = $stack
-    Apply-SnifferOpsFont -Root $listenWindow
-    Apply-SnifferOpsSpecialFonts -Root $listenWindow
+    Apply-EthroxDetectFont -Root $listenWindow
+    Apply-EthroxDetectSpecialFonts -Root $listenWindow
     [void]$listenWindow.ShowDialog()
 }
 
@@ -2732,8 +2732,8 @@ function Show-DetailWindow {
     }
 
     $detailWindow = New-Object System.Windows.Window
-    Set-SnifferOpsWindowIcon -TargetWindow $detailWindow
-    $detailWindow.Title = "SnifferOps - $Title"
+    Set-EthroxDetectWindowIcon -TargetWindow $detailWindow
+    $detailWindow.Title = "Ethrox Detect - $Title"
     $detailWindow.Width = 1180
     $detailWindow.Height = 620
     $detailWindow.MinWidth = 760
@@ -2917,8 +2917,8 @@ function Show-DetailWindow {
     [void]$root.Children.Add($grid)
 
     $detailWindow.Content = $root
-    Apply-SnifferOpsFont -Root $detailWindow
-    Apply-SnifferOpsSpecialFonts -Root $detailWindow
+    Apply-EthroxDetectFont -Root $detailWindow
+    Apply-EthroxDetectSpecialFonts -Root $detailWindow
     [void]$detailWindow.ShowDialog()
 }
 
@@ -2974,14 +2974,14 @@ function Show-ConnectionSettingsWindow {
     $pcHost = Get-PrimaryPcHost
 
     $win = New-Object System.Windows.Window
-    $win.Title = "SnifferOps - PC Connection Settings"
+    $win.Title = "Ethrox Detect - PC Connection Settings"
     $win.Width = 560
     $win.Height = 520
     $win.Background = $script:BrushConverter.ConvertFromString("#020617")
     $win.Foreground = $script:BrushConverter.ConvertFromString("#E5E7EB")
     $win.WindowStartupLocation = "CenterOwner"
     if ($Window) { $win.Owner = $Window }
-    Set-SnifferOpsWindowIcon -TargetWindow $win
+    Set-EthroxDetectWindowIcon -TargetWindow $win
 
     $root = New-Object System.Windows.Controls.StackPanel
     $root.Margin = "18"
@@ -3113,7 +3113,7 @@ function Show-ConnectionSettingsWindow {
     })
 
     $closeButton.Add_Click({ $win.Close() })
-    Apply-SnifferOpsFont -Root $win
+    Apply-EthroxDetectFont -Root $win
     [void]$win.ShowDialog()
 }
 
@@ -3222,7 +3222,7 @@ function Start-AdsbCapture {
         Add-LogLine "Missing rtl_adsb.exe in $ToolRoot."
         [System.Windows.MessageBox]::Show(
             "rtl_adsb.exe was not found. Install the RTL-SDR tools first.",
-            "SnifferOps - ADS-B", [System.Windows.MessageBoxButton]::OK,
+            "Ethrox Detect - ADS-B", [System.Windows.MessageBoxButton]::OK,
             [System.Windows.MessageBoxImage]::Warning) | Out-Null
         return
     }
@@ -3310,7 +3310,7 @@ function Start-AdsbCapture {
     if ($aircraft.Count -eq 0) {
         [System.Windows.MessageBox]::Show(
             "No verified ADS-B aircraft were decoded in ${elapsed}s.`n`nThis can happen indoors, with a weak 1090 MHz antenna, or when rtl_adsb only sees noise. Try near a window or with a better antenna.",
-            "SnifferOps - ADS-B", [System.Windows.MessageBoxButton]::OK,
+            "Ethrox Detect - ADS-B", [System.Windows.MessageBoxButton]::OK,
             [System.Windows.MessageBoxImage]::Information) | Out-Null
         return
     }
@@ -3348,7 +3348,7 @@ function Test-RtlSdrDongle {
 [xml] $xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="SnifferOps Windows" Height="860" Width="1280"
+        Title="Ethrox Detect Windows" Height="860" Width="1280"
         MinHeight="760" MinWidth="980" Background="#020617"
         WindowStartupLocation="CenterScreen">
     <Window.Resources>
@@ -3637,7 +3637,7 @@ function Test-RtlSdrDongle {
 
 $reader = New-Object System.Xml.XmlNodeReader $xaml
 $Window = [Windows.Markup.XamlReader]::Load($reader)
-Set-SnifferOpsWindowIcon -TargetWindow $Window
+Set-EthroxDetectWindowIcon -TargetWindow $Window
 
 # Safety net: log any unhandled UI-thread exception and keep the app alive.
 $Window.Dispatcher.add_UnhandledException({
@@ -3646,8 +3646,8 @@ $Window.Dispatcher.add_UnhandledException({
     $eventArgs.Handled = $true
 })
 $Window.Add_Loaded({
-    Apply-SnifferOpsFont -Root $Window
-    Apply-SnifferOpsSpecialFonts -Root $Window
+    Apply-EthroxDetectFont -Root $Window
+    Apply-EthroxDetectSpecialFonts -Root $Window
 })
 
 $ConnectButton = $Window.FindName("ConnectButton")
@@ -3691,10 +3691,10 @@ $AwarenessMapOdd = $Window.FindName("AwarenessMapOdd")
 $AwarenessMapLast = $Window.FindName("AwarenessMapLast")
 $SweepRotate = $Window.FindName("SweepRotate")
 
-Set-SnifferOpsImageSource -TargetImage $HeaderIconImage
-Set-SnifferOpsImageSource -TargetImage $StatusIconImage
-Apply-SnifferOpsFont -Root $Window
-Apply-SnifferOpsSpecialFonts -Root $Window
+Set-EthroxDetectImageSource -TargetImage $HeaderIconImage
+Set-EthroxDetectImageSource -TargetImage $StatusIconImage
+Apply-EthroxDetectFont -Root $Window
+Apply-EthroxDetectSpecialFonts -Root $Window
 
 if (-not $script:WindowsSatelliteMode) {
     $ConnectButton.Add_Click({
@@ -3841,12 +3841,12 @@ Invoke-AppAction -Context "Startup refresh" -Action {
     } catch {
         Add-LogLine "Awareness sync unavailable: $($_.Exception.Message)"
     }
-    Add-LogLine "SnifferOps Windows ready."
+    Add-LogLine "Ethrox Detect Windows ready."
     Add-LogLine "Windows is configured as a secondary companion. Linux T5810B owns SDR scanning and hub analysis."
 }
 
 if ($SmokeTest) {
-    Write-Host "SnifferOps Windows smoke test OK"
+    Write-Host "Ethrox Detect Windows smoke test OK"
     return
 }
 

@@ -8,7 +8,7 @@ $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $DataRoot = Join-Path $RepoRoot "data"
 $AwarenessLog = Join-Path $DataRoot "signal-awareness.json"
-$AppLog = Join-Path $RepoRoot "snifferops-windows.log"
+$AppLog = Join-Path $RepoRoot "ethrox-detect-windows.log"
 
 . (Join-Path $PSScriptRoot "AwarenessLog.ps1")
 Initialize-AwarenessLog -Path $AwarenessLog
@@ -23,7 +23,7 @@ function Write-SatelliteLog {
 
 try {
     Start-AwarenessSyncServer -BindAddress $BindAddress -Port $Port -LogPath $AppLog
-    Write-SatelliteLog "SnifferOps Windows satellite sync listening on ${BindAddress}:${Port}."
+    Write-SatelliteLog "Ethrox Detect Windows satellite sync listening on ${BindAddress}:${Port}."
     Write-SatelliteLog "Role: secondary companion. Linux T5810B remains the classification and SDR hub."
 
     $waitHandle = [System.Threading.ManualResetEvent]::new($false)
@@ -34,5 +34,5 @@ try {
 } finally {
     if ($waitHandle) { $waitHandle.Dispose() }
     Stop-AwarenessSyncServer
-    Write-SatelliteLog "SnifferOps Windows satellite sync stopped."
+    Write-SatelliteLog "Ethrox Detect Windows satellite sync stopped."
 }

@@ -9,7 +9,7 @@ function Assert($desc, $cond) {
     if ($cond) { "PASS  $desc" } else { "FAIL  $desc"; $script:failures++ }
 }
 
-$tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("snifferops-awareness-" + [guid]::NewGuid().ToString("N") + ".json")
+$tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("ethrox-detect-awareness-" + [guid]::NewGuid().ToString("N") + ".json")
 Initialize-AwarenessLog -Path $tmp
 
 $snapshot = [pscustomobject][ordered]@{

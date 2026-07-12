@@ -807,7 +807,7 @@ function Receive-AwarenessSyncRequests {
             $request = Read-AwarenessHttpRequest -Client $client
             $path = (($request.Path -split '\?')[0]).ToLowerInvariant()
             if ($request.Method -eq "GET" -and $path -eq "/snifferops/health") {
-                Send-AwarenessTcpJsonResponse -Client $client -Body @{ ok = $true; service = "snifferops-awareness" }
+                Send-AwarenessTcpJsonResponse -Client $client -Body @{ ok = $true; service = "ethrox-detect-awareness" }
                 $handled++
                 continue
             }

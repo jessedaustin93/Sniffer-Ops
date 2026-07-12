@@ -327,7 +327,7 @@ function Request-OfflineMapTile {
             Add-Type -AssemblyName System.Net.Http -ErrorAction SilentlyContinue
             $client = New-Object System.Net.Http.HttpClient
             $client.Timeout = [TimeSpan]::FromSeconds(4)
-            $client.DefaultRequestHeaders.UserAgent.ParseAdd("SnifferOps-Windows/1.0 (personal offline tile cache)")
+            $client.DefaultRequestHeaders.UserAgent.ParseAdd("EthroxDetect-Windows/1.0 (personal offline tile cache)")
             $script:OfflineMapHttpClient = $client
         }
         $sub = @("a", "b", "c", "d")[(($X + $Y) % 4)]
@@ -367,7 +367,7 @@ function Show-OfflineMapWindow {
     $attributionText = $script:OfflineMapAttributionText
 
     $win = New-Object System.Windows.Window
-    $win.Title = "SnifferOps - Offline Awareness Map"
+    $win.Title = "Ethrox Detect - Offline Awareness Map"
     $win.Width = 1060
     $win.Height = 720
     $win.MinWidth = 720
@@ -375,8 +375,8 @@ function Show-OfflineMapWindow {
     $win.Background = $brush.ConvertFromString("#020617")
     $win.WindowStartupLocation = "CenterOwner"
     if ($Window) { $win.Owner = $Window }
-    if (Get-Command Set-SnifferOpsWindowIcon -ErrorAction SilentlyContinue) {
-        Set-SnifferOpsWindowIcon -TargetWindow $win
+    if (Get-Command Set-EthroxDetectWindowIcon -ErrorAction SilentlyContinue) {
+        Set-EthroxDetectWindowIcon -TargetWindow $win
     }
 
     $root = New-Object System.Windows.Controls.Grid
@@ -900,8 +900,8 @@ function Show-OfflineMapWindow {
     }.GetNewClosure())
     $win.Add_Closed({ $timer.Stop() }.GetNewClosure())
 
-    if (Get-Command Apply-SnifferOpsFont -ErrorAction SilentlyContinue) {
-        Apply-SnifferOpsFont -Root $win
+    if (Get-Command Apply-EthroxDetectFont -ErrorAction SilentlyContinue) {
+        Apply-EthroxDetectFont -Root $win
     }
     $script:OfflineMapWindow = $win
     [void]$win.Show()

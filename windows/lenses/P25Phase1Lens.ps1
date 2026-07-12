@@ -12,7 +12,7 @@ function New-P25Phase1Lens {
             param($signal)
             [pscustomobject][ordered]@{
                 Kind    = 'notimplemented'
-                Message = 'P25 Phase 1 decoding is on the roadmap but not yet implemented in SnifferOps Windows.'
+                Message = 'P25 Phase 1 decoding is on the roadmap but not yet implemented inEthrox Detect Windows.'
             }
         }
 }

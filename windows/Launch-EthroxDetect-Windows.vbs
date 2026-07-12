@@ -17,6 +17,6 @@ If fso.FileExists(configPath) Then
     End If
 End If
 
-psScript = fso.BuildPath(scriptDir, "SnifferOps.Windows.ps1")
+psScript = fso.BuildPath(scriptDir, "EthroxDetect.Windows.ps1")
 command = "powershell.exe -STA -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File """ & psScript & """"
 shell.Run command, 1, False
