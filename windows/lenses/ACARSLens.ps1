@@ -14,7 +14,7 @@ function New-ACARSLens {
             param($signal)
             [pscustomobject][ordered]@{
                 Kind    = 'notimplemented'
-                Message = 'ACARS data-link decoding is on the roadmap but not yet implemented in SnifferOps Windows.'
+                Message = 'ACARS data-link decoding is on the roadmap but not yet implemented in Ethrox Detect Windows.'
             }
         }
 }

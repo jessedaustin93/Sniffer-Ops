@@ -4,7 +4,7 @@ Ethrox Detect Linux Companion
 - Awareness map consolidation hub (same HTTP API as Windows on port 8766)
 - WiFi + Bluetooth scanning
 - RTL-SDR spectrum sweeps (if hardware present)
-- Android sync (receives POST /snifferops/sync legacy compatibility endpoint)
+- Android sync (receives POST /ethrox-detect/sync)
 - Windows / Linux peer sync (push/pull)
 - Terminal UI powered by Rich
 """
@@ -27,6 +27,7 @@ import signal_classifier
 import signal_signatures
 import ownership
 import db
+import version_info
 from lenses.all_lenses import ALL_LENSES, route
 from scanners.wifi_scanner import WifiScanner
 from scanners.bluetooth_scanner import BluetoothScanner
@@ -46,7 +47,7 @@ except ImportError:
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-DATA_DIR = os.path.expanduser("~/.ethrox-detect")
+DATA_DIR = os.path.expanduser(os.environ.get("ETHROX_DETECT_DATA_DIR", "~/.ethrox-detect"))
 LOG_PATH = os.path.join(DATA_DIR, "awareness.json")
 SYNC_PORT = 8766
 NODE_ID = str(uuid.uuid4())[:16]
@@ -203,6 +204,8 @@ def _run_plain(sync_manager: NodeSyncManager) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Ethrox Detect Linux Companion")
+    parser.add_argument("--version", action="store_true",
+                        help="show version and exit")
     parser.add_argument("--port", type=int, default=SYNC_PORT,
                         help="HTTP sync server port (default 8766)")
     parser.add_argument("--bind", default="0.0.0.0",
@@ -221,6 +224,10 @@ def main() -> None:
     parser.add_argument("--plain", action="store_true",
                         help="Plain text output (no Rich TUI)")
     args = parser.parse_args()
+
+    if args.version:
+        print(version_info.version_text())
+        return
 
     # Init awareness log
     os.makedirs(DATA_DIR, exist_ok=True)

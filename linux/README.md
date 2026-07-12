@@ -83,19 +83,20 @@ Current migration:
 
 Migration 1 does not delete or rewrite raw `signal_profiles` or `signal_sightings`. Removing a classification, zone, or derived entity must never delete raw source observations.
 
-## Sync Compatibility
+## Sync API
 
-Linux keeps the existing schema-1 awareness endpoints:
+Linux exposes the active Ethrox Detect awareness endpoints on port `8766`:
 
 | Endpoint | Method | Use |
 |---|---|---|
-| `/snifferops/health` | GET | Legacy compatibility peer health and node identity |
-| `/snifferops/awareness` | GET | Legacy compatibility merged awareness state |
-| `/snifferops/sync` | POST | Legacy compatibility merge peer snapshot and return local snapshot |
-| `/snifferops/sdr/deep-scan` | POST | Legacy compatibility SDR deep-scan |
-| `/snifferops/sdr/deep-scan/status` | GET | Legacy compatibility SDR status |
+| `/ethrox-detect/version` | GET | Structured product version metadata |
+| `/ethrox-detect/health` | GET | Peer health and node identity |
+| `/ethrox-detect/awareness` | GET | Merged awareness state |
+| `/ethrox-detect/sync` | POST | Merge peer snapshot and return local snapshot |
+| `/ethrox-detect/sdr/deep-scan` | POST | SDR deep-scan request |
+| `/ethrox-detect/sdr/deep-scan/status` | GET | SDR status |
 
-Linux still accepts old Android and Windows payloads with missing richer metadata. Android protocol-version-2 payloads may include `nodeRole: mobile_detector`, capability metadata, node location, movement-session IDs, BLE advertisement notes, and per-sighting speed/bearing/location-provider fields. Missing fields degrade gracefully: partial observations are retained, unknown values stay unknown, and classifiers avoid false certainty.
+Linux still accepts older Android and Windows payloads with missing richer metadata. Android protocol-version-2 payloads may include `nodeRole: mobile_detector`, capability metadata, node location, movement-session IDs, BLE advertisement notes, and per-sighting speed/bearing/location-provider fields. Missing fields degrade gracefully: partial observations are retained, unknown values stay unknown, and classifiers avoid false certainty.
 
 ## Classifier Architecture
 
@@ -374,7 +375,7 @@ Synthetic coverage includes migration creation, classifier version recording, co
 - Do not commit runtime databases, logs, captures, map tiles, GPS history, secrets, private SSIDs, MAC allowlists, or personal identifiers.
 - Keep published default coordinates generic.
 - Preserve raw evidence for recalculation.
-- UseEthrox Detect for passive awareness and defensive inspection only.
+- Use Ethrox Detect for passive awareness and defensive inspection only.
 - Public-safety alerts should advise lawful driving, not evasion.
 
 ## Android Mobile Detector Fields

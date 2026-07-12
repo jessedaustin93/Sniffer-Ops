@@ -22,6 +22,7 @@ import inference_engine
 import ownership
 import signal_classifier as _sc
 import signal_signatures as _sig
+import version_info
 
 # ── Module-level state ────────────────────────────────────────────────────────
 
@@ -216,6 +217,22 @@ def merge_snapshot(snapshot: dict) -> dict:
 def get_sync_payload() -> dict:
     """Build and return a full wire-format sync payload from the local DB."""
     return db.build_sync_payload(_node_id, _node_name)
+
+
+def get_version_payload() -> dict:
+    """Return structured product version metadata for API clients."""
+    info = version_info.get_version_info()
+    return {
+        "product": info["product"],
+        "slug": info["slug"],
+        "version": info["version"],
+        "build": info["build"],
+        "full_version": info["full_version"],
+        "channel": info["channel"],
+        "commit": "",
+        "platform": "linux",
+        "service": "ethrox-detect-awareness",
+    }
 
 
 def get_rows() -> list[dict]:
@@ -915,7 +932,7 @@ _WEB_APP_HTML = """<!doctype html>
 
     async function refresh() {
       try {
-        const res = await fetch("/snifferops/web/status", {cache: "no-store"});
+        const res = await fetch("/ethrox-detect/web/status", {cache: "no-store"});
         if (!res.ok) throw new Error("HTTP " + res.status);
         const data = await res.json();
         const wifi = typeCount(data, "WIFI");
@@ -1020,11 +1037,17 @@ class _SyncHandler(BaseHTTPRequestHandler):
 
     def _send_head(self) -> None:
         path = urlparse(self.path).path.lower()
-        if path in ("/", "/snifferops", "/snifferops/", "/snifferops/web"):
+        if path in ("/", "/ethrox-detect", "/ethrox-detect/", "/ethrox-detect/web", "/snifferops", "/snifferops/", "/snifferops/web"):
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(_WEB_APP_HTML.encode("utf-8"))))
         elif path in (
+            "/ethrox-detect/version",
+            "/ethrox-detect/web/status",
+            "/ethrox-detect/health",
+            "/ethrox-detect/awareness",
+            "/ethrox-detect/sdr/deep-scan/status",
+            "/snifferops/version",
             "/snifferops/web/status",
             "/snifferops/health",
             "/snifferops/awareness",
@@ -1043,12 +1066,25 @@ class _SyncHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path.lower()
-        if path in ("/", "/snifferops", "/snifferops/", "/snifferops/web"):
+        if path in ("/", "/ethrox-detect", "/ethrox-detect/", "/ethrox-detect/web", "/snifferops", "/snifferops/", "/snifferops/web"):
             self._send_html(_WEB_APP_HTML)
+        elif path in ("/ethrox-detect/version", "/snifferops/version"):
+            payload = get_version_payload()
+            if path.startswith("/snifferops/"):
+                payload["deprecated_path"] = True
+            self._send_json(payload)
+        elif path == "/ethrox-detect/health":
+            self._send_json({"ok": True, **get_version_payload()})
+        elif path == "/ethrox-detect/awareness":
+            self._send_json(get_sync_payload())
+        elif path == "/ethrox-detect/sdr/deep-scan/status":
+            self._send_json({"status": "idle", **get_version_payload()})
+        elif path == "/ethrox-detect/web/status":
+            self._send_json(get_web_status())
         elif path == "/snifferops/web/status":
             self._send_json(get_web_status())
         elif path == "/snifferops/health":
-            self._send_json({"ok": True, "service": "ethrox-detect-awareness", "platform": "linux"})
+            self._send_json({"ok": True, **get_version_payload(), "deprecated_path": True})
         elif path == "/snifferops/awareness":
             self._send_json(get_sync_payload())
         elif path == "/snifferops/sdr/deep-scan/status":
@@ -1058,7 +1094,7 @@ class _SyncHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = self.path.lower().split("?")[0]
-        if path == "/snifferops/sync":
+        if path in ("/snifferops/sync", "/ethrox-detect/sync"):
             try:
                 length = int(self.headers.get("Content-Length", 0))
                 body = self.rfile.read(length).decode("utf-8")
@@ -1078,8 +1114,8 @@ class _SyncHandler(BaseHTTPRequestHandler):
                 self._send_json(payload)
             except Exception as exc:
                 self._send_json({"error": str(exc)}, 500)
-        elif path == "/snifferops/sdr/deep-scan":
-            self._send_json({"accepted": True, "status": "queued"})
+        elif path in ("/snifferops/sdr/deep-scan", "/ethrox-detect/sdr/deep-scan"):
+            self._send_json({"accepted": True, "status": "queued", **get_version_payload()})
         else:
             self._send_json({"error": "not found"}, 404)
 
