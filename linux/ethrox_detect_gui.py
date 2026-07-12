@@ -34,7 +34,7 @@ from lenses.all_lenses import route
 from sync.node_sync import NodeSyncManager, check_peer_health
 from map_widget import MapWidget
 
-DATA_DIR  = os.path.expanduser("~/.ethrox-detect")
+DATA_DIR  = os.path.expanduser(os.environ.get("ETHROX_DETECT_DATA_DIR", "~/.ethrox-detect"))
 LOG_PATH  = os.path.join(DATA_DIR, "awareness.json")
 CFG_PATH  = os.path.join(DATA_DIR, "config.json")
 REFRESH_INTERVAL_MS = 10_000

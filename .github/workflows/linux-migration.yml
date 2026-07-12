@@ -1,0 +1,47 @@
+name: Linux Migration Checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - codex/linux-companion
+      - migration/ethrox-detect-linux
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    env:
+      ETHROX_DETECT_CI_BUILD: ${{ github.run_number }}
+      ETHROX_DETECT_GIT_COMMIT: ${{ github.sha }}
+      ETHROX_DETECT_BUILD_DATE: ${{ github.event.repository.updated_at }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest
+
+      - name: Verify canonical version
+        run: python3 tools/version.py verify
+
+      - name: Check active branding
+        run: python3 tools/check_branding.py
+
+      - name: Run Linux tests
+        run: pytest -q linux/tests
+
+      - name: Build summary
+        run: |
+          FULL_VERSION="$(python3 tools/version.py show | head -n 1)"
+          {
+            echo "### Ethrox Detect"
+            echo "- Version: ${FULL_VERSION}"
+            echo "- CI run: ${ETHROX_DETECT_CI_BUILD}"
+            echo "- Commit: ${ETHROX_DETECT_GIT_COMMIT}"
+          } >> "$GITHUB_STEP_SUMMARY"

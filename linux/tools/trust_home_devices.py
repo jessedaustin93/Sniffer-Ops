@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Manage the local SnifferOps trusted-device file.
+Manage the local Ethrox Detect trusted-device file.
 
 This never writes private device names into the repository. It reads the local
-SQLite awareness DB and updates ~/.snifferops/trusted_devices.json.
+SQLite awareness DB and updates ~/.ethrox-detect/trusted_devices.json.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ sys.path.insert(0, str(ROOT))
 import ownership
 
 
-DEFAULT_DB = Path("~/.snifferops/awareness.db").expanduser()
+DEFAULT_DB = Path("~/.ethrox-detect/awareness.db").expanduser()
 DEFAULT_TRUST = Path(ownership.TRUSTED_DEVICES_PATH).expanduser()
 
 

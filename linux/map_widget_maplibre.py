@@ -6,7 +6,7 @@ points that split apart as you zoom in.  WebKit's WebGL engine (confirmed
 WebGL 2.0 on this hardware) does all rendering in its own child processes, so
 nothing heavy runs on the GTK main thread.
 
-The page is written to ~/.snifferops/map.html and loaded via a file:// URL.
+The page is written to ~/.ethrox-detect/map.html and loaded via a file:// URL.
 (WebKit's load_html() does not execute inline page scripts in this build, but a
 real file:// page does — and file:// lets us reference the MapLibre library as
 a relative <script src> instead of inlining ~800 KB into every page.)
