@@ -1,0 +1,29 @@
+# pi-gen configuration for the SnifferOps appliance image.
+# Consumed by pi-gen's ./build.sh (copy or symlink this to pi-gen/config).
+#
+# Base: Raspberry Pi OS Lite, 64-bit (Bookworm) for the Pi Zero 2W (armv8).
+# Stopping the stage list at stage2 yields Lite (no desktop); our custom
+# stage-snifferops layers the appliance on top.
+
+IMG_NAME=snifferops-os
+ARCH=arm64
+RELEASE=bookworm
+
+# Lite = stage0..stage2 only, then our stage.
+STAGE_LIST="stage0 stage1 stage2 stage-snifferops"
+
+# Locale / keyboard / timezone (adjust as needed).
+LOCALE_DEFAULT=en_US.UTF-8
+KEYBOARD_KEYMAP=us
+KEYBOARD_LAYOUT="English (US)"
+TIMEZONE_DEFAULT=America/New_York
+
+# Hostname is finalized on first boot (snifferops-<shortid>); this is the seed.
+TARGET_HOSTNAME=snifferops
+
+# SSH: key-only by default for a shippable unit. Provide a public key via
+# PUBKEY_SSH_FIRST_USER in CI/secrets; fall back to a password only for dev.
+ENABLE_SSH=1
+PUBKEY_ONLY_SSH=1
+# FIRST_USER_NAME / FIRST_USER_PASS / PUBKEY_SSH_FIRST_USER come from the
+# environment or a secret in CI — do not commit credentials here.

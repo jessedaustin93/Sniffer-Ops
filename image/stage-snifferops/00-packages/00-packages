@@ -1,0 +1,9 @@
+python3
+python3-venv
+python3-pip
+bluetooth
+bluez
+rtl-sdr
+librtlsdr-dev
+network-manager
+wireless-tools

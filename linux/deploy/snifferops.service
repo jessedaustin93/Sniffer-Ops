@@ -1,0 +1,34 @@
+[Unit]
+Description=SnifferOps headless awareness hub
+Documentation=https://github.com/jessedaustin93/Sniffer-Ops
+After=network-online.target bluetooth.target NetworkManager.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=snifferops
+Group=snifferops
+# Data lives on the writable data partition; root can stay read-only.
+Environment=SNIFFEROPS_DATA_DIR=/var/lib/snifferops
+ExecStart=/opt/snifferops/venv/bin/python /opt/snifferops/snifferops_linux.py --headless
+Restart=always
+RestartSec=10
+
+# systemd creates/owns /var/lib/snifferops (0750) and implies ReadWritePaths.
+StateDirectory=snifferops
+StateDirectoryMode=0750
+
+# ── Light hardening ──────────────────────────────────────────────────────────
+# [HW] BlueZ, NetworkManager, and RTL-SDR need device + D-Bus access. These
+# supplementary groups + the RTL-SDR udev rule (see lib-install.sh) grant it
+# without root. If BT/SDR/NM misbehave on real hardware under ProtectSystem,
+# relax to ProtectSystem=full or add the specific DeviceAllow= lines — validate
+# on the Pi Zero 2W. This is the most likely place hardening fights hardware.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/snifferops
+SupplementaryGroups=bluetooth netdev plugdev dialout
+
+[Install]
+WantedBy=multi-user.target

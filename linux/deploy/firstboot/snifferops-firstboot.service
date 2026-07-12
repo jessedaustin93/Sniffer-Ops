@@ -1,0 +1,13 @@
+[Unit]
+Description=SnifferOps first-boot provisioning (one-shot)
+After=local-fs.target network-pre.target
+Before=snifferops.service
+ConditionPathExists=!/var/lib/snifferops/.provisioned
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/snifferops/deploy/firstboot/snifferops-firstboot.sh
+
+[Install]
+WantedBy=multi-user.target

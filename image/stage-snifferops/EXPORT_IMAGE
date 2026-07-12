@@ -1,0 +1,2 @@
+# Tells pi-gen to export a bootable image at the end of this stage.
+IMG_SUFFIX=""

@@ -27,6 +27,23 @@ bash install.sh
 
 `install.sh` installs GTK4/libadwaita, BlueZ, NetworkManager, optional RTL-SDR tools, the bundled fonts, icon, GNOME desktop launcher, GNOME autostart entry, `snifferops` command, and `~/.config/systemd/user/snifferops.service`.
 
+### Headless appliance path
+
+There are two ways to run the hub:
+
+- **Desktop** (`install.sh`, above) — the GTK4 app `snifferops_gui.py` with the
+  full tactical UI.
+- **Appliance** (`deploy/install-appliance.sh`) — headless, no GTK. Runs
+  `snifferops_linux.py --headless` under a dedicated `snifferops` system user as
+  a system systemd service, with data under `/var/lib/snifferops`. This is what
+  ships on a Pi Zero 2W or installs onto any Bookworm box, and what the pi-gen
+  image (`image/`) bakes into a flashable `snifferops-os-*.img.xz`.
+
+See [`deploy/README.md`](deploy/README.md) for build, flash, first-boot, data
+location, and the update procedure. Both paths resolve identity, config, DB, and
+logs through `paths.py` (honoring `SNIFFEROPS_DATA_DIR`), so the desktop and the
+appliance stay in lockstep.
+
 ## Launch And Startup
 
 ```bash

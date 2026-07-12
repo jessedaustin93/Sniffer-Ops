@@ -1,0 +1,87 @@
+name: Build SnifferOps OS image
+
+# Reproducible appliance image: on a version tag, build the Bookworm Lite +
+# SnifferOps image with pi-gen and publish it as a release asset with a
+# SHA-256 sidecar. This is what makes the build reproducible instead of
+# "whatever was on a laptop".
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write   # create release + upload assets
+
+jobs:
+  build-image:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout SnifferOps
+        uses: actions/checkout@v4
+        with:
+          path: sniffer-ops
+
+      - name: Checkout pi-gen (Bookworm)
+        uses: actions/checkout@v4
+        with:
+          repository: RPi-Distro/pi-gen
+          ref: bookworm
+          path: pi-gen
+
+      - name: Enable binfmt/qemu for arm64 emulation
+        uses: docker/setup-qemu-action@v3
+
+      - name: Assemble pi-gen config + custom stage
+        run: |
+          set -euo pipefail
+          VERSION="$(cat sniffer-ops/linux/VERSION)"
+          echo "IMG_VERSION=${VERSION}" >> "$GITHUB_ENV"
+
+          # Drop our config in and stamp the image name with the version.
+          cp sniffer-ops/image/config pi-gen/config
+          echo "IMG_NAME=snifferops-os-${VERSION}" >> pi-gen/config
+
+          # Custom stage into pi-gen's tree.
+          cp -r sniffer-ops/image/stage-snifferops pi-gen/stage-snifferops
+          # Skip pi-gen's own image-export stages beyond ours (Lite only).
+          touch pi-gen/stage2/SKIP_IMAGES pi-gen/stage2/SKIP_NOOBS || true
+
+          # The custom stage needs the repo path at build time.
+          echo "SNIFFEROPS_REPO=${GITHUB_WORKSPACE}/sniffer-ops" >> "$GITHUB_ENV"
+
+      - name: Build image (pi-gen, docker)
+        working-directory: pi-gen
+        env:
+          SNIFFEROPS_REPO: ${{ env.SNIFFEROPS_REPO }}
+          # Key-only SSH; supply a public key as a repo secret for shippable units.
+          PUBKEY_SSH_FIRST_USER: ${{ secrets.APPLIANCE_SSH_PUBKEY }}
+        run: |
+          set -euo pipefail
+          # Pass our env through to the containerized build.
+          export PIGEN_DOCKER_OPTS="-e SNIFFEROPS_REPO -e PUBKEY_SSH_FIRST_USER -v ${SNIFFEROPS_REPO}:${SNIFFEROPS_REPO}:ro"
+          sudo -E ./build-docker.sh
+
+      - name: Compress + checksum
+        id: artifact
+        working-directory: pi-gen
+        run: |
+          set -euo pipefail
+          IMG="$(find deploy -name '*.img' | head -n1)"
+          test -n "$IMG"
+          xz -T0 -9 "$IMG"
+          OUT="${IMG}.xz"
+          sha256sum "$OUT" | tee "${OUT}.sha256"
+          echo "path=pi-gen/${OUT}" >> "$GITHUB_OUTPUT"
+          echo "sha=pi-gen/${OUT}.sha256" >> "$GITHUB_OUTPUT"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ steps.artifact.outputs.path }}
+            ${{ steps.artifact.outputs.sha }}
+          body: |
+            SnifferOps OS ${{ env.IMG_VERSION }} — Bookworm Lite arm64 appliance image.
+            Verify: `sha256sum -c *.sha256`
