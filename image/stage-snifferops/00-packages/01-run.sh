@@ -24,4 +24,18 @@ set -e
 # Stamp provenance.
 install -d /etc
 cp /opt/snifferops/VERSION /etc/snifferops-version 2>/dev/null || true
+
+# ── Read-only-root (Step 4) ──────────────────────────────────────────────────
+# Enable the one-shot hardening service: on first boot it carves a data
+# partition from free space, moves /var/lib/snifferops onto it, and turns on the
+# Pi overlay filesystem (root read-only, writes to RAM). See
+# deploy/durability/setup-readonly-root.sh.
+systemctl enable snifferops-hardening.service
+
+# The hardening step needs free space for the data partition, so DO NOT let
+# pi-gen's first-boot auto-resize expand root to fill the card. Remove the
+# init_resize hook if present; root stays at its built size (read-only anyway).
+if [ -f /boot/firmware/cmdline.txt ]; then
+    sed -i 's# init=/usr/lib/raspberrypi-sys-mods/firstboot##; s# init=/usr/lib/raspi-config/init_resize\.sh##' /boot/firmware/cmdline.txt || true
+fi
 CHROOT

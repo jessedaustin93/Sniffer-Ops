@@ -1,0 +1,15 @@
+[Unit]
+Description=SnifferOps read-only-root hardening (one-shot, self-disables)
+# Run after the main first-boot provisioning so identity/config exist first.
+After=snifferops-firstboot.service local-fs.target
+Wants=snifferops-firstboot.service
+ConditionPathExists=/var/lib/snifferops/.provisioned
+ConditionPathExists=!/var/lib/snifferops/.readonly-provisioned
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/snifferops/deploy/durability/setup-readonly-root.sh
+
+[Install]
+WantedBy=multi-user.target

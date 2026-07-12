@@ -68,6 +68,11 @@ install -m 0644 "$SCRIPT_DIR/snifferops.service" \
     /etc/systemd/system/snifferops.service
 install -m 0644 "$SCRIPT_DIR/firstboot/snifferops-firstboot.service" \
     /etc/systemd/system/snifferops-firstboot.service
+# Read-only-root hardening unit is installed but left DISABLED here — hand-installs
+# stay writable. The image build enables it; operators opt in with:
+#   sudo systemctl enable snifferops-hardening.service && sudo reboot
+install -m 0644 "$SCRIPT_DIR/durability/snifferops-hardening.service" \
+    /etc/systemd/system/snifferops-hardening.service
 systemctl daemon-reload
 
 # ── 5b. SD-card durability baseline ──────────────────────────────────────────

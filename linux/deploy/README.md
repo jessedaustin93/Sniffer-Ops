@@ -77,9 +77,36 @@ Recommended additional hand-tuning on the SD image (not yet automated):
 - root mount options `commit=30,noatime` (batch writes),
 - boot partition `sync` (protect the FAT boot partition).
 
-For maximum safety, mount root **read-only** (updates remount rw, apply, remount
-ro — or reflash), or move to an A/B appliance image. That read-only-root / A/B
-work is the stronger follow-up; until then stable power still matters.
+### Read-only root (stronger durability)
+
+`deploy/durability/` implements a proper read-only root:
+
+- On first boot, `setup-readonly-root.sh` carves a **data partition** from the
+  card's free space (`snifferops-data`), moves `/var/lib/snifferops` onto it, and
+  adds an fstab entry.
+- It then enables the **Pi overlay filesystem** (`raspi-config enable_overlayfs`)
+  so the OS root is read-only and all root writes go to RAM (discarded on
+  reboot). Power loss can't corrupt the OS.
+- The data partition is a separate mount that sits *over* the overlay, so the DB,
+  `node_id`, and config **persist**; SQLite WAL recovers that partition.
+
+The step is a one-shot `snifferops-hardening.service` that self-disables and is
+**fail-safe** (any error leaves the node writable rather than broken). The image
+build enables it (and stops root auto-expand so there's free space for the data
+partition). Hand-installs stay writable by default; opt in with:
+
+```bash
+sudo systemctl enable snifferops-hardening.service && sudo reboot
+```
+
+Updating a read-only unit: `raspi-config nonint disable_overlayfs && reboot`,
+apply changes, re-enable, reboot — or reflash. An A/B image is the eventual
+stronger option.
+
+**Status:** read-only-root is implemented but **validated only once the CI image
+is flashed** (it repartitions + toggles the overlay, which needs a real flash to
+exercise). Until then, the journald-volatile baseline applies and stable power
+still matters.
 
 **HW acceptance:** pull power 20× mid-scan; the OS should boot clean every time
 and the DB should open without corruption.
