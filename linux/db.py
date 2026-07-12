@@ -492,13 +492,19 @@ def _sighting_id(profile_id: str, node_id: str) -> str:
 # ── Public API ────────────────────────────────────────────────────────────────
 
 
-def initialize(path: str) -> None:
+def initialize(path: Optional[str] = None) -> None:
     """
     Set the module-level DB path, create the data directory, create the
     schema (WAL mode, foreign_keys ON), and migrate legacy awareness.json
     if it exists alongside the database file.
+
+    *path* defaults to the shared data-dir database (honoring
+    ``SNIFFEROPS_DATA_DIR``) when not given.
     """
     global _DB_PATH
+    if path is None:
+        import paths
+        path = paths.DB_PATH
     _DB_PATH = path
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with _connect() as conn:

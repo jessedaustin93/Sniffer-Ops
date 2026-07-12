@@ -1,8 +1,10 @@
 # Python dependencies for SnifferOps Linux Companion
 # GTK4 / Adwaita bindings come from the system package manager, not pip.
-# See install.sh for the apt-get install block.
+# See install.sh (desktop) or deploy/install-appliance.sh (headless) for apt.
 #
-# Only pip-installable extras are listed here.
+# Only pip-installable extras are listed here. This is the full dependency set
+# for the headless appliance venv — no GTK, so the image stays small.
 # Most features work with zero pip installs on a standard Ubuntu 22.04+ desktop.
 
-rich>=13.0.0          # terminal fallback / logging (optional, not required for GUI)
+rich>=13.0.0          # terminal TUI on desktop; on the appliance the service
+                      # runs --headless and logs to journald instead.

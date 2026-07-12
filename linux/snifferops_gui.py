@@ -23,6 +23,7 @@ import subprocess
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import paths
 import awareness_log
 import signal_classifier
 import signal_signatures
@@ -34,9 +35,11 @@ from lenses.all_lenses import route
 from sync.node_sync import NodeSyncManager, check_peer_health
 from map_widget import MapWidget
 
-DATA_DIR  = os.path.expanduser("~/.snifferops")
-LOG_PATH  = os.path.join(DATA_DIR, "awareness.json")
-CFG_PATH  = os.path.join(DATA_DIR, "config.json")
+# Data dir / paths resolve through paths.py so the GUI and the headless hub
+# agree, and so SNIFFEROPS_DATA_DIR (appliance) redirects both.
+DATA_DIR  = paths.DATA_DIR
+LOG_PATH  = paths.LOG_PATH
+CFG_PATH  = paths.CFG_PATH
 REFRESH_INTERVAL_MS = 10_000
 
 # Default map home — a generic in-region placeholder (Knoxville, TN).  Override
@@ -46,15 +49,8 @@ DEFAULT_HOME_LAT  = 35.9606
 DEFAULT_HOME_LON  = -83.9207
 DEFAULT_HOME_ZOOM = 11
 def _load_node_id() -> str:
-    path = os.path.join(DATA_DIR, "node_id")
-    os.makedirs(DATA_DIR, exist_ok=True)
-    if os.path.exists(path):
-        with open(path) as f:
-            return f.read().strip()
-    nid = str(uuid.uuid4())
-    with open(path, "w") as f:
-        f.write(nid)
-    return nid
+    # Shared persistence so the GUI and headless hub use the same stable id.
+    return paths.load_or_create_node_id()
 
 NODE_ID = _load_node_id()
 NODE_NAME = f"linux-{platform.node()}"
@@ -388,23 +384,12 @@ def _tailscale_nodes() -> list[dict]:
 
 
 def load_config() -> dict:
-    import json
-    try:
-        with open(CFG_PATH) as f:
-            return json.load(f)
-    except Exception:
-        return {"port": 8766, "bind": "0.0.0.0",
-                "wifi": True, "bluetooth": True, "sdr": False,
-                "sdr_remote": "", "peers": [],
-                "home_lat": DEFAULT_HOME_LAT, "home_lon": DEFAULT_HOME_LON,
-                "home_zoom": DEFAULT_HOME_ZOOM}
+    # Shared loader: config.json merged over the same defaults the hub uses.
+    return paths.load_config()
 
 
 def save_config(cfg: dict) -> None:
-    import json
-    os.makedirs(DATA_DIR, exist_ok=True)
-    with open(CFG_PATH, "w") as f:
-        json.dump(cfg, f, indent=2)
+    paths.save_config(cfg)
 
 
 # ── Scanner callbacks ─────────────────────────────────────────────────────────

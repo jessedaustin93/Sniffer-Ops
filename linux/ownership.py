@@ -13,11 +13,12 @@ import re
 from functools import lru_cache
 from typing import Any
 
+import paths
 
-DATA_DIR = os.path.expanduser("~/.snifferops")
+DATA_DIR = paths.DATA_DIR
 TRUSTED_DEVICES_PATH = os.environ.get(
     "SNIFFEROPS_TRUSTED_DEVICES",
-    os.path.join(DATA_DIR, "trusted_devices.json"),
+    paths.TRUSTED_DEVICES_PATH,
 )
 
 
