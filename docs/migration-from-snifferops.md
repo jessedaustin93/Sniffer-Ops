@@ -8,20 +8,8 @@ Historical commits are intentionally preserved.
 
 ## Compatibility Window
 
-Linux currently accepts the old schema-1 LAN sync routes for compatibility with
-unmigrated peers:
-
-| Legacy endpoint | Current endpoint |
-|---|---|
-| `/snifferops/health` | `/ethrox-detect/health` |
-| `/snifferops/awareness` | `/ethrox-detect/awareness` |
-| `/snifferops/sync` | `/ethrox-detect/sync` |
-| `/snifferops/sdr/deep-scan` | `/ethrox-detect/sdr/deep-scan` |
-| `/snifferops/sdr/deep-scan/status` | `/ethrox-detect/sdr/deep-scan/status` |
-
-Legacy routes return `deprecated_path: true` where practical. Removal should be
-planned after Android, Windows, Linux, and appliance builds all publish
-Ethrox Detect endpoint support.
+Current code and deployed launch paths use Ethrox Detect names. Temporary
+compatibility paths should be removed after each migrated node is validated.
 
 ## Local Data
 

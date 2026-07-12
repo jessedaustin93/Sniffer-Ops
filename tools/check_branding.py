@@ -19,9 +19,7 @@ FORBIDDEN_RE = re.compile(
 )
 ALLOWLIST = {
     "docs/migration-from-snifferops.md",
-    "linux/awareness_log.py",
     "linux/deploy/migrate-snifferops-to-ethrox-detect.sh",
-    "linux/sync/node_sync.py",
     "linux/tests/test_migration_script.py",
     "tools/check_branding.py",
 }

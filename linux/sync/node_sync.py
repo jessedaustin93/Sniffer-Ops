@@ -32,9 +32,9 @@ import db
 
 log = logging.getLogger("ethrox_detect.sync")
 
-SYNC_PATHS = ("/ethrox-detect/sync", "/snifferops/sync")
-AWARENESS_PATHS = ("/ethrox-detect/awareness", "/snifferops/awareness")
-HEALTH_PATHS = ("/ethrox-detect/health", "/snifferops/health")
+SYNC_PATHS = ("/ethrox-detect/sync",)
+AWARENESS_PATHS = ("/ethrox-detect/awareness",)
+HEALTH_PATHS = ("/ethrox-detect/health",)
 
 
 class NodeSyncManager:
