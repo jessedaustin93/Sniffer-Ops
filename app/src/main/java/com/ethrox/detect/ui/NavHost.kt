@@ -20,7 +20,7 @@ sealed class Screen(val route: String) {
 }
 
 @Composable
-fun SnifferOpsNavHost(
+fun EthroxDetectNavHost(
     state: AppState,
     viewModel: DashboardViewModel
 ) {

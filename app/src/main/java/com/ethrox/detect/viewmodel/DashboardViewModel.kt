@@ -76,8 +76,8 @@ data class AppState(
 class DashboardViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
-        private const val TAG = "SnifferOpsWearSync"
-        private const val SERVER_PREFS = "snifferops_endpoints"
+        private const val TAG = "EthroxDetectWearSync"
+        private const val SERVER_PREFS = "ethrox_detect_endpoints"
         private const val PREF_NETWORK_HOST = "network_sdr_host"
         private const val PREF_NETWORK_PORT = "network_sdr_port"
         private const val PREF_AWARENESS_HOST = "awareness_sync_host"
@@ -824,7 +824,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private fun syncWearState(appState: AppState) {
         val summary = appState.summary
         val awarenessProfiles = appState.compactAwarenessProfiles()
-        val request = PutDataMapRequest.create("/snifferops/summary").apply {
+        val request = PutDataMapRequest.create("/ethrox-detect/summary").apply {
             dataMap.putInt("wifi", summary.wifiCount)
             dataMap.putInt("bt", summary.bluetoothCount + summary.bleCount)
             dataMap.putInt("cell", summary.cellCount)

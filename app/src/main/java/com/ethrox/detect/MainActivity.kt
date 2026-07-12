@@ -19,8 +19,8 @@ import androidx.activity.viewModels
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ethrox.detect.model.NfcTag
 import com.ethrox.detect.scanner.RtlSdrScanner
-import com.ethrox.detect.ui.SnifferOpsNavHost
-import com.ethrox.detect.ui.theme.SnifferOpsTheme
+import com.ethrox.detect.ui.EthroxDetectNavHost
+import com.ethrox.detect.ui.theme.EthroxDetectTheme
 import com.ethrox.detect.viewmodel.DashboardViewModel
 
 class MainActivity : ComponentActivity() {
@@ -75,9 +75,9 @@ class MainActivity : ComponentActivity() {
         requestPermissions()
 
         setContent {
-            SnifferOpsTheme {
+            EthroxDetectTheme {
                 val state = viewModel.state.collectAsStateWithLifecycle()
-                SnifferOpsNavHost(
+                EthroxDetectNavHost(
                     state = state.value,
                     viewModel = viewModel
                 )

@@ -44,7 +44,7 @@ class AwarenessSyncClient(private val context: Context) {
             val cleanHost = host.trim()
             require(cleanHost.isNotBlank()) { "Linux hub sync host is blank" }
 
-            val url = URL("http://$cleanHost:$port/snifferops/health")
+            val url = URL("http://$cleanHost:$port/ethrox-detect/health")
             val connection = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
                 connectTimeout = 2000
@@ -67,7 +67,7 @@ class AwarenessSyncClient(private val context: Context) {
             val cleanHost = host.trim()
             require(cleanHost.isNotBlank()) { "Linux hub sync host is blank" }
 
-            val url = URL("http://$cleanHost:$port/snifferops/sync")
+            val url = URL("http://$cleanHost:$port/ethrox-detect/sync")
             val connection = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 connectTimeout = 4000
@@ -97,7 +97,7 @@ class AwarenessSyncClient(private val context: Context) {
             val cleanHost = host.trim()
             require(cleanHost.isNotBlank()) { "Linux hub sync host is blank" }
 
-            val url = URL("http://$cleanHost:$port/snifferops/awareness")
+            val url = URL("http://$cleanHost:$port/ethrox-detect/awareness")
             val connection = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
                 connectTimeout = 2500
@@ -120,7 +120,7 @@ class AwarenessSyncClient(private val context: Context) {
             val cleanHost = host.trim()
             require(cleanHost.isNotBlank()) { "PC sync host is blank" }
 
-            val url = URL("http://$cleanHost:$port/snifferops/sdr/deep-scan")
+            val url = URL("http://$cleanHost:$port/ethrox-detect/sdr/deep-scan")
             val connection = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 connectTimeout = 3000
@@ -149,7 +149,7 @@ class AwarenessSyncClient(private val context: Context) {
             val cleanHost = host.trim()
             require(cleanHost.isNotBlank()) { "PC sync host is blank" }
 
-            val url = URL("http://$cleanHost:$port/snifferops/sdr/deep-scan/status")
+            val url = URL("http://$cleanHost:$port/ethrox-detect/sdr/deep-scan/status")
             val connection = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
                 connectTimeout = 2500

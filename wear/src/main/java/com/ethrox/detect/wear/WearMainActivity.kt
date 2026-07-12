@@ -56,7 +56,7 @@ val WatchRed = Color(0xFFFF3131)
 val WatchOrange = Color(0xFFFF8C00)
 val WatchBg = Color(0xFF020617)
 val WatchSurface = Color(0xFF111827)
-private const val WearSyncTag = "SnifferOpsWearSync"
+private const val WearSyncTag = "EthroxDetectWearSync"
 private val WatchFont = FontFamily(Font(R.font.spyagency3ital))
 private val WatchCondensedFont = FontFamily(Font(R.font.spyagency3cond))
 private val WatchTitleFont = FontFamily(Font(R.font.spyagency3gradital))
@@ -105,7 +105,7 @@ fun WearApp() {
         Wearable.getDataClient(context).dataItems.addOnSuccessListener { items ->
             var foundSummary = false
             items.forEach { item ->
-                if (item.uri.path == "/snifferops/summary") {
+                if (item.uri.path == "/ethrox-detect/summary") {
                     foundSummary = true
                     val dataMap = DataMapItem.fromDataItem(item).dataMap
                     Log.d(
