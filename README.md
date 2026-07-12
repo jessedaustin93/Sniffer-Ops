@@ -1,12 +1,12 @@
-# SnifferOps
+# Ethrox Detect
 
-SnifferOps is an Android signal-awareness app tailored for Samsung phones, with an accompanying Samsung watch monitor app and optional RTL-SDR support.
+Ethrox Detect is an Android signal-awareness app tailored for Samsung phones, with an accompanying Samsung watch monitor app and optional RTL-SDR support.
 
 The phone is the primary, standalone recorder. Detection, classification, GPS tagging, and history storage do not depend on Windows, the watch, or an active sync connection.
 
 ## Overview
 
-SnifferOps combines a simple tactical dashboard with real Android sensor APIs:
+Ethrox Detect combines a simple tactical dashboard with real Android sensor APIs:
 
 - Wi-Fi scan awareness
 - Bluetooth Classic and BLE scanning
@@ -43,7 +43,7 @@ The app is intended for authorized security auditing, network management, and ed
 
 ## Local History And GPS
 
-SnifferOps stores two kinds of data in its on-phone Room database:
+Ethrox Detect stores two kinds of data in its on-phone Room database:
 
 - Compact device profiles in `signal_devices`
 - Append-only detection evidence in `signal_sightings`
@@ -81,11 +81,11 @@ Scanner type screens show only recently available signals. Older Wi-Fi, Bluetoot
 
 ## RTL-SDR
 
-SnifferOps works without an SDR dongle. Wi-Fi, Bluetooth, NFC, and cellular scanning use built-in phone hardware.
+Ethrox Detect works without an SDR dongle. Wi-Fi, Bluetooth, NFC, and cellular scanning use built-in phone hardware.
 
 ### Direct USB Mode
 
-Plug an RTL-SDR Blog V4 or compatible RTL2832U dongle into the phone with USB-C OTG. Android will ask for USB permission, and SnifferOps will use the dongle if available.
+Plug an RTL-SDR Blog V4 or compatible RTL2832U dongle into the phone with USB-C OTG. Android will ask for USB permission, and Ethrox Detect will use the dongle if available.
 
 ### Network SDR Mode
 
@@ -120,8 +120,8 @@ Requirements:
 - JDK 17
 
 ```bash
-git clone https://github.com/jessedaustin93/Sniffer-Ops
-cd Sniffer-Ops
+git clone https://github.com/Ethrox-Systems/ethrox-detect
+cd ethrox-detect
 ./gradlew :app:assembleDebug
 ./gradlew :wear:assembleDebug
 ```

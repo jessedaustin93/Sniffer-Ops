@@ -13,6 +13,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "SnifferOps"
+rootProject.name = "EthroxDetect"
 include(":app")
 include(":wear")

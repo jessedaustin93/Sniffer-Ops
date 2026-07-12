@@ -6,11 +6,11 @@ plugins {
 }
 
 android {
-    namespace = "com.snifferops"
+    namespace = "com.ethrox.detect"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.snifferops"
+        applicationId = "com.ethrox.detect"
         minSdk = 31
         targetSdk = 35
         versionCode = 2

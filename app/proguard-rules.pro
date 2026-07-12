@@ -1,3 +1,3 @@
--keep class com.snifferops.** { *; }
+-keep class com.ethrox.detect.** { *; }
 -keepattributes *Annotation*
 -keepattributes SourceFile,LineNumberTable

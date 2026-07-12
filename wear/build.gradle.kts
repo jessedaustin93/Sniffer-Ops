@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "com.snifferops.wear"
+    namespace = "com.ethrox.detect.wear"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.snifferops"
+        applicationId = "com.ethrox.detect.wear"
         minSdk = 30
         targetSdk = 35
         versionCode = 2
