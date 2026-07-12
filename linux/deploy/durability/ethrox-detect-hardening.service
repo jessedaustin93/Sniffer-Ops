@@ -1,0 +1,15 @@
+[Unit]
+Description=Ethrox Detect read-only-root hardening (one-shot, self-disables)
+# Run after the main first-boot provisioning so identity/config exist first.
+After=ethrox-detect-firstboot.service local-fs.target
+Wants=ethrox-detect-firstboot.service
+ConditionPathExists=/var/lib/ethrox-detect/.provisioned
+ConditionPathExists=!/var/lib/ethrox-detect/.readonly-provisioned
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/ethrox-detect/deploy/durability/setup-readonly-root.sh
+
+[Install]
+WantedBy=multi-user.target

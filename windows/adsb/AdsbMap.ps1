@@ -21,7 +21,7 @@ function Export-AircraftJson {
         [string]   $Path
     )
     $payload = [pscustomobject][ordered]@{
-        schema    = "snifferops.adsb/1"
+        schema    = "ethrox-detect.adsb/1"
         generated = (Get-Date).ToString("o")
         count     = @($Aircraft).Count
         aircraft  = @($Aircraft)
@@ -48,7 +48,7 @@ function New-AdsbLeafletMap {
 <html>
 <head>
 <meta charset="utf-8" />
-<title>SnifferOps ADS-B</title>
+<title>Ethrox Detect ADS-B</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>

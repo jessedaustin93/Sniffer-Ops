@@ -1,18 +1,18 @@
 # shellcheck shell=bash
-# SnifferOps — shared installer functions, sourced by both the desktop
+# Ethrox Detect — shared installer functions, sourced by both the desktop
 # (install.sh) and appliance (deploy/install-appliance.sh) installers.
 #
 # This file is meant to be sourced, not executed. It defines helpers only.
 
 # ── Constants ─────────────────────────────────────────────────────────────────
-SNIFFEROPS_USER="${SNIFFEROPS_USER:-snifferops}"
-SNIFFEROPS_PREFIX="${SNIFFEROPS_PREFIX:-/opt/snifferops}"
-SNIFFEROPS_DATA_DIR="${SNIFFEROPS_DATA_DIR:-/var/lib/snifferops}"
+ETHROX_DETECT_USER="${ETHROX_DETECT_USER:-ethrox-detect}"
+ETHROX_DETECT_PREFIX="${ETHROX_DETECT_PREFIX:-/opt/ethrox-detect}"
+ETHROX_DETECT_DATA_DIR="${ETHROX_DETECT_DATA_DIR:-/var/lib/ethrox-detect}"
 
 # ── Logging ───────────────────────────────────────────────────────────────────
-log()  { printf '[snifferops] %s\n' "$*"; }
-warn() { printf '[snifferops] WARN: %s\n' "$*" >&2; }
-die()  { printf '[snifferops] ERROR: %s\n' "$*" >&2; exit 1; }
+log()  { printf '[ethrox-detect] %s\n' "$*"; }
+warn() { printf '[ethrox-detect] WARN: %s\n' "$*" >&2; }
+die()  { printf '[ethrox-detect] ERROR: %s\n' "$*" >&2; exit 1; }
 
 require_root() {
     [ "$(id -u)" -eq 0 ] || die "must run as root (use sudo)"
@@ -62,9 +62,9 @@ ensure_dir() {
 # group access under a service user. This rule makes RTL2832U dongles readable
 # by the plugdev group without root.
 install_rtlsdr_udev() {
-    local rule=/etc/udev/rules.d/60-snifferops-rtlsdr.rules
+    local rule=/etc/udev/rules.d/60-ethrox-detect-rtlsdr.rules
     install -m 0644 /dev/stdin "$rule" <<'EOF'
-# SnifferOps: RTL2832U-based RTL-SDR dongles accessible to the plugdev group
+# Ethrox Detect: RTL2832U-based RTL-SDR dongles accessible to the plugdev group
 SUBSYSTEM=="usb", ATTRS{idVendor}=="0bda", ATTRS{idProduct}=="2832", MODE="0660", GROUP="plugdev"
 SUBSYSTEM=="usb", ATTRS{idVendor}=="0bda", ATTRS{idProduct}=="2838", MODE="0660", GROUP="plugdev"
 EOF
@@ -78,13 +78,13 @@ EOF
 
 # ── SD-card durability ────────────────────────────────────────────────────────
 # Keep journald in RAM so normal operation doesn't write the SD card. Data lives
-# on /var/lib/snifferops (StateDirectory). This is the baseline hardening applied
+# on /var/lib/ethrox-detect (StateDirectory). This is the baseline hardening applied
 # to both hand-installs and the image; a true read-only root / A/B image is the
 # stronger follow-up (see deploy/README.md). Validated on a Pi Zero 2W: survives
 # clean reboots with a stable node id.
 apply_durability() {
     install -d /etc/systemd/journald.conf.d
-    install -m 0644 /dev/stdin /etc/systemd/journald.conf.d/snifferops.conf <<'EOF'
+    install -m 0644 /dev/stdin /etc/systemd/journald.conf.d/ethrox-detect.conf <<'EOF'
 [Journal]
 Storage=volatile
 RuntimeMaxUse=32M

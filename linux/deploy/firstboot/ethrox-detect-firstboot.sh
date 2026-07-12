@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# SnifferOps first-boot provisioning. Runs once (guarded by a sentinel),
+# Ethrox Detect first-boot provisioning. Runs once (guarded by a sentinel),
 # then self-disables. Idempotent and safe to re-run if the sentinel is removed.
 set -euo pipefail
 
-PREFIX="${SNIFFEROPS_PREFIX:-/opt/snifferops}"
-DATA_DIR="${SNIFFEROPS_DATA_DIR:-/var/lib/snifferops}"
-USER_NAME="${SNIFFEROPS_USER:-snifferops}"
+PREFIX="${ETHROX_DETECT_PREFIX:-/opt/ethrox-detect}"
+DATA_DIR="${ETHROX_DETECT_DATA_DIR:-/var/lib/ethrox-detect}"
+USER_NAME="${ETHROX_DETECT_USER:-ethrox-detect}"
 SENTINEL="$DATA_DIR/.provisioned"
 
 log() { printf '[firstboot] %s\n' "$*"; }
@@ -28,14 +28,14 @@ fi
 
 # ── 2. Generate stable node_id + default config.json ─────────────────────────
 # Reuses the exact Step 2 logic so the id/config match what the hub expects.
-sudo -u "$USER_NAME" env SNIFFEROPS_DATA_DIR="$DATA_DIR" \
+sudo -u "$USER_NAME" env ETHROX_DETECT_DATA_DIR="$DATA_DIR" \
     "$PREFIX/venv/bin/python" -c \
     "import sys; sys.path.insert(0, '$PREFIX'); import paths; \
      print('node_id', paths.load_or_create_node_id()); paths.bootstrap_config()"
 
-# ── 3. Hostname = snifferops-<shortid> ───────────────────────────────────────
+# ── 3. Hostname = ethrox-detect-<shortid> ───────────────────────────────────────
 SHORTID="$(cut -c1-6 "$DATA_DIR/node_id")"
-NEWHOST="snifferops-$SHORTID"
+NEWHOST="ethrox-detect-$SHORTID"
 if command -v hostnamectl >/dev/null 2>&1; then
     hostnamectl set-hostname "$NEWHOST"
 else
@@ -54,11 +54,11 @@ log "hostname set to $NEWHOST"
 # dropped at flash time, and move it into place.
 for BOOT in /boot/firmware /boot; do
     [ -d "$BOOT" ] || continue
-    if [ -f "$BOOT/snifferops-wifi.nmconnection" ]; then
+    if [ -f "$BOOT/ethrox-detect-wifi.nmconnection" ]; then
         install -d -m 0700 /etc/NetworkManager/system-connections
-        install -m 0600 "$BOOT/snifferops-wifi.nmconnection" \
-            /etc/NetworkManager/system-connections/snifferops-wifi.nmconnection
-        rm -f "$BOOT/snifferops-wifi.nmconnection"
+        install -m 0600 "$BOOT/ethrox-detect-wifi.nmconnection" \
+            /etc/NetworkManager/system-connections/ethrox-detect-wifi.nmconnection
+        rm -f "$BOOT/ethrox-detect-wifi.nmconnection"
         command -v nmcli >/dev/null 2>&1 && nmcli connection reload || true
         log "installed baked Wi-Fi NetworkManager profile"
         break
@@ -75,5 +75,5 @@ done
 # ── 5. Mark provisioned + self-disable ───────────────────────────────────────
 touch "$SENTINEL"
 chown "$USER_NAME:$USER_NAME" "$SENTINEL"
-systemctl disable snifferops-firstboot.service || true
+systemctl disable ethrox-detect-firstboot.service || true
 log "provisioning complete"

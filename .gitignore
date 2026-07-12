@@ -10,7 +10,7 @@
 .cxx
 local.properties
 *.png
-!windows/assets/snifferops-tile.png
+!windows/assets/ethrox-detect-tile.png
 tools/
 *.log
 *.out.csv

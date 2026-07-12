@@ -327,7 +327,7 @@ def classify_alert(name: str, type_: str, specific_type: str,
     Returns {"level": "HIGH"/"MEDIUM"/"LOW"/"NONE", "evidence": ...,
              "meaning": ..., "next_step": ..., "notes": ...}
 
-    Mirrors Get-SignalAlertClassification from SnifferOps.Windows.ps1.
+    Mirrors Get-SignalAlertClassification from Ethrox Detect.Windows.ps1.
     Movement clue on a surveillance-class signal upgrades it to HIGH.
     """
     text = " ".join(filter(None, [name, type_, specific_type, threat_level, notes])).lower()

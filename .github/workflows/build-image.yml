@@ -1,7 +1,7 @@
-name: Build SnifferOps OS image
+name: Build Ethrox Detect OS image
 
 # Reproducible appliance image: on a version tag, build the Bookworm Lite +
-# SnifferOps image with pi-gen and publish it as a release asset with a
+# Ethrox Detect image with pi-gen and publish it as a release asset with a
 # SHA-256 sidecar. This is what makes the build reproducible instead of
 # "whatever was on a laptop".
 
@@ -18,10 +18,10 @@ jobs:
   build-image:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout SnifferOps
+      - name: Checkout Ethrox Detect
         uses: actions/checkout@v4
         with:
-          path: sniffer-ops
+          path: ethrox-detect
 
       - name: Free up runner disk space
         run: |
@@ -55,26 +55,28 @@ jobs:
       - name: Assemble pi-gen config + custom stage
         run: |
           set -euo pipefail
-          VERSION="$(cat sniffer-ops/linux/VERSION)"
+          VERSION="$(python3 -c 'import json; print(json.load(open("ethrox-detect/version.json"))["version"])')"
+          BUILD="$(python3 -c 'import json; print(json.load(open("ethrox-detect/version.json"))["build"])')"
           echo "IMG_VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "IMG_BUILD=${BUILD}" >> "$GITHUB_ENV"
 
           # Drop our config in and stamp the image name with the version.
-          cp sniffer-ops/image/config pi-gen/config
-          echo "IMG_NAME=snifferops-os-${VERSION}" >> pi-gen/config
+          cp ethrox-detect/image/config pi-gen/config
+          echo "IMG_NAME=ethrox-detect-os-${VERSION}-build.${BUILD}" >> pi-gen/config
 
           # Custom stage into pi-gen's tree.
-          cp -r sniffer-ops/image/stage-snifferops pi-gen/stage-snifferops
+          cp -r ethrox-detect/image/stage-ethrox-detect pi-gen/stage-ethrox-detect
           # Skip pi-gen's own image-export stages beyond ours (Lite only).
           touch pi-gen/stage2/SKIP_IMAGES pi-gen/stage2/SKIP_NOOBS || true
 
           # The custom stage needs the repo path at build time.
-          echo "SNIFFEROPS_REPO=${GITHUB_WORKSPACE}/sniffer-ops" >> "$GITHUB_ENV"
+          echo "ETHROX_DETECT_REPO=${GITHUB_WORKSPACE}/ethrox-detect" >> "$GITHUB_ENV"
 
       - name: Build image (pi-gen, docker)
         working-directory: pi-gen
         env:
-          SNIFFEROPS_REPO: ${{ env.SNIFFEROPS_REPO }}
-          # Login/admin user for SSH management. Must differ from the `snifferops`
+          ETHROX_DETECT_REPO: ${{ env.ETHROX_DETECT_REPO }}
+          # Login/admin user for SSH management. Must differ from the `ethrox-detect`
           # service user (which is nologin). Non-sensitive; override via repo var.
           FIRST_USER_NAME: ${{ vars.APPLIANCE_USER || 'pi' }}
           # Key-only SSH. The value is a PUBLIC key (not sensitive) supplied as a
@@ -89,7 +91,7 @@ jobs:
             exit 1
           fi
           # Pass our env into the containerized build.
-          export PIGEN_DOCKER_OPTS="-e SNIFFEROPS_REPO -e FIRST_USER_NAME -e PUBKEY_SSH_FIRST_USER -v ${SNIFFEROPS_REPO}:${SNIFFEROPS_REPO}:ro"
+          export PIGEN_DOCKER_OPTS="-e ETHROX_DETECT_REPO -e FIRST_USER_NAME -e PUBKEY_SSH_FIRST_USER -v ${ETHROX_DETECT_REPO}:${ETHROX_DETECT_REPO}:ro"
           sudo -E ./build-docker.sh
 
       - name: Compress + checksum
@@ -116,5 +118,5 @@ jobs:
             ${{ steps.artifact.outputs.path }}
             ${{ steps.artifact.outputs.sha }}
           body: |
-            SnifferOps OS ${{ env.IMG_VERSION }} — Bookworm Lite arm64 appliance image.
+            Ethrox Detect OS ${{ env.IMG_VERSION }} build ${{ env.IMG_BUILD }} — Bookworm Lite arm64 appliance image.
             Verify: `sha256sum -c *.sha256`

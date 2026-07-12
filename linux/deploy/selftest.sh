@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SnifferOps appliance self-test / assembly test.
+# Ethrox Detect appliance self-test / assembly test.
 #
 # Run on the unit (or over SSH) to confirm a node is healthy before it ships.
 # Exits non-zero if any REQUIRED check fails; optional hardware checks warn only.
@@ -8,7 +8,7 @@
 set -uo pipefail
 
 PORT=8766
-DATA_DIR="${SNIFFEROPS_DATA_DIR:-/var/lib/snifferops}"
+DATA_DIR="${ETHROX_DETECT_DATA_DIR:-/var/lib/ethrox-detect}"
 while [ $# -gt 0 ]; do
     case "$1" in
         --port) PORT="$2"; shift 2 ;;
@@ -22,17 +22,17 @@ ok()   { printf '  \033[32mPASS\033[0m %s\n' "$*"; PASS=$((PASS+1)); }
 bad()  { printf '  \033[31mFAIL\033[0m %s\n' "$*"; FAIL=$((FAIL+1)); }
 warn() { printf '  \033[33mWARN\033[0m %s\n' "$*"; WARN=$((WARN+1)); }
 
-echo "SnifferOps self-test  (port=$PORT data=$DATA_DIR)"
+echo "Ethrox Detect self-test  (port=$PORT data=$DATA_DIR)"
 
 # ── Service ──────────────────────────────────────────────────────────────────
-if systemctl is-active --quiet snifferops.service; then
-    ok "snifferops.service is active"
+if systemctl is-active --quiet ethrox-detect.service; then
+    ok "ethrox-detect.service is active"
 else
-    bad "snifferops.service is not active"
+    bad "ethrox-detect.service is not active"
 fi
 
 # ── API ──────────────────────────────────────────────────────────────────────
-API_JSON="$(curl -s -m 5 "localhost:$PORT/snifferops/awareness" || true)"
+API_JSON="$(curl -s -m 5 "localhost:$PORT/ethrox-detect/awareness" || true)"
 if echo "$API_JSON" | grep -q '"nodeId"'; then
     API_NODE="$(echo "$API_JSON" | sed -n 's/.*"nodeId": *"\([^"]*\)".*/\1/p')"
     ok "API answers on $PORT (nodeId=$API_NODE)"
@@ -60,7 +60,7 @@ else
 fi
 
 # ── Data dir writable by the service user ────────────────────────────────────
-if sudo -u snifferops test -w "$DATA_DIR" 2>/dev/null || [ -w "$DATA_DIR" ]; then
+if sudo -u ethrox-detect test -w "$DATA_DIR" 2>/dev/null || [ -w "$DATA_DIR" ]; then
     ok "data dir writable"
 else
     bad "data dir not writable: $DATA_DIR"

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# SnifferOps read-only-root hardening (Step 4).
+# Ethrox Detect read-only-root hardening (Step 4).
 #
 # Design: the OS root is made read-only via the Raspberry Pi overlay filesystem
 # (writes go to RAM, discarded on reboot — power loss can't corrupt the OS),
-# while SnifferOps data lives on a SEPARATE writable partition mounted at
-# /var/lib/snifferops. A separate mount sits *over* the root overlay, so the DB,
+# while Ethrox Detect data lives on a SEPARATE writable partition mounted at
+# /var/lib/ethrox-detect. A separate mount sits *over* the root overlay, so the DB,
 # node_id, and config persist across reboots; SQLite WAL handles crash recovery
 # on that partition.
 #
@@ -17,9 +17,9 @@
 # hand-installs stay writable unless an operator opts in (see deploy/README.md).
 set -uo pipefail
 
-DATA_DIR="${SNIFFEROPS_DATA_DIR:-/var/lib/snifferops}"
-DATA_LABEL="snifferops-data"
-SENTINEL="/var/lib/snifferops/.readonly-provisioned"
+DATA_DIR="${ETHROX_DETECT_DATA_DIR:-/var/lib/ethrox-detect}"
+DATA_LABEL="ethrox-detect-data"
+SENTINEL="/var/lib/ethrox-detect/.readonly-provisioned"
 
 log()  { printf '[ro-root] %s\n' "$*"; }
 warn() { printf '[ro-root] WARN: %s\n' "$*" >&2; }
@@ -83,10 +83,10 @@ if command -v raspi-config >/dev/null; then
     # enable_overlayfs makes / an overlay and /boot read-only.
     raspi-config nonint enable_overlayfs || bail "enable_overlayfs failed"
     log "overlay enabled; rebooting into read-only root"
-    systemctl disable snifferops-hardening.service 2>/dev/null || true
+    systemctl disable ethrox-detect-hardening.service 2>/dev/null || true
     systemctl reboot
 else
     warn "raspi-config absent (non-RPi). Data partition is set up; configure"
     warn "overlayroot/ro-root per your distro. See deploy/README.md."
-    systemctl disable snifferops-hardening.service 2>/dev/null || true
+    systemctl disable ethrox-detect-hardening.service 2>/dev/null || true
 fi

@@ -1,4 +1,4 @@
-# SignalLens contract for SnifferOps Windows.
+# SignalLens contract for Ethrox Detect Windows.
 #
 # A "lens" is the class-appropriate viewer for a detected SDR signal. Instead of
 # forcing every signal through analog audio demodulation, each signal class

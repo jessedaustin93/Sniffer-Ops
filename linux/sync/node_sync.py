@@ -2,13 +2,13 @@
 Multi-node sync manager — Tailscale-aware, bidirectional.
 
 Sync protocol (wire-compatible across Linux / Windows / Android):
-  POST /snifferops/sync  → push our snapshot, receive peer's full payload → merge both
-  GET  /snifferops/awareness → pull full state (fallback / initial import)
-  GET  /snifferops/health    → liveness check
+  POST /ethrox-detect/sync  → push our snapshot, receive peer's full payload → merge both
+  GET  /ethrox-detect/awareness → pull full state (fallback / initial import)
+  GET  /ethrox-detect/health    → liveness check
 
 Tailscale auto-discovery:
   On startup and every DISCOVERY_INTERVAL seconds, query `tailscale status --json`,
-  probe each peer's :8766 health endpoint, and add any SnifferOps nodes automatically.
+  probe each peer's :8766 health endpoint, and add any Ethrox Detect nodes automatically.
   Discovered peers are tagged {"via": "tailscale"} and persisted to config.json.
 
 New in v2 (sighting UUIDs + acknowledgment protocol):
@@ -30,7 +30,11 @@ from typing import Any
 
 import db
 
-log = logging.getLogger("snifferops.sync")
+log = logging.getLogger("ethrox_detect.sync")
+
+SYNC_PATHS = ("/ethrox-detect/sync",)
+AWARENESS_PATHS = ("/ethrox-detect/awareness",)
+HEALTH_PATHS = ("/ethrox-detect/health",)
 
 
 class NodeSyncManager:
@@ -95,7 +99,7 @@ class NodeSyncManager:
         self._running = True
         # Run discovery immediately in background, then start main loop
         threading.Thread(target=self._discover_tailscale, daemon=True).start()
-        self._thread = threading.Thread(target=self._loop, daemon=True, name="snifferops-sync")
+        self._thread = threading.Thread(target=self._loop, daemon=True, name="ethrox-detect-sync")
         self._thread.start()
 
     def stop(self) -> None:
@@ -147,8 +151,8 @@ class NodeSyncManager:
             return {"sent": len(unsynced), "acknowledged": 0,
                     "error": f"payload build error: {exc}"}
 
-        remote = _http_post(host, port, "/snifferops/sync", payload,
-                            timeout=self.SYNC_TIMEOUT)
+        remote = _http_post_any(host, port, SYNC_PATHS, payload,
+                                timeout=self.SYNC_TIMEOUT)
 
         if remote is None:
             return {"sent": len(unsynced), "acknowledged": 0,
@@ -259,7 +263,7 @@ class NodeSyncManager:
             name = node["name"]
             if ip in existing_hosts:
                 continue
-            # Probe for SnifferOps
+            # Probe for Ethrox Detect
             if check_peer_health(ip, 8766, timeout=self.PROBE_TIMEOUT):
                 if self.add_peer(ip, 8766, name, via="tailscale"):
                     added.append({"host": ip, "port": 8766, "name": name, "via": "tailscale"})
@@ -295,8 +299,8 @@ class NodeSyncManager:
             }
 
         # Push our snapshot; the remote returns its own full payload
-        remote = _http_post(host, port, "/snifferops/sync", payload,
-                            timeout=self.SYNC_TIMEOUT)
+        remote = _http_post_any(host, port, SYNC_PATHS, payload,
+                                timeout=self.SYNC_TIMEOUT)
 
         if remote:
             # Handle acknowledgment of our sightings if the peer supports it
@@ -314,8 +318,8 @@ class NodeSyncManager:
             # awareness — this is how GPS-tagged sightings from Android reach Linux.
             signals_in_response = remote.get("signals") or []
             if not signals_in_response:
-                pulled = _http_get(host, port, "/snifferops/awareness",
-                                   timeout=self.SYNC_TIMEOUT)
+                pulled = _http_get_any(host, port, AWARENESS_PATHS,
+                                       timeout=self.SYNC_TIMEOUT)
                 if pulled:
                     signals_in_response = pulled.get("signals") or []
                     remote = pulled  # use full payload for totalSignals count
@@ -346,8 +350,8 @@ class NodeSyncManager:
             return f"ok — {n} signals from peer"
 
         # POST failed entirely; try a plain GET pull
-        pulled = _http_get(host, port, "/snifferops/awareness",
-                           timeout=self.SYNC_TIMEOUT)
+        pulled = _http_get_any(host, port, AWARENESS_PATHS,
+                               timeout=self.SYNC_TIMEOUT)
         if pulled and (pulled.get("signals") or pulled.get("Signals")):
             pull_snap = {
                 "schema":        1,
@@ -460,7 +464,25 @@ def _http_get(host: str, port: int, path: str,
         return None
 
 
+def _http_get_any(host: str, port: int, paths: tuple[str, ...],
+                  timeout: int = 8) -> dict | None:
+    for path in paths:
+        data = _http_get(host, port, path, timeout=timeout)
+        if data is not None:
+            return data
+    return None
+
+
+def _http_post_any(host: str, port: int, paths: tuple[str, ...], payload: dict,
+                   timeout: int = 8) -> dict | None:
+    for path in paths:
+        data = _http_post(host, port, path, payload, timeout=timeout)
+        if data is not None:
+            return data
+    return None
+
+
 def check_peer_health(host: str, port: int = 8766,
                       timeout: int = 3) -> bool:
-    data = _http_get(host, port, "/snifferops/health", timeout=timeout)
+    data = _http_get_any(host, port, HEALTH_PATHS, timeout=timeout)
     return bool(data and data.get("ok") is True)
