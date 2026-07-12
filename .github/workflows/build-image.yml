@@ -97,10 +97,9 @@ jobs:
         working-directory: pi-gen
         run: |
           set -euo pipefail
-          IMG="$(find deploy -name '*.img' | head -n1)"
-          test -n "$IMG"
-          xz -T0 -9 "$IMG"
-          OUT="${IMG}.xz"
+          # pi-gen deploys a ready-to-flash *.img.xz (DEPLOY_COMPRESSION=xz).
+          OUT="$(find deploy -name '*.img.xz' | head -n1)"
+          test -n "$OUT"
           sha256sum "$OUT" | tee "${OUT}.sha256"
           echo "path=pi-gen/${OUT}" >> "$GITHUB_OUTPUT"
           echo "sha=pi-gen/${OUT}.sha256" >> "$GITHUB_OUTPUT"

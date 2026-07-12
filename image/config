@@ -18,6 +18,10 @@ KEYBOARD_KEYMAP=us
 KEYBOARD_LAYOUT="English (US)"
 TIMEZONE_DEFAULT=America/New_York
 
+# Deploy a compressed, ready-to-flash image directly (no zip wrapper).
+DEPLOY_COMPRESSION=xz
+COMPRESSION_LEVEL=6
+
 # Hostname is finalized on first boot (snifferops-<shortid>); this is the seed.
 TARGET_HOSTNAME=snifferops
 
