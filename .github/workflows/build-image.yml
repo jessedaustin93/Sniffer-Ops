@@ -23,6 +23,17 @@ jobs:
         with:
           path: sniffer-ops
 
+      - name: Free up runner disk space
+        run: |
+          # Hosted runners start with ~14 GB free; a full arm64 pi-gen build
+          # (multiple per-stage rootfs copies) needs far more. Reclaim ~25-30 GB
+          # by dropping toolchains this job doesn't use.
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+            /usr/local/lib/android /opt/hostedtoolcache \
+            /usr/local/share/boost /usr/share/swift 2>/dev/null || true
+          sudo docker image prune -af 2>/dev/null || true
+          df -h /
+
       - name: Checkout pi-gen (Bookworm)
         uses: actions/checkout@v4
         with:
