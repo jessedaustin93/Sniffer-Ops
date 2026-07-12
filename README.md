@@ -63,7 +63,7 @@ powershell -ExecutionPolicy Bypass -File scripts\test-rtl-sdr.ps1
 
 The awareness panel in the header is a live miniature of the offline map; clicking it opens the full map window. The map draws a real map background from standard slippy tiles (dark CARTO / OpenStreetMap style): tiles download automatically the first time you view an area while online and are cached under the ignored `data\map-tiles\` folder, after which that area renders fully offline. With no cached tiles for an area it falls back to a plain coordinate grid, so the map never needs the internet to function. Drag to pan, scroll to zoom, click a dot for the signal's profile.
 
-Signals synced from the phone (`/snifferops/sync`) are placed in tiers:
+Signals synced from the phone (`/ethrox-detect/sync`) are placed in tiers:
 
 1. **GPS** (solid dot) - each distinct detection-time phone GPS position is retained as a route marker. Points within 25 meters are collapsed to keep the map readable.
 2. **Inferred, co-seen GPS** (dashed dot) - the signal has no GPS of its own, but the node that saw it reported GPS fixes for other signals close in time. It is placed from those fixes, weighted toward the nearest in time.
@@ -82,10 +82,10 @@ powershell -ExecutionPolicy Bypass -File windows\Test-OfflineMap.ps1
 
 The companion listens on the sync port (default 8766) for the phone app:
 
-- `GET /snifferops/health` - reachability check.
-- `GET /snifferops/awareness` - the merged signal awareness state.
-- `POST /snifferops/sync` - merge durable phone journal rows using their original detection timestamps and GPS coordinates.
-- `POST /snifferops/sdr/deep-scan` and `GET /snifferops/sdr/deep-scan/status` - ask the PC to run an SDR spectrum sweep and poll its result.
+- `GET /ethrox-detect/health` - reachability check.
+- `GET /ethrox-detect/awareness` - the merged signal awareness state.
+- `POST /ethrox-detect/sync` - merge durable phone journal rows using their original detection timestamps and GPS coordinates.
+- `POST /ethrox-detect/sdr/deep-scan` and `GET /ethrox-detect/sdr/deep-scan/status` - ask the PC to run an SDR spectrum sweep and poll its result.
 
 RTL deep scans run outside the WPF UI loop, so the app and sync endpoint remain responsive while `rtl_power` works. Peak parsing uses a linear rolling noise floor, and dashboard consumers share short-lived Wi-Fi/Bluetooth discovery snapshots instead of rerunning hardware enumeration several times per refresh.
 
