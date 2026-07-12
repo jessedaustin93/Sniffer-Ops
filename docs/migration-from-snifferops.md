@@ -1,6 +1,6 @@
-# Migration From Ethrox Detect
+# Migration From SnifferOps
 
-Ethrox Detect was formerly developed under the Ethrox Detect codename.
+Ethrox Detect was formerly developed under the SnifferOps codename.
 
 This repository now uses the Ethrox Detect identity for current product names,
 service names, packages, paths, launchers, artifacts, and documentation.

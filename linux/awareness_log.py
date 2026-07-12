@@ -1037,16 +1037,11 @@ class _SyncHandler(BaseHTTPRequestHandler):
 
     def _send_head(self) -> None:
         path = urlparse(self.path).path.lower()
-        if path in ("/", "/ethrox-detect", "/ethrox-detect/", "/ethrox-detect/web", "/ethrox-detect", "/ethrox-detect/", "/ethrox-detect/web"):
+        if path in ("/", "/ethrox-detect", "/ethrox-detect/", "/ethrox-detect/web"):
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(_WEB_APP_HTML.encode("utf-8"))))
         elif path in (
-            "/ethrox-detect/version",
-            "/ethrox-detect/web/status",
-            "/ethrox-detect/health",
-            "/ethrox-detect/awareness",
-            "/ethrox-detect/sdr/deep-scan/status",
             "/ethrox-detect/version",
             "/ethrox-detect/web/status",
             "/ethrox-detect/health",
@@ -1066,13 +1061,10 @@ class _SyncHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path.lower()
-        if path in ("/", "/ethrox-detect", "/ethrox-detect/", "/ethrox-detect/web", "/ethrox-detect", "/ethrox-detect/", "/ethrox-detect/web"):
+        if path in ("/", "/ethrox-detect", "/ethrox-detect/", "/ethrox-detect/web"):
             self._send_html(_WEB_APP_HTML)
-        elif path in ("/ethrox-detect/version", "/ethrox-detect/version"):
-            payload = get_version_payload()
-            if path.startswith("/ethrox-detect/"):
-                payload["deprecated_path"] = True
-            self._send_json(payload)
+        elif path == "/ethrox-detect/version":
+            self._send_json(get_version_payload())
         elif path == "/ethrox-detect/health":
             self._send_json({"ok": True, **get_version_payload()})
         elif path == "/ethrox-detect/awareness":
@@ -1081,20 +1073,12 @@ class _SyncHandler(BaseHTTPRequestHandler):
             self._send_json({"status": "idle", **get_version_payload()})
         elif path == "/ethrox-detect/web/status":
             self._send_json(get_web_status())
-        elif path == "/ethrox-detect/web/status":
-            self._send_json(get_web_status())
-        elif path == "/ethrox-detect/health":
-            self._send_json({"ok": True, **get_version_payload(), "deprecated_path": True})
-        elif path == "/ethrox-detect/awareness":
-            self._send_json(get_sync_payload())
-        elif path == "/ethrox-detect/sdr/deep-scan/status":
-            self._send_json({"status": "idle"})
         else:
             self._send_json({"error": "not found"}, 404)
 
     def do_POST(self):
         path = self.path.lower().split("?")[0]
-        if path in ("/ethrox-detect/sync", "/ethrox-detect/sync"):
+        if path == "/ethrox-detect/sync":
             try:
                 length = int(self.headers.get("Content-Length", 0))
                 body = self.rfile.read(length).decode("utf-8")
@@ -1114,7 +1098,7 @@ class _SyncHandler(BaseHTTPRequestHandler):
                 self._send_json(payload)
             except Exception as exc:
                 self._send_json({"error": str(exc)}, 500)
-        elif path in ("/ethrox-detect/sdr/deep-scan", "/ethrox-detect/sdr/deep-scan"):
+        elif path == "/ethrox-detect/sdr/deep-scan":
             self._send_json({"accepted": True, "status": "queued", **get_version_payload()})
         else:
             self._send_json({"error": "not found"}, 404)
