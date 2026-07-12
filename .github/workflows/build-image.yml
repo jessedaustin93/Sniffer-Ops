@@ -30,8 +30,16 @@ jobs:
           ref: bookworm
           path: pi-gen
 
-      - name: Enable binfmt/qemu for arm64 emulation
-        uses: docker/setup-qemu-action@v3
+      - name: Install qemu-user-static (pi-gen needs qemu-*-static + binfmt)
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          # Provides /usr/bin/qemu-arm-static (pi-gen bind-mounts it for the arm
+          # chroot) and registers binfmt handlers for arm/aarch64 emulation.
+          sudo apt-get install -y qemu-user-static binfmt-support
+          sudo update-binfmts --enable qemu-arm || true
+          sudo update-binfmts --enable qemu-aarch64 || true
+          test -x /usr/bin/qemu-arm-static && echo "qemu-arm-static present"
 
       - name: Assemble pi-gen config + custom stage
         run: |
