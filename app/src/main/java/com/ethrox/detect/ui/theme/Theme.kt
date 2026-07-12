@@ -41,7 +41,7 @@ private val DarkColorScheme = darkColorScheme(
 )
 
 @Composable
-fun SnifferOpsTheme(content: @Composable () -> Unit) {
+fun EthroxDetectTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = DarkColorScheme,
         typography = Typography(),

@@ -1,0 +1,12 @@
+{
+  "product": "Ethrox Detect",
+  "slug": "ethrox-detect",
+  "major": 0,
+  "minor": 2,
+  "patch": 0,
+  "prerelease": "rc.1",
+  "build": 1,
+  "version": "0.2.0-rc.1",
+  "full_version": "0.2.0-rc.1+1",
+  "channel": "release-candidate"
+}

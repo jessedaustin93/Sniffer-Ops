@@ -4,7 +4,7 @@ import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
 
-class SnifferOpsApp : Application() {
+class EthroxDetectApp : Application() {
 
     override fun onCreate() {
         super.onCreate()

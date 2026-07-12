@@ -73,9 +73,9 @@ import com.ethrox.detect.ui.theme.BackgroundDark
 import com.ethrox.detect.ui.theme.OnSurface
 import com.ethrox.detect.ui.theme.OnSurfaceMuted
 import com.ethrox.detect.ui.theme.RadarGreen
-import com.ethrox.detect.ui.theme.SnifferOpsCondensedFont
-import com.ethrox.detect.ui.theme.SnifferOpsFont
-import com.ethrox.detect.ui.theme.SnifferOpsTitleFont
+import com.ethrox.detect.ui.theme.EthroxDetectCondensedFont
+import com.ethrox.detect.ui.theme.EthroxDetectFont
+import com.ethrox.detect.ui.theme.EthroxDetectTitleFont
 import com.ethrox.detect.ui.theme.SurfaceDark
 import com.ethrox.detect.ui.theme.TacticalBlue
 import com.ethrox.detect.ui.theme.WarningOrange
@@ -120,7 +120,7 @@ fun DashboardScreen(
                         Column {
                             Text(
                                 "SNIFFER OPS",
-                                fontFamily = SnifferOpsTitleFont,
+                                fontFamily = EthroxDetectTitleFont,
                                 fontWeight = FontWeight.Bold,
                                 color = RadarGreen,
                                 fontSize = 20.sp,
@@ -130,7 +130,7 @@ fun DashboardScreen(
                                 "SAMSUNG FIELD MONITOR",
                                 color = OnSurfaceMuted,
                                 fontSize = 10.sp,
-                                fontFamily = SnifferOpsCondensedFont,
+                                fontFamily = EthroxDetectCondensedFont,
                                 letterSpacing = 1.4.sp
                             )
                         }
@@ -225,7 +225,7 @@ fun DashboardScreen(
                 Spacer(Modifier.width(10.dp))
                 Text(
                     if (state.scanActive) "STOP SCAN" else "START SCAN",
-                    fontFamily = SnifferOpsFont,
+                    fontFamily = EthroxDetectFont,
                     fontWeight = FontWeight.Bold,
                     fontSize = 16.sp,
                     letterSpacing = 2.sp
@@ -236,7 +236,7 @@ fun DashboardScreen(
                 "SCANNERS",
                 color = Color(0xFF22D3EE),
                 fontSize = 11.sp,
-                fontFamily = SnifferOpsCondensedFont,
+                fontFamily = EthroxDetectCondensedFont,
                 letterSpacing = 2.sp
             )
 
@@ -281,7 +281,7 @@ private fun RadarScope(active: Boolean, sweepAngle: Float, modifier: Modifier = 
             if (active) "LIVE" else "IDLE",
             color = if (active) RadarGreen else OnSurfaceMuted,
             fontSize = 13.sp,
-            fontFamily = SnifferOpsFont,
+            fontFamily = EthroxDetectFont,
             fontWeight = FontWeight.Bold
         )
     }
@@ -294,8 +294,8 @@ private fun StatusRow(label: String, count: Int, color: Color) {
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Box(Modifier.size(8.dp).clip(CircleShape).background(color))
-        Text(label, color = OnSurfaceMuted, fontSize = 12.sp, fontFamily = SnifferOpsCondensedFont, modifier = Modifier.width(88.dp))
-        Text(count.toString(), color = color, fontSize = 16.sp, fontFamily = SnifferOpsCondensedFont, fontWeight = FontWeight.Bold)
+        Text(label, color = OnSurfaceMuted, fontSize = 12.sp, fontFamily = EthroxDetectCondensedFont, modifier = Modifier.width(88.dp))
+        Text(count.toString(), color = color, fontSize = 16.sp, fontFamily = EthroxDetectCondensedFont, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -322,7 +322,7 @@ private fun SdrStatusBadge(connected: Boolean, deviceName: String, onConnectWind
                     if (connected) "RTL-SDR LINK ONLINE" else "RTL-SDR LINK IDLE",
                     color = if (connected) RadarGreen else OnSurfaceMuted,
                     fontSize = 12.sp,
-                    fontFamily = SnifferOpsFont,
+                    fontFamily = EthroxDetectFont,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 1.sp
                 )
@@ -330,7 +330,7 @@ private fun SdrStatusBadge(connected: Boolean, deviceName: String, onConnectWind
                     if (connected && deviceName.isNotEmpty()) deviceName else "USB-C OTG or PC feed",
                     color = OnSurfaceMuted.copy(0.76f),
                     fontSize = 11.sp,
-                    fontFamily = SnifferOpsCondensedFont
+                    fontFamily = EthroxDetectCondensedFont
                 )
             }
             Button(
@@ -342,7 +342,7 @@ private fun SdrStatusBadge(connected: Boolean, deviceName: String, onConnectWind
                 Spacer(Modifier.width(6.dp))
                 Text(
                     "PC",
-                    fontFamily = SnifferOpsCondensedFont,
+                    fontFamily = EthroxDetectCondensedFont,
                     fontWeight = FontWeight.Bold,
                     fontSize = 11.sp
                 )
@@ -413,9 +413,9 @@ private fun ScannerCard(tile: ScannerTile, modifier: Modifier = Modifier, onClic
                 Icon(tile.icon, tile.label, tint = tile.color, modifier = Modifier.size(25.dp))
             }
             Column(verticalArrangement = Arrangement.Center) {
-                Text(tile.count.toString(), color = tile.color, fontSize = 23.sp, fontWeight = FontWeight.Bold, fontFamily = SnifferOpsCondensedFont)
-                Text(tile.label.uppercase(), color = OnSurface, fontSize = 11.sp, fontFamily = SnifferOpsCondensedFont, letterSpacing = 1.sp)
-                Text(tile.subtitle(), color = OnSurfaceMuted, fontSize = 9.sp, fontFamily = SnifferOpsCondensedFont)
+                Text(tile.count.toString(), color = tile.color, fontSize = 23.sp, fontWeight = FontWeight.Bold, fontFamily = EthroxDetectCondensedFont)
+                Text(tile.label.uppercase(), color = OnSurface, fontSize = 11.sp, fontFamily = EthroxDetectCondensedFont, letterSpacing = 1.sp)
+                Text(tile.subtitle(), color = OnSurfaceMuted, fontSize = 9.sp, fontFamily = EthroxDetectCondensedFont)
             }
         }
     }

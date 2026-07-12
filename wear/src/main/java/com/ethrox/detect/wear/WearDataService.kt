@@ -9,13 +9,13 @@ import com.google.android.gms.wearable.WearableListenerService
 class WearDataService : WearableListenerService() {
 
     companion object {
-        private const val TAG = "SnifferOpsWearSync"
+        private const val TAG = "EthroxDetectWearSync"
     }
 
     override fun onDataChanged(dataEvents: DataEventBuffer) {
         dataEvents.forEach { event ->
             when (event.dataItem.uri.path) {
-                "/snifferops/summary" -> {
+                "/ethrox-detect/summary" -> {
                     val dataMap = com.google.android.gms.wearable.DataMapItem
                         .fromDataItem(event.dataItem).dataMap
                     Log.d(

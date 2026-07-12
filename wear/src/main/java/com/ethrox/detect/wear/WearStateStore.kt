@@ -5,7 +5,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 object WearStateStore {
-    private const val PREFS = "snifferops_wear_state"
+    private const val PREFS = "ethrox_detect_wear_state"
     private const val KEY_STATE = "last_state"
 
     fun save(context: Context, state: WearState) {
