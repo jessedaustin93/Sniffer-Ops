@@ -1,21 +1,21 @@
 [Unit]
-Description=SnifferOps headless awareness hub
-Documentation=https://github.com/jessedaustin93/Sniffer-Ops
+Description=Ethrox Detect headless awareness hub
+Documentation=https://github.com/jessedaustin93/Ethrox-Detect
 After=network-online.target bluetooth.target NetworkManager.service
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=snifferops
-Group=snifferops
+User=ethrox-detect
+Group=ethrox-detect
 # Data lives on the writable data partition; root can stay read-only.
-Environment=SNIFFEROPS_DATA_DIR=/var/lib/snifferops
-ExecStart=/opt/snifferops/venv/bin/python /opt/snifferops/snifferops_linux.py --headless
+Environment=ETHROX_DETECT_DATA_DIR=/var/lib/ethrox-detect
+ExecStart=/opt/ethrox-detect/venv/bin/python /opt/ethrox-detect/ethrox_detect_linux.py --headless
 Restart=always
 RestartSec=10
 
-# systemd creates/owns /var/lib/snifferops (0750) and implies ReadWritePaths.
-StateDirectory=snifferops
+# systemd creates/owns /var/lib/ethrox-detect (0750) and implies ReadWritePaths.
+StateDirectory=ethrox-detect
 StateDirectoryMode=0750
 
 # ── Light hardening ──────────────────────────────────────────────────────────
@@ -27,7 +27,7 @@ StateDirectoryMode=0750
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
-ReadWritePaths=/var/lib/snifferops
+ReadWritePaths=/var/lib/ethrox-detect
 SupplementaryGroups=bluetooth netdev plugdev dialout
 
 [Install]

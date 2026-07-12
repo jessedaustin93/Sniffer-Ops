@@ -1,9 +1,9 @@
 """
-Local ownership/trust overrides for SnifferOps.
+Local ownership/trust overrides for Ethrox Detect.
 
 The source tree defines the matching behavior; the actual trusted devices live
-in ~/.snifferops/trusted_devices.json so private SSIDs, MACs, and local camera
-names do not get committed.
+in local configuration so private SSIDs, MACs, and local camera names do not get
+committed.
 """
 
 from dataclasses import dataclass
@@ -13,12 +13,11 @@ import re
 from functools import lru_cache
 from typing import Any
 
-import paths
 
-DATA_DIR = paths.DATA_DIR
+DATA_DIR = os.path.expanduser(os.environ.get("ETHROX_DETECT_DATA_DIR", "~/.ethrox-detect"))
 TRUSTED_DEVICES_PATH = os.environ.get(
-    "SNIFFEROPS_TRUSTED_DEVICES",
-    paths.TRUSTED_DEVICES_PATH,
+    "ETHROX_DETECT_TRUSTED_DEVICES",
+    os.path.join(DATA_DIR, "trusted_devices.json"),
 )
 
 

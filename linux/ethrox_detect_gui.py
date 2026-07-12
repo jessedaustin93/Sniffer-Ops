@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-SnifferOps Linux — GTK4 GUI matching the Windows/Android tactical dark theme.
+Ethrox Detect Linux — GTK4 GUI matching the Windows/Android tactical dark theme.
 """
 
 import gi
@@ -23,7 +23,6 @@ import subprocess
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import paths
 import awareness_log
 import signal_classifier
 import signal_signatures
@@ -35,11 +34,9 @@ from lenses.all_lenses import route
 from sync.node_sync import NodeSyncManager, check_peer_health
 from map_widget import MapWidget
 
-# Data dir / paths resolve through paths.py so the GUI and the headless hub
-# agree, and so SNIFFEROPS_DATA_DIR (appliance) redirects both.
-DATA_DIR  = paths.DATA_DIR
-LOG_PATH  = paths.LOG_PATH
-CFG_PATH  = paths.CFG_PATH
+DATA_DIR  = os.path.expanduser(os.environ.get("ETHROX_DETECT_DATA_DIR", "~/.ethrox-detect"))
+LOG_PATH  = os.path.join(DATA_DIR, "awareness.json")
+CFG_PATH  = os.path.join(DATA_DIR, "config.json")
 REFRESH_INTERVAL_MS = 10_000
 
 # Default map home — a generic in-region placeholder (Knoxville, TN).  Override
@@ -49,8 +46,15 @@ DEFAULT_HOME_LAT  = 35.9606
 DEFAULT_HOME_LON  = -83.9207
 DEFAULT_HOME_ZOOM = 11
 def _load_node_id() -> str:
-    # Shared persistence so the GUI and headless hub use the same stable id.
-    return paths.load_or_create_node_id()
+    path = os.path.join(DATA_DIR, "node_id")
+    os.makedirs(DATA_DIR, exist_ok=True)
+    if os.path.exists(path):
+        with open(path) as f:
+            return f.read().strip()
+    nid = str(uuid.uuid4())
+    with open(path, "w") as f:
+        f.write(nid)
+    return nid
 
 NODE_ID = _load_node_id()
 NODE_NAME = f"linux-{platform.node()}"
@@ -384,12 +388,23 @@ def _tailscale_nodes() -> list[dict]:
 
 
 def load_config() -> dict:
-    # Shared loader: config.json merged over the same defaults the hub uses.
-    return paths.load_config()
+    import json
+    try:
+        with open(CFG_PATH) as f:
+            return json.load(f)
+    except Exception:
+        return {"port": 8766, "bind": "0.0.0.0",
+                "wifi": True, "bluetooth": True, "sdr": False,
+                "sdr_remote": "", "peers": [],
+                "home_lat": DEFAULT_HOME_LAT, "home_lon": DEFAULT_HOME_LON,
+                "home_zoom": DEFAULT_HOME_ZOOM}
 
 
 def save_config(cfg: dict) -> None:
-    paths.save_config(cfg)
+    import json
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(CFG_PATH, "w") as f:
+        json.dump(cfg, f, indent=2)
 
 
 # ── Scanner callbacks ─────────────────────────────────────────────────────────
@@ -702,11 +717,11 @@ def _make_signal_table(filter_type: str | None = None) -> tuple[Gtk.ScrolledWind
 
 # ── Main window ───────────────────────────────────────────────────────────────
 
-class SnifferOpsWindow(Adw.ApplicationWindow):
+class EthroxDetectWindow(Adw.ApplicationWindow):
 
-    def __init__(self, app: "SnifferOpsApp"):
+    def __init__(self, app: "EthroxDetectApp"):
         super().__init__(application=app)
-        self.set_title("SnifferOps")
+        self.set_title("Ethrox Detect")
         self.set_default_size(1280, 860)
         self.add_css_class("main-window")
 
@@ -732,7 +747,7 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
         tv.add_top_bar(header)
 
         title_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        t1 = _label("SNIFFER OPS", "title-green")
+        t1 = _label("ETHROX DETECT", "title-green")
         t1.set_halign(Gtk.Align.START)
         t2 = _label("LINUX COMPANION", "subtitle-muted")
         t2.set_halign(Gtk.Align.START)
@@ -1160,7 +1175,7 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
         """Create (first time) and present the standalone map window."""
         if self._map_window is None:
             win = Gtk.Window()
-            win.set_title("SnifferOps — Awareness Map")
+            win.set_title("Ethrox Detect - Awareness Map")
             win.set_default_size(1100, 760)
             win.add_css_class("main-window")
 
@@ -1253,7 +1268,7 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
         ts_grp_hdr = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         ts_grp_hdr.append(_label("<b>Tailscale Network</b>", markup=True, css=""))
         ts_grp_hdr.get_first_child().set_hexpand(True)
-        scan_ts_btn = Gtk.Button(label="Scan for SnifferOps",
+        scan_ts_btn = Gtk.Button(label="Scan forEthrox Detect",
                                  icon_name="network-wireless-symbolic")
         scan_ts_btn.add_css_class("btn-secondary")
         scan_ts_btn.connect("clicked", self._on_scan_tailscale)
@@ -1300,7 +1315,7 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
         peers = self._cfg.get("peers", [])
         if not peers:
             row = Adw.ActionRow(title="No peers yet",
-                                subtitle="Add a Windows or Linux SnifferOps node above")
+                                subtitle="Add a Windows or LinuxEthrox Detect node above")
             row.add_css_class("dim-label")
             self._peer_list.append(row)
             return
@@ -1395,7 +1410,7 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
 
     def _on_add_peer(self, _btn) -> None:
         dlg = Adw.MessageDialog(transient_for=self, heading="Add Peer Node",
-                                body="IP address of a Windows or Linux SnifferOps node.")
+                                body="IP address of a Windows or LinuxEthrox Detect node.")
         dlg.add_response("cancel", "Cancel")
         dlg.add_response("add",    "Add")
         dlg.set_response_appearance("add", Adw.ResponseAppearance.SUGGESTED)
@@ -1805,10 +1820,10 @@ class SnifferOpsWindow(Adw.ApplicationWindow):
 
 # ── Application ───────────────────────────────────────────────────────────────
 
-class SnifferOpsApp(Adw.Application):
+class EthroxDetectApp(Adw.Application):
 
     def __init__(self):
-        super().__init__(application_id="com.snifferops.linux",
+        super().__init__(application_id="com.ethrox.detect.linux",
                          flags=Gio.ApplicationFlags.FLAGS_NONE)
 
     def do_startup(self) -> None:
@@ -1836,11 +1851,11 @@ class SnifferOpsApp(Adw.Application):
             _db_mod.initialize(LOG_PATH.replace('.json', '.db'))
             awareness_log.initialize(LOG_PATH)
             awareness_log.set_node_info(NODE_ID, NODE_NAME)
-            win = SnifferOpsWindow(self)
+            win = EthroxDetectWindow(self)
             self._start_services(win)
         win.present()
 
-    def _start_services(self, win: SnifferOpsWindow) -> None:
+    def _start_services(self, win: EthroxDetectWindow) -> None:
         global _sync_manager
         cfg = win._cfg
         awareness_log.start_server("0.0.0.0", cfg.get("port", 8766))
@@ -1904,19 +1919,19 @@ class SnifferOpsApp(Adw.Application):
     def _on_about(self, *_) -> None:
         Adw.AboutWindow(
             transient_for=self.get_active_window(),
-            application_name="SnifferOps",
-            application_icon="com.snifferops.linux",
+            application_name="Ethrox Detect",
+            application_icon="com.ethrox.detect.linux",
             version="1.0.0",
-            developer_name="SnifferOps Project",
+            developer_name="Ethrox Systems",
             comments="Multi-platform RF and wireless signal awareness hub.\n"
                      "Syncs with Android and Windows nodes on the same LAN.",
-            website="https://github.com/jessedaustin93/Sniffer-Ops",
+            website="https://github.com/Ethrox-Systems/ethrox-detect",
             license_type=Gtk.License.MIT_X11,
         ).present()
 
 
 def main() -> None:
-    SnifferOpsApp().run(sys.argv)
+    EthroxDetectApp().run(sys.argv)
 
 
 if __name__ == "__main__":

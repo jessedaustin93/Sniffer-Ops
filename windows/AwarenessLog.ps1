@@ -521,17 +521,17 @@ function Receive-AwarenessSyncRequests {
             $script:AwarenessSyncAsyncResult = $script:AwarenessSyncListener.BeginAcceptTcpClient($null, $null)
             $request = Read-AwarenessHttpRequest -Client $client
             $path = $request.Path.ToLowerInvariant()
-            if ($request.Method -eq "GET" -and $path -eq "/snifferops/health") {
-                Send-AwarenessTcpJsonResponse -Client $client -Body @{ ok = $true; service = "snifferops-awareness" }
+            if ($request.Method -eq "GET" -and $path -eq "/ethrox-detect/health") {
+                Send-AwarenessTcpJsonResponse -Client $client -Body @{ ok = $true; service = "ethrox-detect-awareness" }
                 $handled++
                 continue
             }
-            if ($request.Method -eq "GET" -and $path -eq "/snifferops/awareness") {
+            if ($request.Method -eq "GET" -and $path -eq "/ethrox-detect/awareness") {
                 Send-AwarenessTcpJsonResponse -Client $client -Body (Get-AwarenessSyncPayload)
                 $handled++
                 continue
             }
-            if ($request.Method -eq "POST" -and $path -eq "/snifferops/sync") {
+            if ($request.Method -eq "POST" -and $path -eq "/ethrox-detect/sync") {
                 $snapshot = $request.Body | ConvertFrom-Json
                 $merge = Merge-AwarenessSnapshot -Snapshot $snapshot
                 $payload = Get-AwarenessSyncPayload

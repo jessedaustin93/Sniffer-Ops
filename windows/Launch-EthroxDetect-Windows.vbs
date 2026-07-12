@@ -3,7 +3,7 @@ Set fso = CreateObject("Scripting.FileSystemObject")
 
 scriptDir = fso.GetParentFolderName(WScript.ScriptFullName)
 repoRoot = fso.GetParentFolderName(scriptDir)
-psScript = fso.BuildPath(scriptDir, "SnifferOps.Windows.ps1")
+psScript = fso.BuildPath(scriptDir, "EthroxDetect.Windows.ps1")
 
 command = "powershell.exe -STA -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File """ & psScript & """"
 shell.CurrentDirectory = repoRoot

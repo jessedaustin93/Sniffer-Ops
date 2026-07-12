@@ -1,5 +1,5 @@
 """
-SnifferOps Linux — SQLite persistence layer.
+Ethrox Detect Linux — SQLite persistence layer.
 
 Provides durable storage for signal profiles with bounded per-node sightings,
 WAL-mode SQLite, optional GPS position averaging, sync-state tracking,
@@ -111,7 +111,7 @@ def _schema_version(conn: sqlite3.Connection) -> int:
 
 
 def get_schema_version() -> int:
-    """Return the highest applied additive SnifferOps schema migration."""
+    """Return the highest applied additive Ethrox Detect schema migration."""
     with _connect() as conn:
         return _schema_version(conn)
 
@@ -486,7 +486,7 @@ def _sdr_bucket_hz(class_group: str) -> float:
 
 def _sighting_id(profile_id: str, node_id: str) -> str:
     """Stable row key: one updateable sighting row per signal profile per node."""
-    return uuid.uuid5(uuid.NAMESPACE_URL, f"snifferops:{profile_id}:{node_id}").hex
+    return uuid.uuid5(uuid.NAMESPACE_URL, f"ethrox-detect:{profile_id}:{node_id}").hex
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -499,7 +499,7 @@ def initialize(path: Optional[str] = None) -> None:
     if it exists alongside the database file.
 
     *path* defaults to the shared data-dir database (honoring
-    ``SNIFFEROPS_DATA_DIR``) when not given.
+    ``ETHROX_DETECT_DATA_DIR``) when not given.
     """
     global _DB_PATH
     if path is None:
@@ -1293,7 +1293,7 @@ def build_sync_payload(
     Build a schema-1 sync payload from the current DB state.
 
     For each profile, includes up to 20 unsynced sightings. The payload
-    shape matches the SnifferOps wire format exactly.
+    shape matches the Ethrox Detect wire format exactly.
     """
     now_ms = _now_ms()
     profiles = get_all_profiles()

@@ -14,7 +14,7 @@ function New-POCSAGLens {
             param($signal)
             [pscustomobject][ordered]@{
                 Kind    = 'notimplemented'
-                Message = 'POCSAG pager decoding is on the roadmap but not yet implemented in SnifferOps Windows.'
+                Message = 'POCSAG pager decoding is on the roadmap but not yet implemented in Ethrox Detect Windows.'
             }
         }
 }

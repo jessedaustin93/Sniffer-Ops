@@ -1,14 +1,14 @@
 """
-Central data-dir, identity, and config resolution for SnifferOps Linux.
+Central data-dir, identity, and config resolution for Ethrox Detect Linux.
 
-Single source of truth shared by the headless hub (``snifferops_linux.py``)
-and the GTK desktop GUI (``snifferops_gui.py``) so both agree on where the
+Single source of truth shared by the headless hub (``ethrox_detect_linux.py``)
+and the GTK desktop GUI (``ethrox_detect_gui.py``) so both agree on where the
 node identity, config, database, and logs live.
 
 Data directory precedence:
-  1. ``$SNIFFEROPS_DATA_DIR``  — the appliance points this at
-     ``/var/lib/snifferops`` (writable data partition, read-only root).
-  2. ``~/.snifferops``        — desktop default.
+  1. ``$ETHROX_DETECT_DATA_DIR``  — the appliance points this at
+     ``/var/lib/ethrox-detect`` (writable data partition, read-only root).
+  2. ``~/.ethrox-detect``        — desktop default.
 
 The node identity is persisted once and kept stable across restarts, fixing
 the old bug where the headless hub regenerated ``NODE_ID`` on every launch.
@@ -22,10 +22,10 @@ from typing import Any
 
 def data_dir() -> str:
     """Return the resolved data directory (does not create it)."""
-    override = os.environ.get("SNIFFEROPS_DATA_DIR")
+    override = os.environ.get("ETHROX_DETECT_DATA_DIR")
     if override:
         return os.path.abspath(os.path.expanduser(override))
-    return os.path.expanduser("~/.snifferops")
+    return os.path.expanduser("~/.ethrox-detect")
 
 
 def ensure_data_dir() -> str:
@@ -51,7 +51,7 @@ DEFAULT_HOME_LON = -83.9207
 DEFAULT_HOME_ZOOM = 11
 
 # Default config written on first boot when config.json is absent. Keys match
-# what snifferops_gui.py has always read/written so the hub and GUI agree.
+# what ethrox_detect_gui.py has always read/written so the hub and GUI agree.
 DEFAULT_CONFIG: dict[str, Any] = {
     "port": 8766,
     "bind": "0.0.0.0",

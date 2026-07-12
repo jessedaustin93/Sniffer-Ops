@@ -1,5 +1,5 @@
 """
-map_placement.py — Pure, testable placement engine for Sniffer-Ops.
+map_placement.py — Pure, testable placement engine for Ethrox-Detect.
 
 Converts raw sighting + profile records into map markers with tiered
 confidence: gps → linked → anchor → unplaced.

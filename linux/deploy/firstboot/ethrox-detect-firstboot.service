@@ -1,0 +1,13 @@
+[Unit]
+Description=Ethrox Detect first-boot provisioning (one-shot)
+After=local-fs.target network-pre.target
+Before=ethrox-detect.service
+ConditionPathExists=!/var/lib/ethrox-detect/.provisioned
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/ethrox-detect/deploy/firstboot/ethrox-detect-firstboot.sh
+
+[Install]
+WantedBy=multi-user.target
