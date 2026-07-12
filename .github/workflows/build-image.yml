@@ -55,12 +55,22 @@ jobs:
         working-directory: pi-gen
         env:
           SNIFFEROPS_REPO: ${{ env.SNIFFEROPS_REPO }}
-          # Key-only SSH; supply a public key as a repo secret for shippable units.
+          # Login/admin user for SSH management. Must differ from the `snifferops`
+          # service user (which is nologin). Non-sensitive; override via repo var.
+          FIRST_USER_NAME: ${{ vars.APPLIANCE_USER || 'pi' }}
+          # Key-only SSH. The value is a PUBLIC key (not sensitive) supplied as a
+          # repo secret so no key material or personal data lands in the tree.
           PUBKEY_SSH_FIRST_USER: ${{ secrets.APPLIANCE_SSH_PUBKEY }}
         run: |
           set -euo pipefail
-          # Pass our env through to the containerized build.
-          export PIGEN_DOCKER_OPTS="-e SNIFFEROPS_REPO -e PUBKEY_SSH_FIRST_USER -v ${SNIFFEROPS_REPO}:${SNIFFEROPS_REPO}:ro"
+          if [ -z "${PUBKEY_SSH_FIRST_USER}" ]; then
+            echo "::error::APPLIANCE_SSH_PUBKEY secret is not set. The image uses"
+            echo "::error::key-only SSH, so add your PUBLIC key as that repo secret"
+            echo "::error::(Settings -> Secrets and variables -> Actions) and re-run."
+            exit 1
+          fi
+          # Pass our env into the containerized build.
+          export PIGEN_DOCKER_OPTS="-e SNIFFEROPS_REPO -e FIRST_USER_NAME -e PUBKEY_SSH_FIRST_USER -v ${SNIFFEROPS_REPO}:${SNIFFEROPS_REPO}:ro"
           sudo -E ./build-docker.sh
 
       - name: Compress + checksum
@@ -77,8 +87,10 @@ jobs:
           echo "sha=pi-gen/${OUT}.sha256" >> "$GITHUB_OUTPUT"
 
       - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
             ${{ steps.artifact.outputs.path }}
             ${{ steps.artifact.outputs.sha }}
