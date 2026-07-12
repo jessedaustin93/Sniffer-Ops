@@ -1,14 +1,18 @@
-# SnifferOps
+# Ethrox Detect
 
-SnifferOps is a passive signal-awareness toolkit for Wi-Fi, Bluetooth, NFC, cellular, and SDR workflows. Each platform is standalone first: local collection and history do not require another node to be online.
+Ethrox Detect is a passive signal-awareness toolkit for Wi-Fi, Bluetooth, NFC,
+cellular, and SDR workflows. Each platform is standalone first: local
+collection and history do not require another node to be online.
+
+Formerly developed under the `SnifferOps` codename.
 
 ## Choose A Version
 
 | Platform | Branch | Notes |
 |---|---|---|
-| **Android** (Samsung) | [`codex/android-mobile-app`](https://github.com/jessedaustin93/Sniffer-Ops/tree/codex/android-mobile-app) | Phone recorder and Samsung Watch companion |
-| **Windows** | [`codex/windows-companion`](https://github.com/jessedaustin93/Sniffer-Ops/tree/codex/windows-companion) | Awareness companion, RTL-SDR host, and Windows scanning |
-| **Linux** | [`codex/linux-companion`](https://github.com/jessedaustin93/Sniffer-Ops/tree/codex/linux-companion) | GTK4 interface, local scanning, and awareness hub |
+| **Android** (Samsung) | [`codex/android-mobile-app`](https://github.com/Ethrox-Systems/ethrox-detect/tree/codex/android-mobile-app) | Phone recorder and Samsung Watch companion |
+| **Windows** | [`codex/windows-companion`](https://github.com/Ethrox-Systems/ethrox-detect/tree/codex/windows-companion) | Awareness companion, RTL-SDR host, and Windows scanning |
+| **Linux** | [`codex/linux-companion`](https://github.com/Ethrox-Systems/ethrox-detect/tree/codex/linux-companion) | GTK4 interface, local scanning, and awareness hub |
 
 ## How They Link
 
@@ -21,23 +25,23 @@ Windows and Linux can expose awareness endpoints over LAN or Tailscale. Sync beh
 ### Linux
 
 ```bash
-git clone https://github.com/jessedaustin93/Sniffer-Ops
-cd Sniffer-Ops && git checkout codex/linux-companion
+git clone https://github.com/Ethrox-Systems/ethrox-detect
+cd ethrox-detect && git checkout codex/linux-companion
 cd linux && bash install.sh
 ```
 
 ### Windows
 
 ```powershell
-git clone https://github.com/jessedaustin93/Sniffer-Ops
-cd Sniffer-Ops
+git clone https://github.com/Ethrox-Systems/ethrox-detect
+cd ethrox-detect
 git checkout codex/windows-companion
-windows\Launch-SnifferOps-Windows.bat
+windows\Launch-EthroxDetect-Windows.bat
 ```
 
 ### Android
 
-See the [Android branch README](https://github.com/jessedaustin93/Sniffer-Ops/tree/codex/android-mobile-app) for Android Studio build instructions.
+See the [Android branch README](https://github.com/Ethrox-Systems/ethrox-detect/tree/codex/android-mobile-app) for Android Studio build instructions.
 
 ---
 
