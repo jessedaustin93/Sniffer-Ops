@@ -13,9 +13,13 @@ tar -C "${ETHROX_DETECT_REPO}/linux" \
     -cf - . | tar -C "${ROOTFS_DIR}/opt/ethrox-detect" -xf -
 install -m 0644 "${ETHROX_DETECT_REPO}/version.json" "${ROOTFS_DIR}/opt/ethrox-detect/version.json"
 
-VERSION="$(python3 -c 'import json; print(json.load(open("'"${ETHROX_DETECT_REPO}"'/version.json"))["version"])')"
-BUILD="$(python3 -c 'import json; print(json.load(open("'"${ETHROX_DETECT_REPO}"'/version.json"))["build"])')"
-FULL_VERSION="$(python3 -c 'import json; print(json.load(open("'"${ETHROX_DETECT_REPO}"'/version.json"))["full_version"])')"
+VERSION="$(sed -nE 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' "${ETHROX_DETECT_REPO}/version.json")"
+BUILD="$(sed -nE 's/^[[:space:]]*"build"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p' "${ETHROX_DETECT_REPO}/version.json")"
+FULL_VERSION="$(sed -nE 's/^[[:space:]]*"full_version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' "${ETHROX_DETECT_REPO}/version.json")"
+if [ -z "${VERSION}" ] || [ -z "${BUILD}" ] || [ -z "${FULL_VERSION}" ]; then
+    echo "Could not read version metadata from ${ETHROX_DETECT_REPO}/version.json" >&2
+    exit 1
+fi
 GIT_COMMIT="$(git -C "${ETHROX_DETECT_REPO}" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 install -d "${ROOTFS_DIR}/etc"
@@ -35,6 +39,7 @@ on_chroot << 'CHROOT'
 set -e
 # install-appliance.sh creates the user/venv/units and applies the journald
 # durability baseline (apply_durability in lib-install.sh).
+export ETHROX_DETECT_APPLIANCE_OFFLINE=1
 /opt/ethrox-detect/deploy/install-appliance.sh
 
 # ── Read-only-root (Step 4) ──────────────────────────────────────────────────

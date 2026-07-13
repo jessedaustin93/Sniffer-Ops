@@ -55,15 +55,29 @@ else
 fi
 chown -R "$ETHROX_DETECT_USER:$ETHROX_DETECT_USER" "$ETHROX_DETECT_PREFIX"
 
-# ── 4. Python venv (isolated; rich only, no system-Python changes) ───────────
+# ── 4. Python venv (isolated; rich only, no system-Python changes by default) ──
+VENV_ARGS=()
+if [ "${ETHROX_DETECT_APPLIANCE_OFFLINE:-0}" = "1" ]; then
+    VENV_ARGS=(--system-site-packages)
+    if [ -f "$ETHROX_DETECT_PREFIX/venv/pyvenv.cfg" ] && \
+       ! grep -qi '^include-system-site-packages = true$' "$ETHROX_DETECT_PREFIX/venv/pyvenv.cfg"; then
+        log "recreating venv with system site packages for offline appliance build"
+        rm -rf "$ETHROX_DETECT_PREFIX/venv"
+    fi
+fi
 if [ ! -x "$ETHROX_DETECT_PREFIX/venv/bin/python" ]; then
     log "creating venv at $ETHROX_DETECT_PREFIX/venv"
-    sudo -u "$ETHROX_DETECT_USER" python3 -m venv "$ETHROX_DETECT_PREFIX/venv"
+    sudo -u "$ETHROX_DETECT_USER" python3 -m venv "${VENV_ARGS[@]}" "$ETHROX_DETECT_PREFIX/venv"
 fi
-log "installing Python requirements into venv"
-sudo -u "$ETHROX_DETECT_USER" "$ETHROX_DETECT_PREFIX/venv/bin/pip" install -q --upgrade pip
-sudo -u "$ETHROX_DETECT_USER" "$ETHROX_DETECT_PREFIX/venv/bin/pip" install -q \
-    -r "$ETHROX_DETECT_PREFIX/requirements.txt"
+if [ "${ETHROX_DETECT_APPLIANCE_OFFLINE:-0}" = "1" ]; then
+    log "using system Python packages inside venv for offline appliance build"
+    sudo -u "$ETHROX_DETECT_USER" "$ETHROX_DETECT_PREFIX/venv/bin/python" -c 'import rich'
+else
+    log "installing Python requirements into venv"
+    sudo -u "$ETHROX_DETECT_USER" "$ETHROX_DETECT_PREFIX/venv/bin/pip" install -q --upgrade pip
+    sudo -u "$ETHROX_DETECT_USER" "$ETHROX_DETECT_PREFIX/venv/bin/pip" install -q \
+        -r "$ETHROX_DETECT_PREFIX/requirements.txt"
+fi
 
 # ── 5. systemd units (system services, not --user) ───────────────────────────
 log "installing systemd units"
