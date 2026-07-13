@@ -1,6 +1,6 @@
 [Unit]
 Description=Ethrox Detect headless awareness hub
-Documentation=https://github.com/jessedaustin93/Ethrox-Detect
+Documentation=https://github.com/Ethrox-Systems/ethrox-detect
 After=network-online.target bluetooth.target NetworkManager.service
 Wants=network-online.target
 
@@ -10,7 +10,7 @@ User=ethrox-detect
 Group=ethrox-detect
 # Data lives on the writable data partition; root can stay read-only.
 Environment=ETHROX_DETECT_DATA_DIR=/var/lib/ethrox-detect
-ExecStart=/opt/ethrox-detect/venv/bin/python /opt/ethrox-detect/ethrox_detect_linux.py --headless
+ExecStart=/opt/ethrox-detect/venv/bin/python /opt/ethrox-detect/ethrox_detect_linux.py
 Restart=always
 RestartSec=10
 

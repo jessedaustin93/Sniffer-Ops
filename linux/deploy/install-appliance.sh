@@ -90,6 +90,19 @@ install -m 0644 "$SCRIPT_DIR/firstboot/ethrox-detect-firstboot.service" \
 #   sudo systemctl enable ethrox-detect-hardening.service && sudo reboot
 install -m 0644 "$SCRIPT_DIR/durability/ethrox-detect-hardening.service" \
     /etc/systemd/system/ethrox-detect-hardening.service
+install -m 0755 "$SCRIPT_DIR/usb/ethrox-detect-usb-rescue.sh" \
+    /usr/local/sbin/ethrox-detect-usb-rescue.sh
+install -m 0644 "$SCRIPT_DIR/usb/ethrox-detect-usb-rescue.service" \
+    /etc/systemd/system/ethrox-detect-usb-rescue.service
+install -d -m 0755 /etc/ssh/sshd_config.d
+cat >/etc/ssh/sshd_config.d/98-ethrox-detect-no-userconf-banner.conf <<'EOF'
+Banner none
+EOF
+cat >/etc/ssh/sshd_config.d/99-ethrox-detect-rescue.conf <<'EOF'
+PubkeyAuthentication yes
+PermitEmptyPasswords no
+PasswordAuthentication no
+EOF
 systemctl daemon-reload
 
 # ── 5b. SD-card durability baseline ──────────────────────────────────────────
@@ -98,6 +111,7 @@ apply_durability
 if [ "$ENABLE_SERVICE" -eq 1 ]; then
     systemctl enable ethrox-detect.service
     systemctl enable ethrox-detect-firstboot.service
+    systemctl enable ethrox-detect-usb-rescue.service
     log "services enabled (start on next boot / now via: systemctl start ethrox-detect)"
 else
     log "services installed but not enabled (--no-enable)"

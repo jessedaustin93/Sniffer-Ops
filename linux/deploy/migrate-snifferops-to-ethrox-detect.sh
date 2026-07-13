@@ -2,9 +2,9 @@
 set -euo pipefail
 
 PRODUCT="Ethrox Detect"
-OLD_SLUG="ethrox-detect"
+OLD_SLUG="snifferops"
 NEW_SLUG="ethrox-detect"
-OLD_SERVICE="ethrox-detect.service"
+OLD_SERVICE="snifferops.service"
 NEW_SERVICE="ethrox-detect.service"
 APP_ID="com.ethrox.detect.linux"
 
@@ -15,17 +15,17 @@ STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 BACKUP_DIR="$BACKUP_ROOT/$STAMP"
 SUMMARY="$STATE_DIR/migration-summary-$STAMP.txt"
 
-OLD_DATA="$HOME_DIR/.ethrox-detect"
+OLD_DATA="$HOME_DIR/.snifferops"
 NEW_DATA="$HOME_DIR/.ethrox-detect"
 OLD_USER_SERVICE="$HOME_DIR/.config/systemd/user/$OLD_SERVICE"
 NEW_USER_SERVICE="$HOME_DIR/.config/systemd/user/$NEW_SERVICE"
 OLD_WANTS="$HOME_DIR/.config/systemd/user/default.target.wants/$OLD_SERVICE"
 NEW_WANTS="$HOME_DIR/.config/systemd/user/default.target.wants/$NEW_SERVICE"
-OLD_AUTOSTART="$HOME_DIR/.config/autostart/com.ethrox-detect.linux.desktop"
+OLD_AUTOSTART="$HOME_DIR/.config/autostart/com.snifferops.linux.desktop"
 NEW_AUTOSTART="$HOME_DIR/.config/autostart/$APP_ID.desktop"
-OLD_DESKTOP="$HOME_DIR/.local/share/applications/com.ethrox-detect.linux.desktop"
+OLD_DESKTOP="$HOME_DIR/.local/share/applications/com.snifferops.linux.desktop"
 NEW_DESKTOP="$HOME_DIR/.local/share/applications/$APP_ID.desktop"
-OLD_BIN="$HOME_DIR/.local/bin/ethrox-detect"
+OLD_BIN="$HOME_DIR/.local/bin/snifferops"
 NEW_BIN="$HOME_DIR/.local/bin/ethrox-detect"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

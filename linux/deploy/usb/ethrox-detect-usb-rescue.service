@@ -1,0 +1,12 @@
+[Unit]
+Description=Ethrox Detect USB gadget rescue networking
+After=network-pre.target ssh.service
+Wants=ssh.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ethrox-detect-usb-rescue.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

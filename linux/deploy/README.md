@@ -14,8 +14,9 @@ Desktop users want the GTK app instead: see [`../README.md`](../README.md) and
 |---|---|
 | `install-appliance.sh` | Headless installer: apt, `ethrox-detect` user, `/opt/ethrox-detect` + venv, systemd units. Idempotent. |
 | `lib-install.sh` | Shared shell functions (also usable by the desktop installer). |
-| `ethrox-detect.service` | System service running the hub `--headless`. |
+| `ethrox-detect.service` | System service running the headless hub. |
 | `firstboot/ethrox-detect-firstboot.service` + `.sh` | One-shot first-boot provisioning; self-disables. |
+| `usb/ethrox-detect-usb-rescue.service` + `.sh` | USB gadget rescue networking for direct Pi access at `192.168.7.2`. |
 | `selftest.sh` | Health / assembly test — every unit runs it before it ships. |
 | `../VERSION` | Semver source, stamped into the image name and `/etc/ethrox-detect-version`. |
 | `../../image/` | pi-gen config + custom stage that bakes all of the above into an `.img.xz`. |
@@ -30,7 +31,8 @@ linux/deploy/selftest.sh          # expect RESULT: OK
 
 This installs to `/opt/ethrox-detect`, creates the `ethrox-detect` user (added to
 `bluetooth`, `netdev`, `plugdev`, `dialout`), writes an RTL-SDR udev rule, and
-enables the service. Data lives under **`/var/lib/ethrox-detect`**
+enables the service. It also installs key-only SSH defaults and a USB rescue
+service for direct gadget access. Data lives under **`/var/lib/ethrox-detect`**
 (`ETHROX_DETECT_DATA_DIR`).
 
 ## Data, identity, and config
@@ -58,6 +60,20 @@ enables the service. Data lives under **`/var/lib/ethrox-detect`**
 
 The node scans **fully offline** — network is only needed for peer sync and
 future signature-pack updates, not for local detection.
+
+## USB rescue networking
+
+The appliance image enables USB gadget rescue networking. When connected over
+USB, the Pi side claims `192.168.7.2/24`; set the host side to
+`192.168.7.1/24` and connect with:
+
+```bash
+ssh jesse@192.168.7.2
+curl http://192.168.7.2:8766/ethrox-detect/health
+```
+
+The rescue service is idempotent and does not replace normal Wi-Fi or Ethernet
+networking.
 
 ### Baking Wi-Fi (Phase 1)
 

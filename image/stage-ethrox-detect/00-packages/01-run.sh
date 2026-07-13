@@ -2,7 +2,7 @@
 # pi-gen step: layer Ethrox Detect onto the Bookworm Lite rootfs.
 #
 # Runs in pi-gen host context with ${ROOTFS_DIR} and on_chroot available.
-# ETHROX_DETECT_REPO must point at a checkout of the Ethrox-Detect repo (CI sets it).
+# ETHROX_DETECT_REPO must point at a checkout of the Ethrox Detect repo (CI sets it).
 
 : "${ETHROX_DETECT_REPO:?set ETHROX_DETECT_REPO to the repo root}"
 
