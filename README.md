@@ -9,6 +9,11 @@ Bluetooth, and RTL-SDR scanners when the hardware is available.
 For the full Linux operating notes, installation commands, storage paths, and
 API details, see [`linux/README.md`](linux/README.md).
 
+Prototype and release-readiness tracking:
+
+- [`docs/sales-readiness.md`](docs/sales-readiness.md)
+- [`docs/keep-prototype-overnight-test.md`](docs/keep-prototype-overnight-test.md)
+
 ## Quick Start
 
 ```bash
