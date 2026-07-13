@@ -54,5 +54,12 @@ systemctl enable ethrox-detect-hardening.service
 # init_resize hook if present; root stays at its built size (read-only anyway).
 if [ -f /boot/firmware/cmdline.txt ]; then
     sed -i 's# init=/usr/lib/raspberrypi-sys-mods/firstboot##; s# init=/usr/lib/raspi-config/init_resize\.sh##' /boot/firmware/cmdline.txt || true
+    sed -i 's/ g_ether\.host_addr=[^ ]*//g; s/ g_ether\.dev_addr=[^ ]*//g' /boot/firmware/cmdline.txt
+    sed -i 's/$/ g_ether.host_addr=02:e0:de:7e:c7:01 g_ether.dev_addr=02:e0:de:7e:c7:02/' /boot/firmware/cmdline.txt
+fi
+
+if [ -f /boot/firmware/config.txt ]; then
+    sed -i '/^# Ethrox Detect USB Ethernet gadget$/d; /^dtoverlay=dwc2,dr_mode=peripheral$/d' /boot/firmware/config.txt
+    printf '\n# Ethrox Detect USB Ethernet gadget\ndtoverlay=dwc2,dr_mode=peripheral\n' >> /boot/firmware/config.txt
 fi
 CHROOT
