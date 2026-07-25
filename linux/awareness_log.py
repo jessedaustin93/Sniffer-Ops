@@ -1035,21 +1035,30 @@ class _SyncHandler(BaseHTTPRequestHandler):
 
     def _send_json(self, body: dict, status: int = 200) -> None:
         data = json.dumps(body).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Connection", "close")
-        self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            # A peer that timed out may close while the full awareness payload
+            # is being written. This is an expected transport race, not a hub
+            # application failure; avoid turning it into a traceback in journal.
+            return
 
     def _send_html(self, body: str, status: int = 200) -> None:
         data = body.encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Connection", "close")
-        self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            return
 
     def _send_head(self) -> None:
         path = urlparse(self.path).path.lower()
