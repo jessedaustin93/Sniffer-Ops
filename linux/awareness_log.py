@@ -32,6 +32,7 @@ _log_path: str | None = None
 
 _server: ThreadingHTTPServer | None = None
 _server_thread: threading.Thread | None = None
+_inference_lock = threading.Lock()
 
 _NORMAL_BASELINE = 5  # seenCount threshold for "Normal" status
 
@@ -207,10 +208,25 @@ def _profile_class(profile: dict) -> str:
 def merge_snapshot(snapshot: dict) -> dict:
     """Merge a remote sync snapshot into the local DB. Returns merge stats."""
     stats = db.merge_remote_snapshot(snapshot)
-    try:
-        inference_engine.recalculate_all()
-    except Exception:
-        pass
+    # Reclassification scans every accumulated profile and writes derived
+    # tables. Running it inline made POST /sync exceed peer timeouts, causing
+    # both ends to disconnect while the handler was writing its response.
+    # The raw merge is durable before this background refresh starts, so sync
+    # callers receive their acknowledgement promptly.
+    if _inference_lock.acquire(blocking=False):
+        def _refresh_inference() -> None:
+            try:
+                inference_engine.recalculate_all()
+            except Exception:
+                pass
+            finally:
+                _inference_lock.release()
+
+        threading.Thread(
+            target=_refresh_inference,
+            name="ethrox-inference-refresh",
+            daemon=True,
+        ).start()
     return stats
 
 
