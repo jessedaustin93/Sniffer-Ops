@@ -99,6 +99,8 @@ def _create_schema(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_sightings_gps
             ON signal_sightings(device_id, captured_at DESC)
             WHERE latitude IS NOT NULL AND longitude IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_sightings_device_captured
+            ON signal_sightings(device_id, captured_at DESC);
     """)
     conn.commit()
 
@@ -923,11 +925,20 @@ def get_profile(profile_id: str) -> dict | None:
 
 def get_sightings_for_placement() -> list[dict]:
     """
-    Return up to 20 recent GPS-tagged sightings per device for map placement.
-    Non-GPS sightings are excluded — profiles without GPS sightings fall
-    back to their stored estimated_latitude/estimated_longitude.
-    Capped at 20 per device to keep memory usage bounded regardless of
-    how many historical sightings exist.
+    Return up to 20 recent sightings per device for map placement.
+
+    Includes both GPS-tagged and non-GPS sightings: GPS-tagged rows feed the
+    gps/anchor tiers directly, and non-GPS rows carry the node_id/captured_at
+    that map_placement's linked tier needs to correlate a non-GPS device with
+    the scanning node's own GPS fixes at that time. Capped at 20 per device
+    to keep memory usage bounded regardless of how many historical sightings
+    exist; ties on captured_at are broken by id for deterministic ordering.
+
+    Follow-up risk: the 20-row cap is shared across GPS and non-GPS rows for
+    a given device. This assumes a device is consistently either a
+    GPS-carrying node or a sniffed non-GPS device, never a heavy mix of
+    both — if that assumption stops holding, one kind of row could crowd out
+    the other within the cap and the tiers would need separate caps.
     """
     with _connect() as conn:
         rows = conn.execute(
@@ -937,10 +948,9 @@ def get_sightings_for_placement() -> list[dict]:
                        latitude, longitude, signal_strength,
                        ROW_NUMBER() OVER (
                            PARTITION BY device_id
-                           ORDER BY captured_at DESC
+                           ORDER BY captured_at DESC, id DESC
                        ) AS rn
                 FROM signal_sightings
-                WHERE latitude IS NOT NULL AND longitude IS NOT NULL
             )
             SELECT device_id, node_id, captured_at,
                    latitude, longitude, signal_strength
