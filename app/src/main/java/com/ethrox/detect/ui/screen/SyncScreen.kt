@@ -42,7 +42,7 @@ fun SyncScreen(
             TopAppBar(
                 title = {
                     Text(
-                        "LINUX HUB SYNC",
+                        "T5810B HUB SYNC",
                         fontFamily = FontFamily.Monospace,
                         color = syncColor,
                         letterSpacing = 2.sp
@@ -83,7 +83,7 @@ fun SyncScreen(
                         Spacer(Modifier.width(10.dp))
                         Column {
                             Text(
-                                if (connected) "LINUX HUB CONNECTED" else "LINUX HUB VIA TAILSCALE",
+                                if (connected) "T5810B HUB CONNECTED" else "T5810B HUB VIA TAILSCALE",
                                 color = if (connected) RadarGreen else syncColor,
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.Bold
@@ -139,7 +139,7 @@ fun SyncScreen(
                         Icon(Icons.Default.Sync, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            if (syncing) "SENDING STORED HISTORY" else "SEND TO LINUX HUB",
+                            if (syncing) "SENDING STORED HISTORY" else "SEND TO T5810B HUB",
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold
                         )
@@ -173,7 +173,7 @@ fun SyncScreen(
             }
 
             Text(
-                "The phone records independently. Enter the Linux hub's Tailscale address locally. Compaction unlocks only after the hub confirms assimilation.",
+                "The phone records independently. Enter the T5810B hub's Tailscale address locally. Compaction unlocks only after the hub confirms assimilation.",
                 color = OnSurfaceMuted,
                 fontFamily = FontFamily.Monospace,
                 fontSize = 11.sp

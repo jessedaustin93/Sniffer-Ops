@@ -1,12 +1,6 @@
 package com.ethrox.detect
 
 import android.Manifest
-import android.content.BroadcastReceiver
-import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
-import android.hardware.usb.UsbDevice
-import android.hardware.usb.UsbManager
 import android.nfc.NfcAdapter
 import android.nfc.Tag
 import android.os.Build
@@ -18,7 +12,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ethrox.detect.model.NfcTag
-import com.ethrox.detect.scanner.RtlSdrScanner
 import com.ethrox.detect.ui.EthroxDetectNavHost
 import com.ethrox.detect.ui.theme.EthroxDetectTheme
 import com.ethrox.detect.viewmodel.DashboardViewModel
@@ -38,38 +31,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private val usbReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            val device: UsbDevice? = if (android.os.Build.VERSION.SDK_INT >= 33) {
-                intent?.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
-            } else {
-                @Suppress("DEPRECATION")
-                intent?.getParcelableExtra(UsbManager.EXTRA_DEVICE)
-            }
-            when (intent?.action) {
-                RtlSdrScanner.ACTION_USB_PERMISSION -> viewModel.onUsbPermissionResult()
-                UsbManager.ACTION_USB_DEVICE_ATTACHED -> device?.let { viewModel.onUsbDeviceAttached(it) }
-                UsbManager.ACTION_USB_DEVICE_DETACHED -> device?.let { viewModel.onUsbDeviceDetached(it) }
-            }
-        }
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-
-        // Register USB receiver
-        val usbFilter = IntentFilter().apply {
-            addAction(RtlSdrScanner.ACTION_USB_PERMISSION)
-            addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
-            addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(usbReceiver, usbFilter, Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            registerReceiver(usbReceiver, usbFilter)
-        }
-        viewModel.requestSdrPermissionIfConnected()
 
         // Request permissions
         requestPermissions()
@@ -93,11 +57,6 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         disableNfcForegroundDispatch()
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        unregisterReceiver(usbReceiver)
     }
 
     // NFC tag dispatch (handled via NfcAdapter.ReaderMode in NfcScanner)

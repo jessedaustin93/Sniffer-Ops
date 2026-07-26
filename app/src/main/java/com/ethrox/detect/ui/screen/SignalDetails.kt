@@ -23,7 +23,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.ethrox.detect.model.CellTower
-import com.ethrox.detect.model.SdrSignal
 import com.ethrox.detect.model.SignalDevice
 import com.ethrox.detect.util.SignalDeviceGroup
 import com.ethrox.detect.ui.theme.BackgroundDark
@@ -215,14 +214,6 @@ fun CellTower.detailRows(): List<SignalDetailRow> = listOf(
     SignalDetailRow("MCC", mcc.toString()),
     SignalDetailRow("MNC", mnc.toString()),
     SignalDetailRow("Frequency", frequency.takeIf { it > 0 }?.toString().orEmpty())
-)
-
-fun SdrSignal.detailRows(): List<SignalDetailRow> = listOf(
-    SignalDetailRow("Type*", label.ifBlank { "RF signal" }),
-    SignalDetailRow("Frequency", formatSignalFrequency(frequency)),
-    SignalDetailRow("Signal", "${power.toInt()} dB"),
-    SignalDetailRow("Mode", modulation),
-    SignalDetailRow("Bandwidth", bandwidth.takeIf { it > 0 }?.let { formatSignalFrequency(it) }.orEmpty())
 )
 
 fun formatSignalFrequency(hz: Long): String = when {

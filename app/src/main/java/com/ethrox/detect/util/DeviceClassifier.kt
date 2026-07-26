@@ -4,10 +4,18 @@ import com.ethrox.detect.model.ThreatLevel
 
 object DeviceClassifier {
 
-    // Known Flock Safety camera MAC prefixes (OUI)
+    // Mirrored from Ethrox Detect shared signatures/flock-signatures.json.
     private val FLOCK_OUIS = setOf(
-        "00:1A:2B", "DC:A6:32", "B8:27:EB", "E4:5F:01",
-        "00:E0:4C", "2C:F0:5D", "A4:CF:12", "3C:71:BF"
+        "70:C9:4E", "3C:91:80", "D8:F3:BC", "80:30:49", "B8:35:32",
+        "14:5A:FC", "74:4C:A1", "08:3A:88", "9C:2F:9D", "C0:35:32",
+        "94:08:53", "F4:6A:DD", "F8:A2:D6", "24:B2:B9", "00:F4:8D",
+        "D0:39:57", "E8:D0:FC", "E0:4F:43", "B8:1E:A4", "70:08:94",
+        "58:8E:81", "EC:1B:BD", "58:00:E3", "90:35:EA", "5C:93:A2",
+        "64:6E:69", "48:27:EA", "B4:1E:52"
+    )
+
+    private val FLOCK_REQUIRES_CORROBORATION_OUIS = setOf(
+        "E4:AA:EA", "3C:71:BF", "A4:CF:12", "82:6B:F2"
     )
 
     // Known surveillance / ALPR camera manufacturers
@@ -20,7 +28,8 @@ object DeviceClassifier {
 
     private val TRAFFIC_READER_KEYWORDS = setOf(
         "flock", "alpr", "lpr", "license plate", "plate reader",
-        "traffic reader", "traffic camera", "speed camera", "red light"
+        "traffic reader", "traffic camera", "speed camera", "red light",
+        "flck", "flocksafety", "flock safety", "test_flck"
     )
 
     // Tooling that can be used for interception, impersonation, or data capture.
@@ -28,7 +37,9 @@ object DeviceClassifier {
         "flipper", "flipper zero", "flipper_", "xremote", "evil_twin",
         "evil twin", "badusb", "marauder", "deauther", "pwnagotchi",
         "pineapple", "wifi pineapple", "rogue ap", "credential",
-        "password", "phish", "skimmer", "sniffer"
+        "password", "phish", "skimmer", "bettercap", "airgeddon",
+        "wifiphisher", "hostapd-wpe", "eaphammer", "mdk4", "mdk3",
+        "karma", "mana", "wifijammer", "wifi jammer"
     )
 
     private val NOTICED_KEYWORDS = setOf(
@@ -38,7 +49,7 @@ object DeviceClassifier {
 
     // OUI database (first 3 octets of MAC -> manufacturer)
     private val KNOWN_OUIS = mapOf(
-        "00:0C:E7" to "Flock Safety",
+        "B4:1E:52" to "Flock Safety",
         "00:11:22" to "Citroen",
         "DC:A6:32" to "Raspberry Pi Foundation",
         "B8:27:EB" to "Raspberry Pi Foundation",
@@ -74,10 +85,11 @@ object DeviceClassifier {
         val isDataStealingTool = hasAny(ssidLower, DATA_STEALING_KEYWORDS)
 
         val deviceClass = when {
-            isFlockLike -> "Possible Flock camera"
+            isFlockLike -> "Flock Safety infrastructure"
+            needsFlockCorroboration(bssid) -> "Possible Flock Safety infrastructure"
             isTrafficReader -> "Traffic reader / ALPR device"
             isSurveillance -> "Camera / surveillance WiFi"
-            isDataStealingTool -> "Data-capture / hacking device"
+            isDataStealingTool -> "Hostile WiFi / assessment tool"
             ssidLower.contains("cam") || ssidLower.contains("ipcam") -> "Camera WiFi"
             ssidLower.contains("ring") || ssidLower.contains("nest") -> "Doorbell / camera WiFi"
             ssidLower.contains("arlo") || ssidLower.contains("wyze") -> "Camera WiFi"
@@ -96,7 +108,7 @@ object DeviceClassifier {
 
         val threat = when {
             isDataStealingTool -> ThreatLevel.ALERT
-            isFlockLike || isTrafficReader || isSurveillance -> ThreatLevel.SUSPICIOUS
+            isFlockLike || needsFlockCorroboration(bssid) || isTrafficReader || isSurveillance -> ThreatLevel.SUSPICIOUS
             hasAny(ssidLower, NOTICED_KEYWORDS) -> ThreatLevel.UNKNOWN
             !capabilities.contains("WPA") && !capabilities.contains("WEP") -> ThreatLevel.UNKNOWN
             else -> ThreatLevel.SAFE
@@ -117,10 +129,11 @@ object DeviceClassifier {
         val isDataStealingTool = hasAny(nameLower, DATA_STEALING_KEYWORDS)
 
         val deviceClass = when {
-            isFlockLike -> "Possible Flock camera"
+            isFlockLike -> "Flock Safety infrastructure"
+            needsFlockCorroboration(address) -> "Possible Flock Safety infrastructure"
             isTrafficReader -> "Traffic reader / ALPR device"
             isSurveillance -> "Camera / surveillance device"
-            isDataStealingTool -> "Data-capture / hacking device"
+            isDataStealingTool -> "Hostile Bluetooth / assessment tool"
             nameLower.contains("headphone") || nameLower.contains("earbuds") || nameLower.contains("buds") -> "Audio device"
             nameLower.contains("watch") || nameLower.contains("band") -> "Wearable"
             nameLower.contains("keyboard") -> "Keyboard"
@@ -135,61 +148,12 @@ object DeviceClassifier {
 
         val threat = when {
             isDataStealingTool -> ThreatLevel.ALERT
-            isFlockLike || isTrafficReader || isSurveillance -> ThreatLevel.SUSPICIOUS
+            isFlockLike || needsFlockCorroboration(address) || isTrafficReader || isSurveillance -> ThreatLevel.SUSPICIOUS
             hasAny(nameLower, NOTICED_KEYWORDS) -> ThreatLevel.UNKNOWN
             else -> ThreatLevel.SAFE
         }
 
         return Triple(manufacturer, deviceClass, threat)
-    }
-
-    fun classifySdrSignal(frequency: Long): Pair<String, String> {
-        val mhz = frequency / 1_000_000.0
-        val label = when {
-            mhz in 87.5..108.0 -> "Broadcast FM radio"
-            mhz in 108.0..118.0 -> "Aviation nav beacon"
-            mhz in 118.0..137.0 -> "Aviation airband"
-            mhz in 137.0..138.0 -> "NOAA satellite"
-            mhz in 144.0..148.0 -> "Amateur 2m"
-            mhz in 162.4..162.55 -> "NOAA Weather Radio"
-            mhz in 148.0..174.0 -> "VHF land mobile"
-            mhz in 174.0..216.0 -> "VHF TV / broadcast"
-            mhz in 216.0..222.0 -> "Amateur (1.25m)"
-            mhz in 225.0..400.0 -> "Military aviation UHF airband"
-            mhz in 400.0..406.0 -> "Meteorological"
-            mhz in 406.0..420.0 -> "Government"
-            mhz in 433.0..435.0 -> "433 MHz ISM device"
-            mhz in 420.0..450.0 -> "Amateur 70cm"
-            mhz in 450.0..470.0 -> "UHF land mobile"
-            mhz in 470.0..698.0 -> "UHF TV / broadcast"
-            mhz in 698.0..806.0 -> "LTE / cellular 700"
-            mhz in 851.0..869.0 -> "P25 / trunked radio"
-            mhz in 806.0..869.0 -> "800 MHz public safety"
-            mhz in 869.0..894.0 -> "Cellular 850"
-            mhz in 902.0..928.0 -> "915 MHz ISM device"
-            mhz in 928.0..960.0 -> "Cellular GSM 900"
-            mhz in 978.0..979.0 -> "ADS-B UAT aircraft"
-            mhz in 1090.0..1091.0 -> "ADS-B aircraft"
-            mhz in 960.0..1215.0 -> "Aviation DME/TACAN"
-            mhz in 1215.0..1240.0 -> "GPS L2"
-            mhz in 1559.0..1610.0 -> "GPS L1 / GLONASS"
-            mhz in 1710.0..1990.0 -> "Cellular AWS/PCS"
-            mhz in 2400.0..2500.0 -> "2.4 GHz WiFi / Bluetooth"
-            mhz in 5150.0..5850.0 -> "5 GHz WiFi"
-            else -> "RF signal"
-        }
-
-        val modulation = when {
-            mhz in 87.5..108.0 -> "FM/RBDS"
-            mhz in 108.0..137.0 -> "AM/VOR"
-            mhz in 225.0..400.0 -> "AM aviation"
-            mhz in 433.0..435.0 -> "OOK/FSK"
-            mhz in 851.0..869.0 -> "P25/TDMA"
-            mhz in 1090.0..1091.0 -> "PPM/ADS-B"
-            else -> "Unknown"
-        }
-
-        return Pair(label, modulation)
     }
 
     private fun lookupOui(address: String): String {
@@ -199,8 +163,12 @@ object DeviceClassifier {
 
     private fun isFlockLike(label: String, manufacturer: String, address: String): Boolean =
         label.contains("flock") ||
-            manufacturer.contains("flock") ||
+            label.contains("flck") ||
+        manufacturer.contains("flock") ||
             FLOCK_OUIS.any { address.uppercase().startsWith(it) }
+
+    private fun needsFlockCorroboration(address: String): Boolean =
+        FLOCK_REQUIRES_CORROBORATION_OUIS.any { address.uppercase().startsWith(it) }
 
     private fun hasAny(value: String, keywords: Set<String>): Boolean =
         keywords.any { value.contains(it) }

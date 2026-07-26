@@ -85,7 +85,7 @@ class WifiScanner(private val context: Context) {
                     address = bssid,
                     signalType = SignalType.WIFI,
                     signalStrength = result.level,
-                    frequency = result.frequency.toLong() * 1000,
+                    frequency = result.frequency.toLong() * 1_000_000,
                     manufacturer = manufacturer,
                     deviceClass = deviceClass,
                     isEncrypted = capabilities.contains("WPA") || capabilities.contains("WEP"),
@@ -121,7 +121,7 @@ class WifiScanner(private val context: Context) {
             address = bssid,
             signalType = SignalType.WIFI,
             signalStrength = info.rssi,
-            frequency = info.frequency.toLong() * 1000,
+            frequency = info.frequency.toLong() * 1_000_000,
             manufacturer = manufacturer,
             deviceClass = deviceClass,
             isEncrypted = true,
@@ -145,7 +145,7 @@ class WifiScanner(private val context: Context) {
 
     private companion object {
         const val TAG = "WifiScanner"
-        const val LIVE_READ_INTERVAL_MS = 2_000L
-        const val SCAN_REQUEST_INTERVAL_MS = 10_000L
+        const val LIVE_READ_INTERVAL_MS = 5_000L
+        const val SCAN_REQUEST_INTERVAL_MS = 60_000L
     }
 }

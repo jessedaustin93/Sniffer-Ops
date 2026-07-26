@@ -10,11 +10,12 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.ethrox.detect"
+        // Keep the historical package id so installed SnifferOps builds upgrade in place.
+        applicationId = "com.snifferops"
         minSdk = 31
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0-rc.1"
+        versionCode = 3
+        versionName = "1.1.0-ethrox-detect"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

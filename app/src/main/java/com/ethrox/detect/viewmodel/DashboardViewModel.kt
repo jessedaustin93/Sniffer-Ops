@@ -2,8 +2,6 @@ package com.ethrox.detect.viewmodel
 
 import android.app.Application
 import android.content.Context
-import android.hardware.usb.UsbDevice
-import android.hardware.usb.UsbManager
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -26,14 +24,7 @@ data class AppState(
     val bluetoothDevices: List<SignalDevice> = emptyList(),
     val bleDevices: List<SignalDevice> = emptyList(),
     val cellTowers: List<CellTower> = emptyList(),
-    val sdrSignals: List<SdrSignal> = emptyList(),
     val lastNfcTag: NfcTag? = null,
-    val sdrConnected: Boolean = false,
-    val sdrPermissionGranted: Boolean = false,
-    val sdrDeviceName: String = "",
-    val networkSdrHost: String = "",
-    val networkSdrPort: String = "1234",
-    val networkSdrConnected: Boolean = false,
     val awarenessSyncHost: String = "",
     val awarenessSyncPort: String = "8766",
     val awarenessSyncEnabled: Boolean = false,
@@ -49,7 +40,6 @@ data class AppState(
     val btScanActive: Boolean = false,
     val bleScanActive: Boolean = false,
     val cellScanActive: Boolean = false,
-    val sdrScanActive: Boolean = false,
     val alertCount: Int = 0,
     val errorMessage: String? = null
 ) {
@@ -59,11 +49,9 @@ data class AppState(
         bleCount = bleDevices.size,
         nfcCount = if (lastNfcTag != null) 1 else 0,
         cellCount = cellTowers.size,
-        sdrCount = sdrSignals.size,
         noticedCount = alertDevices.count { it.threatLevel == ThreatLevel.UNKNOWN },
         suspiciousCount = alertDevices.count { it.threatLevel == ThreatLevel.SUSPICIOUS },
         alertCount = alertDevices.count { it.threatLevel == ThreatLevel.ALERT },
-        sdrConnected = sdrConnected || networkSdrConnected,
         scanActive = scanActive
     )
 
@@ -78,18 +66,17 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     companion object {
         private const val TAG = "EthroxDetectWearSync"
         private const val SERVER_PREFS = "ethrox_detect_endpoints"
-        private const val PREF_NETWORK_HOST = "network_sdr_host"
-        private const val PREF_NETWORK_PORT = "network_sdr_port"
         private const val PREF_AWARENESS_HOST = "awareness_sync_host"
         private const val PREF_AWARENESS_PORT = "awareness_sync_port"
         private const val PREF_AWARENESS_ENABLED = "awareness_sync_enabled"
-        private const val LIVE_REFRESH_INTERVAL_MS = 1_000L
+        private const val DEFAULT_T5810B_HUB_HOST = ""
+        private const val DEFAULT_T5810B_HUB_PORT = "8766"
+        private const val LIVE_REFRESH_INTERVAL_MS = 2_000L
         private const val LIVE_STATE_LIMIT = 300
-        private const val PERSIST_BATCH_DELAY_MS = 2_000L
+        private const val PERSIST_BATCH_DELAY_MS = 5_000L
         private const val WIFI_LIVE_WINDOW_MS = 45_000L
         private const val BLUETOOTH_LIVE_WINDOW_MS = 20_000L
         private const val CELLULAR_LIVE_WINDOW_MS = 45_000L
-        private const val SDR_LIVE_WINDOW_MS = 10 * 60_000L
         private const val NFC_LIVE_WINDOW_MS = 2 * 60_000L
     }
 
@@ -100,8 +87,6 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private val wifiScanner = WifiScanner(application)
     private val btScanner = BluetoothScanner(application)
     private val cellularScanner = CellularScanner(application)
-    val sdrScanner = RtlSdrScanner(application)
-    private val networkSdrScanner = NetworkRtlSdrScanner()
     private val awarenessSyncClient = AwarenessSyncClient(application)
     private val detectionStore = SignalDetectionStore(application)
 
@@ -112,9 +97,6 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private var btJob: Job? = null
     private var bleJob: Job? = null
     private var cellJob: Job? = null
-    private var sdrJob: Job? = null
-    private var sdrCheckJob: Job? = null
-    private var pcSdrScanJob: Job? = null
     private var persistBatchJob: Job? = null
     private var persistedDevices: List<SignalDevice> = emptyList()
     private val liveDevicesById = LinkedHashMap<String, SignalDevice>()
@@ -125,8 +107,6 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         loadPersistedSignals()
         startLivePresenceRefresh()
         loadCompactionState()
-        checkSdrConnection()
-        startSdrConnectionMonitor()
         startWearSync()
         autoConnectLinuxHub()
     }
@@ -145,7 +125,6 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         startBluetoothScan()
         startBleScan()
         startCellularScan()
-        if (_state.value.sdrConnected) startSdrScan()
     }
 
     fun stopAllScans() {
@@ -153,14 +132,12 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         btJob?.cancel(); btJob = null
         bleJob?.cancel(); bleJob = null
         cellJob?.cancel(); cellJob = null
-        sdrJob?.cancel(); sdrJob = null
         _state.update { it.copy(
             scanActive = false,
             wifiScanActive = false,
             btScanActive = false,
             bleScanActive = false,
-            cellScanActive = false,
-            sdrScanActive = false
+            cellScanActive = false
         ) }
     }
 
@@ -244,33 +221,6 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         _state.update { it.copy(cellScanActive = false) }
     }
 
-    fun startSdrScan(centerFreq: Long = 100_000_000L) {
-        val current = _state.value
-        val windowsHost = current.networkSdrHost
-        if (windowsHost.isNotBlank()) {
-            startWindowsSdrDeepScan(windowsHost, current.awarenessSyncPort.toIntOrNull() ?: 8766)
-            return
-        }
-        if (!current.sdrConnected) return
-        if (!sdrScanner.hasPermission()) {
-            sdrScanner.requestPermission()
-            checkSdrConnection()
-            return
-        }
-        sdrJob?.cancel()
-        _state.update { it.copy(sdrScanActive = true) }
-        sdrJob = viewModelScope.launch {
-            sdrScanner.sweepFrequencies().collect { signals ->
-                recordLiveSignals(signals.toSdrSignalDevices())
-            }
-        }
-    }
-
-    fun stopSdrScan() {
-        sdrJob?.cancel(); sdrJob = null
-        _state.update { it.copy(sdrScanActive = false) }
-    }
-
     fun onNfcTagDetected(tag: com.ethrox.detect.model.NfcTag) {
         viewModelScope.launch {
             recordLiveSignals(listOf(tag.toSignalDevice()))
@@ -288,12 +238,6 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             _state.update {
                 val current = it
                 AppState(
-                    sdrConnected = it.sdrConnected,
-                    sdrPermissionGranted = it.sdrPermissionGranted,
-                    sdrDeviceName = it.sdrDeviceName,
-                    networkSdrHost = current.networkSdrHost,
-                    networkSdrPort = current.networkSdrPort,
-                    networkSdrConnected = current.networkSdrConnected,
                     awarenessSyncHost = current.awarenessSyncHost,
                     awarenessSyncPort = current.awarenessSyncPort,
                     awarenessSyncEnabled = current.awarenessSyncEnabled,
@@ -304,153 +248,6 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                     awarenessProfiles = current.awarenessProfiles
                 )
             }
-        }
-    }
-
-    fun onUsbDeviceAttached(device: UsbDevice) {
-        sdrScanner.requestPermission()
-        checkSdrConnection()
-    }
-
-    fun onUsbDeviceDetached(device: UsbDevice) {
-        stopSdrScan()
-        _state.update { it.copy(sdrConnected = false, sdrPermissionGranted = false, sdrDeviceName = "") }
-    }
-
-    fun onUsbPermissionResult() {
-        checkSdrConnection()
-        if (_state.value.scanActive && _state.value.sdrPermissionGranted) {
-            startSdrScan()
-        }
-    }
-
-    private fun startNetworkSdrScan() {
-        val current = _state.value
-        val port = current.networkSdrPort.toIntOrNull() ?: 1234
-        sdrJob?.cancel()
-        _state.update { it.copy(sdrScanActive = true) }
-        sdrJob = viewModelScope.launch {
-            runCatching {
-                networkSdrScanner.sweepFrequencies(current.networkSdrHost, port).collect { signals ->
-                    recordLiveSignals(signals.toSdrSignalDevices())
-                    _state.update { it.copy(networkSdrConnected = true) }
-                }
-            }.onFailure { error ->
-                _state.update {
-                    it.copy(
-                        sdrScanActive = false,
-                        networkSdrConnected = false,
-                        errorMessage = "Network SDR failed: ${error.message ?: "connection error"}"
-                    )
-                }
-            }
-        }
-    }
-
-    fun requestSdrPermissionIfConnected() {
-        if (sdrScanner.isConnected() && !sdrScanner.hasPermission()) {
-            sdrScanner.requestPermission()
-        }
-        checkSdrConnection()
-    }
-
-    fun setNetworkSdrEndpoint(host: String, port: String) {
-        _state.update { it.copy(networkSdrHost = host, networkSdrPort = port) }
-        saveEndpointSettings()
-    }
-
-    private fun startWindowsSdrDeepScan(host: String, port: Int) {
-        pcSdrScanJob?.cancel()
-        _state.update {
-            it.copy(
-                sdrScanActive = true,
-                awarenessSyncInProgress = true,
-                awarenessSyncConnected = true,
-                awarenessSyncStatus = "Starting PC deep SDR scan..."
-            )
-        }
-        pcSdrScanJob = viewModelScope.launch {
-            runCatching {
-                awarenessSyncClient.runWindowsSdrDeepScan(host, port)
-            }.onSuccess { initial ->
-                if (initial.completed) {
-                    applyPcSdrDeepScanResult(initial, host, port)
-                    return@launch
-                }
-
-                _state.update {
-                    it.copy(
-                        sdrScanActive = true,
-                        networkSdrConnected = true,
-                        sdrDeviceName = "PC rtl_power $host:$port",
-                        awarenessSyncConnected = true,
-                        awarenessSyncInProgress = false,
-                        awarenessSyncStatus = initial.message.ifBlank { "PC deep scan running..." }
-                    )
-                }
-
-                var misses = 0
-                while (isActive) {
-                    delay(3_000)
-                    val polled = runCatching { awarenessSyncClient.pollWindowsSdrDeepScan(host, port) }
-                    polled.onSuccess { result ->
-                        misses = 0
-                        if (result.completed) {
-                            applyPcSdrDeepScanResult(result, host, port)
-                            return@launch
-                        }
-                        _state.update {
-                            it.copy(
-                                sdrScanActive = result.running,
-                                awarenessSyncConnected = true,
-                                awarenessSyncStatus = result.message.ifBlank { "PC deep scan running..." }
-                            )
-                        }
-                    }.onFailure {
-                        misses += 1
-                        _state.update {
-                            it.copy(
-                                sdrScanActive = true,
-                                awarenessSyncConnected = misses < 4,
-                                awarenessSyncStatus = "PC is still busy with SDR scan..."
-                            )
-                        }
-                        if (misses >= 20) throw it
-                    }
-                }
-            }.onFailure { error ->
-                _state.update {
-                    it.copy(
-                        sdrScanActive = false,
-                        awarenessSyncConnected = false,
-                        awarenessSyncInProgress = false,
-                        awarenessSyncStatus = "PC SDR scan failed: ${error.message ?: "connection error"}",
-                        errorMessage = "PC SDR scan failed: ${error.message ?: "connection error"}"
-                    )
-                }
-            }
-        }
-    }
-
-    private suspend fun applyPcSdrDeepScanResult(
-        result: com.ethrox.detect.sync.WindowsSdrDeepScanResult,
-        host: String,
-        port: Int
-    ) {
-        recordLiveSignals(result.sdrSignals.toSdrSignalDevices())
-        db.signalDeviceDao().insertAll(result.awareness.updatedDevices)
-        _state.update {
-            it.copy(
-                sdrScanActive = false,
-                networkSdrConnected = true,
-                sdrDeviceName = "PC rtl_power $host:$port",
-                awarenessDevices = result.awareness.updatedDevices,
-                awarenessProfiles = result.awareness.profiles,
-                awarenessSignalCount = result.awareness.totalSignals,
-                awarenessSyncConnected = true,
-                awarenessSyncInProgress = false,
-                awarenessSyncStatus = "PC deep scan found ${result.sdrSignals.size} RF peak(s)"
-            )
         }
     }
 
@@ -500,7 +297,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         val host = current.awarenessSyncHost
         val port = current.awarenessSyncPort.toIntOrNull() ?: 8766
         if (host.isBlank()) {
-            _state.update { it.copy(awarenessSyncConnected = false, awarenessSyncStatus = "Enter Linux hub Tailscale host") }
+            _state.update { it.copy(awarenessSyncConnected = false, awarenessSyncStatus = "Enter T5810B Tailscale host") }
             return
         }
 
@@ -508,7 +305,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             _state.update {
                 it.copy(
                     awarenessSyncInProgress = true,
-                    awarenessSyncStatus = "Connecting to Linux hub..."
+                    awarenessSyncStatus = "Connecting to T5810B hub..."
                 )
             }
             runCatching {
@@ -519,7 +316,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                         awarenessSyncConnected = ok,
                         awarenessSyncEnabled = ok || it.awarenessSyncEnabled,
                         awarenessSyncInProgress = false,
-                        awarenessSyncStatus = if (ok) "Linux hub connected" else "Linux hub offline"
+                        awarenessSyncStatus = if (ok) "T5810B hub connected" else "T5810B hub offline"
                     )
                 }
                 if (ok) {
@@ -537,88 +334,39 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun connectNetworkSdr() {
-        val current = _state.value
-        val port = current.networkSdrPort.toIntOrNull() ?: 1234
-        if (current.networkSdrHost.isBlank()) {
-            _state.update { it.copy(errorMessage = "Enter the PC host for Network SDR") }
-            return
-        }
-
-        _state.update {
-            it.copy(
-                networkSdrConnected = true,
-                sdrDeviceName = "rtl_tcp ${current.networkSdrHost}:$port",
-                errorMessage = null
-            )
-        }
-        saveEndpointSettings()
-    }
-
-    fun disconnectNetworkSdr() {
-        stopSdrScan()
-        _state.update { it.copy(networkSdrConnected = false) }
-    }
-
-    private fun checkSdrConnection() {
-        val connected = sdrScanner.isConnected()
-        val hasPermission = connected && sdrScanner.hasPermission()
-        _state.update { it.copy(
-            sdrConnected = connected,
-            sdrPermissionGranted = hasPermission,
-            sdrDeviceName = when {
-                it.networkSdrConnected -> it.sdrDeviceName
-                connected -> sdrScanner.getDeviceName()
-                else -> ""
-            }
-        ) }
-    }
-
-    private fun startSdrConnectionMonitor() {
-        sdrCheckJob = viewModelScope.launch {
-            while (true) {
-                delay(3000)
-                checkSdrConnection()
-            }
-        }
-    }
-
     private fun restoreEndpointSettings() {
-        val savedNetworkHost = serverPrefs.getString(PREF_NETWORK_HOST, "").orEmpty()
-        val networkPort = serverPrefs.getString(PREF_NETWORK_PORT, "1234").orEmpty().ifBlank { "1234" }
-        val awarenessHost = serverPrefs.getString(PREF_AWARENESS_HOST, "").orEmpty()
-        val awarenessPort = serverPrefs.getString(PREF_AWARENESS_PORT, "8766").orEmpty().ifBlank { "8766" }
-        val awarenessEnabled = serverPrefs.getBoolean(PREF_AWARENESS_ENABLED, false)
+        val awarenessHost = serverPrefs
+            .getString(PREF_AWARENESS_HOST, DEFAULT_T5810B_HUB_HOST)
+            .orEmpty()
+            .ifBlank { DEFAULT_T5810B_HUB_HOST }
+        val awarenessPort = serverPrefs
+            .getString(PREF_AWARENESS_PORT, DEFAULT_T5810B_HUB_PORT)
+            .orEmpty()
+            .ifBlank { DEFAULT_T5810B_HUB_PORT }
+        val awarenessEnabled = serverPrefs.getBoolean(PREF_AWARENESS_ENABLED, true)
 
         _state.update {
             it.copy(
-                networkSdrHost = savedNetworkHost,
-                networkSdrPort = networkPort,
                 awarenessSyncHost = awarenessHost,
                 awarenessSyncPort = awarenessPort,
                 awarenessSyncEnabled = awarenessEnabled,
-                awarenessSyncStatus = if (awarenessEnabled) "Manual sync ready" else "Sync off"
+                awarenessSyncStatus = if (awarenessEnabled) "T5810B hub sync ready" else "Sync off"
             )
         }
     }
 
     private fun autoConnectLinuxHub() {
         val current = _state.value
-        if (current.networkSdrHost.isNotBlank()) {
-            connectNetworkSdr()
-        }
         if (current.awarenessSyncEnabled) {
-            _state.update { it.copy(awarenessSyncStatus = "Manual sync ready") }
+            _state.update { it.copy(awarenessSyncStatus = "T5810B hub sync ready") }
         }
     }
 
     private fun saveEndpointSettings() {
         val current = _state.value
         serverPrefs.edit()
-            .putString(PREF_NETWORK_HOST, current.networkSdrHost.trim())
-            .putString(PREF_NETWORK_PORT, current.networkSdrPort.ifBlank { "1234" })
             .putString(PREF_AWARENESS_HOST, current.awarenessSyncHost.trim())
-            .putString(PREF_AWARENESS_PORT, current.awarenessSyncPort.ifBlank { "8766" })
+            .putString(PREF_AWARENESS_PORT, current.awarenessSyncPort.ifBlank { DEFAULT_T5810B_HUB_PORT })
             .putBoolean(PREF_AWARENESS_ENABLED, current.awarenessSyncEnabled)
             .apply()
     }
@@ -707,7 +455,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private fun publishLiveSignals(now: Long) {
         val localDevices = synchronized(liveDevicesById) {
             liveDevicesById.entries.removeAll { (_, device) ->
-                now - device.lastSeen > maxOf(WIFI_LIVE_WINDOW_MS, BLUETOOTH_LIVE_WINDOW_MS, CELLULAR_LIVE_WINDOW_MS, SDR_LIVE_WINDOW_MS, NFC_LIVE_WINDOW_MS)
+                now - device.lastSeen > maxOf(WIFI_LIVE_WINDOW_MS, BLUETOOTH_LIVE_WINDOW_MS, CELLULAR_LIVE_WINDOW_MS, NFC_LIVE_WINDOW_MS)
             }
             liveDevicesById.values.toList()
         }
@@ -726,10 +474,6 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                     .sortedForLocalDisplay()
                     .take(LIVE_STATE_LIMIT)
                     .map { device -> device.toCellTower() },
-                sdrSignals = localDevices.liveSince(now, SDR_LIVE_WINDOW_MS, SignalType.RTL_SDR)
-                    .sortedForLocalDisplay()
-                    .take(LIVE_STATE_LIMIT)
-                    .map { device -> device.toSdrSignal() },
                 lastNfcTag = localDevices
                     .liveSince(now, NFC_LIVE_WINDOW_MS, SignalType.NFC)
                     .firstOrNull()
@@ -759,7 +503,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         val host = current.awarenessSyncHost
         val port = current.awarenessSyncPort.toIntOrNull() ?: 8766
         if (host.isBlank()) {
-            _state.update { it.copy(awarenessSyncConnected = false, awarenessSyncStatus = "Enter Linux hub Tailscale host") }
+            _state.update { it.copy(awarenessSyncConnected = false, awarenessSyncStatus = "Enter T5810B Tailscale host") }
             return
         }
 
@@ -788,7 +532,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                     it.copy(
                         awarenessSyncInProgress = false,
                         awarenessCompactionReadyCount = confirmed,
-                        awarenessSyncStatus = "Linux hub confirmed ${result.acknowledgedSightingIds.size}/${sightings.size} sightings; review then compact"
+                        awarenessSyncStatus = "T5810B hub confirmed ${result.acknowledgedSightingIds.size}/${sightings.size} sightings; review then compact"
                     )
                 }
             }.onFailure { error ->
@@ -797,7 +541,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                         awarenessSyncConnected = it.awarenessSyncConnected,
                         awarenessSyncInProgress = false,
                         awarenessSyncStatus = if (error is SocketTimeoutException) {
-                            "Linux hub is busy; saved history queued locally"
+                            "T5810B hub unreachable/busy; saved history queued locally"
                         } else {
                             "Sync offline: ${error.message ?: "connection failed"}"
                         }
@@ -828,11 +572,9 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             dataMap.putInt("wifi", summary.wifiCount)
             dataMap.putInt("bt", summary.bluetoothCount + summary.bleCount)
             dataMap.putInt("cell", summary.cellCount)
-            dataMap.putInt("sdr", summary.sdrCount)
             dataMap.putInt("alerts", appState.alertTotal)
             dataMap.putInt("awareness", awarenessProfiles.size)
             dataMap.putBoolean("scanning", summary.scanActive)
-            dataMap.putBoolean("sdr_connected", summary.sdrConnected)
             dataMap.putLong("updated_at", System.currentTimeMillis())
             dataMap.putStringArrayList("wifi_items", appState.wifiDevices.groupSignalDevices().toWearRows(8) { group ->
                 val device = group.primary
@@ -854,13 +596,6 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                     title = tower.carrier.ifBlank { tower.technology },
                     detail = wearDetail(wearEstimatedType("${tower.technology} cell tower"), "CID ${tower.cid}"),
                     value = "${tower.signalStrength}"
-                )
-            })
-            dataMap.putStringArrayList("sdr_items", appState.sdrSignals.toWearRows(8) { signal ->
-                wearRow(
-                    title = signal.label.ifBlank { "RF SIGNAL" },
-                    detail = wearDetail(wearEstimatedType(signal.label.ifBlank { "RF signal" }), signal.modulation),
-                    value = formatWearFrequency(signal.frequency)
                 )
             })
             dataMap.putStringArrayList("alert_items", appState.alertWearDevices().groupSignalDevices().toWearRows(8) { group ->
@@ -886,7 +621,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                     TAG,
                     "Published summary scanning=${summary.scanActive} wifi=${summary.wifiCount} " +
                         "bt=${summary.bluetoothCount + summary.bleCount} cell=${summary.cellCount} " +
-                        "sdr=${summary.sdrCount} alerts=${appState.alertTotal}"
+                        "alerts=${appState.alertTotal}"
                 )
             }
             .addOnFailureListener { error ->
@@ -932,13 +667,6 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private fun String.cleanWearText(): String =
         replace("|", "/").replace(Regex("\\s+"), " ").trim().take(32)
 
-    private fun formatWearFrequency(hz: Long): String = when {
-        hz >= 1_000_000_000L -> "${"%.2f".format(hz / 1_000_000_000.0)}G"
-        hz >= 1_000_000L -> "${"%.1f".format(hz / 1_000_000.0)}M"
-        hz >= 1_000L -> "${"%.0f".format(hz / 1_000.0)}K"
-        else -> "$hz"
-    }
-
 private fun List<CellTower>.toCellSignalDevices(): List<SignalDevice> = map { tower ->
     SignalDevice(
         id = "cell_${tower.technology}_${tower.cid}_${tower.frequency}",
@@ -973,30 +701,6 @@ private fun SignalDevice.toCellTower(): CellTower {
     )
 }
 
-private fun List<SdrSignal>.toSdrSignalDevices(): List<SignalDevice> = map { signal ->
-    SignalDevice(
-        id = "sdr_${signal.frequency}",
-            name = signal.label.ifBlank { "RF signal" },
-            address = "${signal.frequency}",
-            signalType = SignalType.RTL_SDR,
-            signalStrength = signal.power.toInt(),
-            frequency = signal.frequency,
-            deviceClass = signal.label.ifBlank { "Measured RF signal" },
-            threatLevel = ThreatLevel.UNKNOWN,
-            notes = "Power ${signal.power} dB; ${signal.modulation}",
-            firstSeen = signal.timestamp,
-        lastSeen = signal.timestamp
-    )
-}
-
-private fun SignalDevice.toSdrSignal(): SdrSignal = SdrSignal(
-    frequency = frequency,
-    power = signalStrength.toFloat(),
-    modulation = notes.substringAfter("; ", "Unknown").ifBlank { "Unknown" },
-    label = name,
-    timestamp = lastSeen
-)
-
 private fun NfcTag.toSignalDevice(): SignalDevice = SignalDevice(
         id = "nfc_$id",
         name = type.ifBlank { "NFC tag" },
@@ -1024,9 +728,6 @@ private fun SignalDevice.toNfcTag(): NfcTag = NfcTag(
         btJob?.cancel()
         bleJob?.cancel()
         cellJob?.cancel()
-        sdrJob?.cancel()
-        sdrCheckJob?.cancel()
-        pcSdrScanJob?.cancel()
         persistBatchJob?.cancel()
     }
 }
@@ -1100,19 +801,6 @@ private fun CellTower.toAwarenessProfile(): AwarenessProfile = AwarenessProfile(
     nodeCount = 1,
     lastSeen = timestamp,
     latestEvent = "Seen locally at CID $cid",
-    source = "local"
-)
-
-private fun SdrSignal.toAwarenessProfile(): AwarenessProfile = AwarenessProfile(
-    key = "RTL_SDR|${frequency / 250_000L}",
-    name = label.ifBlank { "RF signal" },
-    type = SignalType.RTL_SDR,
-    deviceClass = label.ifBlank { "Measured RF signal" },
-    threatLevel = ThreatLevel.UNKNOWN,
-    seenCount = 1,
-    nodeCount = 1,
-    lastSeen = timestamp,
-    latestEvent = "Measured ${power} dB ${modulation}",
     source = "local"
 )
 

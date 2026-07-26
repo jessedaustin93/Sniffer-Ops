@@ -14,7 +14,6 @@ sealed class Screen(val route: String) {
     object Bluetooth : Screen("bluetooth")
     object Nfc : Screen("nfc")
     object Cellular : Screen("cellular")
-    object Sdr : Screen("sdr")
     object Sync : Screen("sync")
     object Alerts : Screen("alerts")
 }
@@ -75,24 +74,6 @@ fun EthroxDetectNavHost(
                 scanning = state.cellScanActive,
                 onStartScan = { viewModel.startCellularScan() },
                 onStopScan = { viewModel.stopCellularScan() },
-                onBack = { navController.popBackStack() }
-            )
-        }
-        composable(Screen.Sdr.route) {
-            SdrScreen(
-                signals = state.sdrSignals,
-                connected = state.sdrConnected,
-                hasPermission = state.sdrPermissionGranted,
-                networkConnected = state.networkSdrConnected,
-                networkHost = state.networkSdrHost,
-                networkPort = state.networkSdrPort,
-                deviceName = state.sdrDeviceName,
-                scanning = state.sdrScanActive,
-                onStartScan = { viewModel.startSdrScan() },
-                onStopScan = { viewModel.stopSdrScan() },
-                onNetworkEndpointChange = { host, port -> viewModel.setNetworkSdrEndpoint(host, port) },
-                onConnectNetwork = { viewModel.connectNetworkSdr() },
-                onDisconnectNetwork = { viewModel.disconnectNetworkSdr() },
                 onBack = { navController.popBackStack() }
             )
         }

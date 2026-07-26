@@ -32,7 +32,6 @@ import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.CellTower
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Nfc
-import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Sync
@@ -119,7 +118,7 @@ fun DashboardScreen(
                         )
                         Column {
                             Text(
-                                "SNIFFER OPS",
+                                "ETHROX DETECT",
                                 fontFamily = EthroxDetectTitleFont,
                                 fontWeight = FontWeight.Bold,
                                 color = RadarGreen,
@@ -127,7 +126,7 @@ fun DashboardScreen(
                                 letterSpacing = 3.sp
                             )
                             Text(
-                                "SAMSUNG FIELD MONITOR",
+                                "T5810B FIELD MONITOR",
                                 color = OnSurfaceMuted,
                                 fontSize = 10.sp,
                                 fontFamily = EthroxDetectCondensedFont,
@@ -194,18 +193,11 @@ fun DashboardScreen(
                             StatusRow("WIFI", summary.wifiCount, RadarGreen)
                             StatusRow("BT/BLE", summary.bluetoothCount + summary.bleCount, TacticalBlue)
                             StatusRow("CELL", summary.cellCount, WarningOrange)
-                            StatusRow("SDR", summary.sdrCount, Color(0xFF8B5CF6))
                             StatusRow("ALERTS", alertTotal, AlertRed)
                         }
                     }
                 }
             }
-
-            SdrStatusBadge(
-                connected = summary.sdrConnected,
-                deviceName = state.sdrDeviceName,
-                onConnectWindows = { onNavigate(Screen.Sdr) }
-            )
 
             Button(
                 onClick = if (state.scanActive) onStopScan else onStartScan,
@@ -300,58 +292,6 @@ private fun StatusRow(label: String, count: Int, color: Color) {
 }
 
 @Composable
-private fun SdrStatusBadge(connected: Boolean, deviceName: String, onConnectWindows: () -> Unit) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
-        color = if (connected) Color(0xFF061D12) else SurfaceDark,
-        border = BorderStroke(1.dp, if (connected) RadarGreen.copy(0.55f) else Color(0xFF255866))
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Image(
-                painter = painterResource(R.drawable.ethrox_detect_tile),
-                contentDescription = null,
-                modifier = Modifier.size(34.dp).clip(RoundedCornerShape(6.dp))
-            )
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    if (connected) "RTL-SDR LINK ONLINE" else "RTL-SDR LINK IDLE",
-                    color = if (connected) RadarGreen else OnSurfaceMuted,
-                    fontSize = 12.sp,
-                    fontFamily = EthroxDetectFont,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp
-                )
-                Text(
-                    if (connected && deviceName.isNotEmpty()) deviceName else "USB-C OTG or PC feed",
-                    color = OnSurfaceMuted.copy(0.76f),
-                    fontSize = 11.sp,
-                    fontFamily = EthroxDetectCondensedFont
-                )
-            }
-            Button(
-                onClick = onConnectWindows,
-                shape = RoundedCornerShape(6.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8B5CF6))
-            ) {
-                Icon(Icons.Default.Radio, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    "PC",
-                    fontFamily = EthroxDetectCondensedFont,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 11.sp
-                )
-            }
-        }
-    }
-}
-
-@Composable
 private fun ScannerGrid(state: AppState, onNavigate: (Screen) -> Unit) {
     val summary = state.summary
     val alertTotal = state.alertTotal
@@ -360,7 +300,6 @@ private fun ScannerGrid(state: AppState, onNavigate: (Screen) -> Unit) {
         ScannerTile("Bluetooth", Icons.Default.Bluetooth, Screen.Bluetooth, summary.bluetoothCount + summary.bleCount, state.btScanActive || state.bleScanActive, TacticalBlue),
         ScannerTile("NFC", Icons.Default.Nfc, Screen.Nfc, if (state.lastNfcTag != null) 1 else 0, false, Color(0xFFEC4899)),
         ScannerTile("Cellular", Icons.Default.CellTower, Screen.Cellular, summary.cellCount, state.cellScanActive, WarningOrange),
-        ScannerTile("SDR Radio", Icons.Default.Radio, Screen.Sdr, summary.sdrCount, state.sdrScanActive, Color(0xFF8B5CF6)),
         ScannerTile("Hub Sync", Icons.Default.Sync, Screen.Sync, state.awarenessCompactionReadyCount, state.awarenessSyncInProgress, Color(0xFF22D3EE)),
         ScannerTile("Alerts", Icons.Default.Warning, Screen.Alerts, alertTotal, false, AlertRed)
     )
@@ -427,7 +366,6 @@ private fun ScannerTile.subtitle(): String = when (screen) {
     Screen.Bluetooth -> "BT/BLE scan"
     Screen.Nfc -> "Samsung NFC reader"
     Screen.Cellular -> "Radio info"
-    Screen.Sdr -> "Measured RF peaks"
     Screen.Sync -> "Stored history transfer"
     Screen.Alerts -> "App status"
 }

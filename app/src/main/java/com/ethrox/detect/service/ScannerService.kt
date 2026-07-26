@@ -31,7 +31,7 @@ class ScannerService : Service() {
         const val NOTIFICATION_ID = 1001
         const val ACTION_START = "com.ethrox.detect.START_SCAN"
         const val ACTION_STOP = "com.ethrox.detect.STOP_SCAN"
-        private const val RADIO_PERSIST_INTERVAL_MS = 2_000L
+        private const val RADIO_PERSIST_INTERVAL_MS = 10_000L
     }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

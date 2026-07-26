@@ -5,7 +5,6 @@ import android.os.Build
 import android.provider.Settings
 import android.util.Log
 import com.ethrox.detect.model.AwarenessProfile
-import com.ethrox.detect.model.SdrSignal
 import com.ethrox.detect.model.SignalDevice
 import com.ethrox.detect.model.SignalSighting
 import com.ethrox.detect.model.SignalType
@@ -25,16 +24,6 @@ data class AwarenessSyncResult(
     val acknowledgedSightingIds: List<String> = emptyList()
 )
 
-data class WindowsSdrDeepScanResult(
-    val scanId: String,
-    val state: String,
-    val message: String,
-    val running: Boolean,
-    val completed: Boolean,
-    val sdrSignals: List<SdrSignal>,
-    val awareness: AwarenessSyncResult
-)
-
 class AwarenessSyncClient(private val context: Context) {
 
     private val locationProvider = NodeLocationProvider(context)
@@ -42,7 +31,7 @@ class AwarenessSyncClient(private val context: Context) {
     suspend fun healthCheck(host: String, port: Int): Boolean =
         withContext(Dispatchers.IO) {
             val cleanHost = host.trim()
-            require(cleanHost.isNotBlank()) { "Linux hub sync host is blank" }
+            require(cleanHost.isNotBlank()) { "T5810B hub sync host is blank" }
 
             val url = URL("http://$cleanHost:$port/ethrox-detect/health")
             val connection = (url.openConnection() as HttpURLConnection).apply {
@@ -65,7 +54,7 @@ class AwarenessSyncClient(private val context: Context) {
     ): AwarenessSyncResult =
         withContext(Dispatchers.IO) {
             val cleanHost = host.trim()
-            require(cleanHost.isNotBlank()) { "Linux hub sync host is blank" }
+            require(cleanHost.isNotBlank()) { "T5810B hub sync host is blank" }
 
             val url = URL("http://$cleanHost:$port/ethrox-detect/sync")
             val connection = (url.openConnection() as HttpURLConnection).apply {
@@ -86,7 +75,7 @@ class AwarenessSyncClient(private val context: Context) {
                 connection.inputStream.bufferedReader().use { it.readText() }
             } else {
                 val error = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
-                throw IllegalStateException("Linux hub sync returned HTTP $status $error")
+                throw IllegalStateException("T5810B hub sync returned HTTP $status $error")
             }
 
             parseResult(JSONObject(body))
@@ -95,7 +84,7 @@ class AwarenessSyncClient(private val context: Context) {
     suspend fun fetchAwareness(host: String, port: Int): AwarenessSyncResult =
         withContext(Dispatchers.IO) {
             val cleanHost = host.trim()
-            require(cleanHost.isNotBlank()) { "Linux hub sync host is blank" }
+            require(cleanHost.isNotBlank()) { "T5810B hub sync host is blank" }
 
             val url = URL("http://$cleanHost:$port/ethrox-detect/awareness")
             val connection = (url.openConnection() as HttpURLConnection).apply {
@@ -109,62 +98,10 @@ class AwarenessSyncClient(private val context: Context) {
                 connection.inputStream.bufferedReader().use { it.readText() }
             } else {
                 val error = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
-                throw IllegalStateException("Linux hub awareness returned HTTP $status $error")
+                throw IllegalStateException("T5810B hub awareness returned HTTP $status $error")
             }
 
             parseResult(JSONObject(body))
-        }
-
-    suspend fun runWindowsSdrDeepScan(host: String, port: Int): WindowsSdrDeepScanResult =
-        withContext(Dispatchers.IO) {
-            val cleanHost = host.trim()
-            require(cleanHost.isNotBlank()) { "PC sync host is blank" }
-
-            val url = URL("http://$cleanHost:$port/ethrox-detect/sdr/deep-scan")
-            val connection = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                connectTimeout = 3000
-                readTimeout = 8000
-                doOutput = true
-                setRequestProperty("Content-Type", "application/json")
-            }
-
-            connection.outputStream.use { output ->
-                output.write(JSONObject().put("requestedAt", System.currentTimeMillis()).toString().toByteArray(Charsets.UTF_8))
-            }
-
-            val status = connection.responseCode
-            val body = if (status in 200..299) {
-                connection.inputStream.bufferedReader().use { it.readText() }
-            } else {
-                val error = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
-                throw IllegalStateException("PC SDR scan returned HTTP $status $error")
-            }
-
-            parseWindowsSdrDeepScan(JSONObject(body))
-        }
-
-    suspend fun pollWindowsSdrDeepScan(host: String, port: Int): WindowsSdrDeepScanResult =
-        withContext(Dispatchers.IO) {
-            val cleanHost = host.trim()
-            require(cleanHost.isNotBlank()) { "PC sync host is blank" }
-
-            val url = URL("http://$cleanHost:$port/ethrox-detect/sdr/deep-scan/status")
-            val connection = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                connectTimeout = 2500
-                readTimeout = 5000
-            }
-
-            val status = connection.responseCode
-            val body = if (status in 200..299) {
-                connection.inputStream.bufferedReader().use { it.readText() }
-            } else {
-                val error = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
-                throw IllegalStateException("PC SDR status returned HTTP $status $error")
-            }
-
-            parseWindowsSdrDeepScan(JSONObject(body))
         }
 
     private fun buildSnapshot(devices: List<SignalDevice>, sightings: List<SignalSighting>): JSONObject {
@@ -276,51 +213,6 @@ class AwarenessSyncClient(private val context: Context) {
                 }
             }.orEmpty()
         )
-    }
-
-    private fun parseWindowsSdrDeepScan(json: JSONObject): WindowsSdrDeepScanResult {
-        val scan = json.optJSONObject("sdrScan") ?: JSONObject()
-        val state = scan.optString("state", "unknown")
-        return WindowsSdrDeepScanResult(
-            scanId = scan.optString("id", ""),
-            state = state,
-            message = scan.optString("message", ""),
-            running = scan.optBoolean("running", state == "queued" || state == "running"),
-            completed = scan.optBoolean("completed", state == "completed"),
-            sdrSignals = parseSdrSignals(json.optJSONArray("sdrSignals") ?: JSONArray()),
-            awareness = parseResult(json)
-        )
-    }
-
-    private fun parseSdrSignals(items: JSONArray): List<SdrSignal> = buildList {
-        for (i in 0 until items.length()) {
-            val item = items.optJSONObject(i) ?: continue
-            val frequency = item.optLong("frequencyHz", 0L)
-            if (frequency <= 0L) continue
-            add(
-                SdrSignal(
-                    frequency = frequency,
-                    bandwidth = parseBandwidth(item.optString("bandwidth")),
-                    power = item.optString("powerDb", item.optString("power", "0")).toFloatOrNull()
-                        ?: item.optDouble("powerDb", 0.0).toFloat(),
-                    modulation = item.optString("modulation", "Unknown"),
-                    label = item.optString("label", item.optString("possibleUse", "RF signal")),
-                    timestamp = System.currentTimeMillis()
-                )
-            )
-        }
-    }
-
-    private fun parseBandwidth(value: String): Long {
-        val match = Regex("(\\d+(?:\\.\\d+)?)([kKmMgG]?)").find(value) ?: return 0L
-        val number = match.groupValues[1].toDoubleOrNull() ?: return 0L
-        val multiplier = when (match.groupValues[2].lowercase()) {
-            "k" -> 1_000.0
-            "m" -> 1_000_000.0
-            "g" -> 1_000_000_000.0
-            else -> 1.0
-        }
-        return (number * multiplier).toLong()
     }
 
     private fun toSignalDevice(item: JSONObject): SignalDevice? = try {
