@@ -292,30 +292,34 @@ def compute_placements(
         # ------------------------------------------------------------------
         # Tier Anchor  (no linked placement possible)
         # ------------------------------------------------------------------
-        # Collect nodes that observed this profile, then average all GPS
-        # sightings from those nodes.
+        # Collect nodes that observed this profile, then take a time-weighted
+        # position from those nodes' GPS fixes, anchored to this profile's
+        # most recent sighting. A flat average across a node's full fix
+        # history would blend positions from times the node was elsewhere.
         observed_nodes = {s["node_id"] for s in profile_sightings}
         anchor_fixes = [
             g for g in all_gps_sightings if g["node_id"] in observed_nodes
         ]
 
         if anchor_fixes:
-            alat = sum(g["latitude"] for g in anchor_fixes) / len(anchor_fixes)
-            alon = sum(g["longitude"] for g in anchor_fixes) / len(anchor_fixes)
-            markers.append(
-                MapMarker(
-                    profile_id=pid,
-                    name=pname,
-                    signal_type=ptype,
-                    lat=alat,
-                    lon=alon,
-                    tier="anchor",
-                    color=color,
-                    signal_strength=None,
-                    count=1,
+            target_ms = max(s["captured_at"] for s in profile_sightings)
+            position = _weighted_position(anchor_fixes, target_ms)
+            if position is not None:
+                alat, alon = position
+                markers.append(
+                    MapMarker(
+                        profile_id=pid,
+                        name=pname,
+                        signal_type=ptype,
+                        lat=alat,
+                        lon=alon,
+                        tier="anchor",
+                        color=color,
+                        signal_strength=None,
+                        count=1,
+                    )
                 )
-            )
-            continue
+                continue
 
         # ------------------------------------------------------------------
         # Fallback: use estimated position stored on the profile, if present.

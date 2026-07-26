@@ -32,6 +32,7 @@ _log_path: str | None = None
 
 _server: ThreadingHTTPServer | None = None
 _server_thread: threading.Thread | None = None
+_inference_lock = threading.Lock()
 
 _NORMAL_BASELINE = 5  # seenCount threshold for "Normal" status
 
@@ -207,10 +208,25 @@ def _profile_class(profile: dict) -> str:
 def merge_snapshot(snapshot: dict) -> dict:
     """Merge a remote sync snapshot into the local DB. Returns merge stats."""
     stats = db.merge_remote_snapshot(snapshot)
-    try:
-        inference_engine.recalculate_all()
-    except Exception:
-        pass
+    # Reclassification scans every accumulated profile and writes derived
+    # tables. Running it inline made POST /sync exceed peer timeouts, causing
+    # both ends to disconnect while the handler was writing its response.
+    # The raw merge is durable before this background refresh starts, so sync
+    # callers receive their acknowledgement promptly.
+    if _inference_lock.acquire(blocking=False):
+        def _refresh_inference() -> None:
+            try:
+                inference_engine.recalculate_all()
+            except Exception:
+                pass
+            finally:
+                _inference_lock.release()
+
+        threading.Thread(
+            target=_refresh_inference,
+            name="ethrox-inference-refresh",
+            daemon=True,
+        ).start()
     return stats
 
 
@@ -1019,21 +1035,30 @@ class _SyncHandler(BaseHTTPRequestHandler):
 
     def _send_json(self, body: dict, status: int = 200) -> None:
         data = json.dumps(body).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Connection", "close")
-        self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            # A peer that timed out may close while the full awareness payload
+            # is being written. This is an expected transport race, not a hub
+            # application failure; avoid turning it into a traceback in journal.
+            return
 
     def _send_html(self, body: str, status: int = 200) -> None:
         data = body.encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Connection", "close")
-        self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            return
 
     def _send_head(self) -> None:
         path = urlparse(self.path).path.lower()
