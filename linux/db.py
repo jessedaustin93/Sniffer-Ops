@@ -19,13 +19,55 @@ from typing import Optional
 
 _DB_PATH: Optional[str] = None
 _write_lock = threading.Lock()
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
+
+# Any epoch value at/above this magnitude is already in milliseconds (this
+# threshold sits well above "year ~33658" if read as seconds, and well below
+# any real millisecond timestamp since 2001), so seconds vs. milliseconds can
+# be told apart without a caller-supplied unit hint.
+_EPOCH_MS_FLOOR = 10**12
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
 
 def _now_ms() -> int:
     return int(time.time() * 1000)
+
+
+def _to_epoch_ms(value) -> Optional[int]:
+    """
+    Normalize a timestamp of unknown shape to epoch milliseconds.
+
+    Peers on the mesh (Windows companion, older exports, legacy JSON) have
+    sent this field as an ISO-8601 string, epoch seconds, or epoch
+    milliseconds interchangeably. SQLite's dynamic typing accepts any of
+    them into an INTEGER column without complaint, and TEXT values then sort
+    as greater than any INTEGER under SQLite's comparison rules — so a
+    stray ISO string can permanently pin a MAX(...)-based last_seen/first_seen
+    update. Every write boundary must pass values through here first.
+    """
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        n = float(value)
+        return int(n if n >= _EPOCH_MS_FLOOR else n * 1000)
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return None
+        try:
+            return _to_epoch_ms(float(s))
+        except ValueError:
+            pass
+        try:
+            from datetime import datetime
+            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+            return int(dt.timestamp() * 1000)
+        except ValueError:
+            return None
+    return None
 
 
 @contextmanager
@@ -426,6 +468,54 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
         _record_migration(conn, 2, "android_mobile_detector_sighting_metadata")
         conn.commit()
 
+    if _schema_version(conn) < 3:
+        _normalize_stored_timestamps(conn)
+        _record_migration(conn, 3, "normalize_mixed_format_timestamps")
+        conn.commit()
+
+
+# Columns that are meant to hold epoch-millisecond timestamps. A stray
+# ISO-8601 string in any of these (from an older peer, a legacy export, or
+# the pre-normalization sync path) keeps its SQLite TEXT storage class,
+# which then sorts as greater than any INTEGER — silently pinning
+# MAX(...)-based last_seen/first_seen updates. This repairs data already on
+# disk; new writes are normalized at the source via _to_epoch_ms().
+_TIMESTAMP_COLUMNS = {
+    "first_seen", "last_seen", "captured_at", "synced_at", "observed_at",
+    "recalculated_at", "started_at", "ended_at", "last_present_at",
+    "first_confirmed", "last_confirmed", "confirmed_at", "dismissed_at",
+    "updated_at",
+}
+
+
+def _normalize_stored_timestamps(conn: sqlite3.Connection) -> int:
+    """Rewrite any TEXT-stored value in a known timestamp column to epoch-ms."""
+    fixed = 0
+    tables = [
+        row["name"]
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name NOT IN ('sqlite_sequence', 'schema_migrations')"
+        ).fetchall()
+    ]
+    for table in tables:
+        columns = {
+            row["name"]
+            for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+        for col in columns & _TIMESTAMP_COLUMNS:
+            bad_rows = conn.execute(
+                f"SELECT rowid AS _rowid, {col} AS _val FROM {table} "
+                f"WHERE typeof({col}) = 'text'"
+            ).fetchall()
+            for row in bad_rows:
+                conn.execute(
+                    f"UPDATE {table} SET {col} = ? WHERE rowid = ?",
+                    (_to_epoch_ms(row["_val"]), row["_rowid"]),
+                )
+                fixed += 1
+    return fixed
+
 
 # ── SDR helpers (mirrored from awareness_log.py) ───────────────────────────────
 
@@ -798,8 +888,8 @@ def upsert_classification(record: dict, evidence: list[dict]) -> None:
                     record["confidence"],
                     record.get("policy_disposition", "UNKNOWN"),
                     record.get("policy_reason", ""),
-                    record.get("first_seen"),
-                    record.get("last_seen"),
+                    _to_epoch_ms(record.get("first_seen")),
+                    _to_epoch_ms(record.get("last_seen")),
                     int(record.get("observation_count") or 0),
                     json.dumps(record.get("source_nodes") or []),
                     json.dumps(record.get("related_signal_ids") or []),
@@ -808,7 +898,7 @@ def upsert_classification(record: dict, evidence: list[dict]) -> None:
                     record.get("manual_status", "unreviewed"),
                     1 if record.get("false_positive") else 0,
                     1 if record.get("dismissed") else 0,
-                    int(record.get("recalculated_at") or _now_ms()),
+                    _to_epoch_ms(record.get("recalculated_at")) or _now_ms(),
                     json.dumps(record.get("details") or {}),
                 ),
             )
@@ -829,7 +919,7 @@ def upsert_classification(record: dict, evidence: list[dict]) -> None:
                         record["id"],
                         item.get("type", "observation"),
                         item.get("summary", ""),
-                        item.get("observed_at"),
+                        _to_epoch_ms(item.get("observed_at")),
                         item.get("source_node"),
                         item.get("signal_id"),
                         float(item.get("weight", 1.0)),
@@ -1160,8 +1250,8 @@ def merge_remote_snapshot(snapshot: dict) -> dict:
                 frequency_hz = _to_number(signal.get("frequencyHz"))
                 threat_level = signal.get("threatLevel") or "NORMAL"
                 notes = signal.get("notes") or ""
-                first_seen_val = signal.get("firstSeen") or now_ms
-                last_seen_val = signal.get("lastSeen") or now_ms
+                first_seen_val = _to_epoch_ms(signal.get("firstSeen")) or now_ms
+                last_seen_val = _to_epoch_ms(signal.get("lastSeen")) or now_ms
                 seen_count_val = signal.get("seenCount") or 0
                 strongest = _to_number(signal.get("strongestSignal") or signal.get("signalStrength"))
                 # Accept GPS at the profile level — Windows sends estimatedLatitude/
@@ -1224,7 +1314,7 @@ def merge_remote_snapshot(snapshot: dict) -> dict:
                 for sighting in (signal.get("sightings") or []):
                     s_node = sighting.get("nodeId") or snapshot.get("nodeId") or "remote"
                     s_id = _sighting_id(profile_id, s_node)
-                    s_at = sighting.get("capturedAt") or now_ms
+                    s_at = _to_epoch_ms(sighting.get("capturedAt")) or now_ms
                     s_sig = _to_number(sighting.get("signalStrength"))
                     s_lat = _to_number(sighting.get("latitude"))
                     s_lon = _to_number(sighting.get("longitude"))
@@ -1412,20 +1502,8 @@ def migrate_json(json_path: str, node_id: str) -> int:
                 }
                 profile_id = key  # use the canonical key as stored
 
-                # Parse firstSeen / lastSeen (ISO strings) to epoch-ms
-                def _iso_to_ms(iso_str: Optional[str]) -> Optional[int]:
-                    if not iso_str:
-                        return None
-                    try:
-                        from datetime import datetime, timezone
-                        s = iso_str.replace("Z", "+00:00")
-                        dt = datetime.fromisoformat(s)
-                        return int(dt.timestamp() * 1000)
-                    except Exception:
-                        return None
-
-                first_seen_ms = _iso_to_ms(profile.get("FirstSeen")) or now_ms
-                last_seen_ms  = _iso_to_ms(profile.get("LastSeen"))  or now_ms
+                first_seen_ms = _to_epoch_ms(profile.get("FirstSeen")) or now_ms
+                last_seen_ms  = _to_epoch_ms(profile.get("LastSeen"))  or now_ms
                 seen_count    = int(profile.get("SeenCount") or 0)
                 strongest     = _to_number(profile.get("StrongestSignalNumeric")
                                            or profile.get("StrongestSignal"))
@@ -1473,7 +1551,7 @@ def migrate_json(json_path: str, node_id: str) -> int:
                         first_seen_ms, last_seen_ms, seen_count,
                         strongest, last_sig,
                         profile.get("PresenceState") or "seen",
-                        _iso_to_ms(profile.get("LastPresentAt")) or last_seen_ms,
+                        _to_epoch_ms(profile.get("LastPresentAt")) or last_seen_ms,
                         json.dumps(node_ids_list),
                         est_lat, est_lon,
                     ),
@@ -1483,7 +1561,7 @@ def migrate_json(json_path: str, node_id: str) -> int:
                 for s in sightings_json:
                     s_node = s.get("NodeId") or node_id
                     s_id = _sighting_id(profile_id, s_node)
-                    s_at = _iso_to_ms(s.get("At")) or now_ms
+                    s_at = _to_epoch_ms(s.get("At")) or now_ms
                     s_sig = _to_number(s.get("SignalStrengthNumeric") or s.get("SignalStrength"))
                     s_lat = _to_number(s.get("Latitude"))
                     s_lon = _to_number(s.get("Longitude"))

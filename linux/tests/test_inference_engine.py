@@ -23,7 +23,7 @@ def _tables(path):
 def test_migration_adds_schema_version_and_inference_tables(tmp_path):
     path = _init(tmp_path)
 
-    assert db.get_schema_version() == 2
+    assert db.get_schema_version() == db.CURRENT_SCHEMA_VERSION
     assert {
         "schema_migrations",
         "classifications",
