@@ -12,6 +12,7 @@ Ethrox Detect combines a simple tactical dashboard with real Android sensor APIs
 - Bluetooth Classic and BLE scanning
 - NFC tag detection
 - Cellular tower visibility
+- Asset-backed Flock Safety and wireless assessment-tool signature matching
 - Samsung watch monitor status display
 - Durable on-phone sighting journal with detection-time GPS
 - Background Wi-Fi, Bluetooth, BLE, and cellular recording through a foreground service
@@ -27,9 +28,28 @@ The app is intended for authorized security auditing, network management, and ed
 |---|---|
 | Wi-Fi | Nearby networks, open/encrypted status, SSID/BSSID, signal strength, basic camera/surveillance keyword classification |
 | Bluetooth Classic | Discoverable Bluetooth devices and suspicious name patterns |
-| BLE | BLE advertisements, proximity tags, IoT-style devices |
+| BLE | BLE advertisements, proximity tags, IoT-style devices, selected manufacturer/service metadata |
 | NFC | Tag ID and supported technologies through Android reader mode |
 | Cellular | Visible GSM/WCDMA/LTE/NR cell info exposed by Android |
+
+## Signature Engine
+
+Android loads sanitized signature packs from `app/src/main/assets/signatures/`
+at startup. If an asset is missing or malformed, the classifier falls back to
+the built-in baseline rules so detection continues.
+
+Current asset packs:
+
+- `flock-signatures.json` for Flock Safety-style Wi-Fi OUIs, SSID/name clues,
+  and BLE manufacturer/name clues.
+- `threat-tool-signatures.json` for visible wireless assessment-tool names such
+  as evil twin, deauth tooling, WiFi Pineapple, Flipper, Marauder, Pwnagotchi,
+  Bettercap, Airgeddon, and related labels.
+
+Android cannot inspect raw 802.11 management frames from normal app APIs, so
+deauth detection on the phone means classifying visible deauth tooling by
+network/device names or metadata. Packet-level deauthentication-frame detection
+belongs on hardware or hub-side paths that expose raw radio frames.
 
 ### Samsung Watch Monitor
 
@@ -113,7 +133,8 @@ app/
   ui/             Compose screens and theme
   sync/           AwarenessSyncClient and NodeLocationProvider
   service/        Foreground Wi-Fi/Bluetooth/BLE/cellular recorder
-  util/           DeviceClassifier
+  util/           SignatureEngine, DeviceClassifier
+  assets/         Sanitized signature packs
 
 wear/
   WearMainActivity    Wear OS Compose UI

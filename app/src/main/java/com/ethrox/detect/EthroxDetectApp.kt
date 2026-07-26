@@ -3,11 +3,13 @@ package com.ethrox.detect
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import com.ethrox.detect.util.SignatureEngine
 
 class EthroxDetectApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        SignatureEngine.initialize(this)
         createNotificationChannels()
     }
 

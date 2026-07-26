@@ -266,7 +266,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             it.copy(
                 awarenessSyncEnabled = enabled,
                 awarenessSyncConnected = false,
-                awarenessSyncStatus = if (enabled) "Manual sync ready" else "Sync off"
+                awarenessSyncStatus = if (enabled) "T5810B hub sync ready" else "Sync off"
             )
         }
         saveEndpointSettings()
@@ -278,16 +278,34 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun compactConfirmedPhoneHistory() {
         viewModelScope.launch {
-            val removed = db.signalDeviceDao().deleteConfirmedSightings()
+            val wasScanning = _state.value.scanActive
+            if (wasScanning) stopAllScans()
             _state.update {
                 it.copy(
-                    awarenessCompactionReadyCount = 0,
+                    awarenessSyncInProgress = true,
+                    awarenessSyncStatus = "Compacting hub-confirmed sightings..."
+                )
+            }
+            val removed = withContext(Dispatchers.IO) {
+                db.signalDeviceDao().deleteConfirmedSightings()
+            }
+            val remainingConfirmed = withContext(Dispatchers.IO) {
+                db.signalDeviceDao().countConfirmedSightings()
+            }
+            _state.update {
+                it.copy(
+                    awarenessSyncInProgress = false,
+                    awarenessCompactionReadyCount = remainingConfirmed,
                     awarenessSyncStatus = if (removed > 0) {
                         "Compacted $removed hub-confirmed sightings; phone profiles retained"
                     } else {
                         "Nothing confirmed for compaction"
                     }
                 )
+            }
+            if (wasScanning) {
+                delay(750)
+                startAllScans()
             }
         }
     }
@@ -557,8 +575,23 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         }
         _state.update {
             it.copy(
-                awarenessDevices = result.updatedDevices.ifEmpty { it.awarenessDevices },
-                awarenessProfiles = result.profiles.ifEmpty { it.awarenessProfiles },
+                awarenessDevices = result.updatedDevices
+                    .ifEmpty { it.awarenessDevices }
+                    .sortedForLocalDisplay()
+                    .take(LIVE_STATE_LIMIT),
+                awarenessProfiles = result.profiles
+                    .ifEmpty { it.awarenessProfiles }
+                    .sortedWith(compareBy<AwarenessProfile> { profile ->
+                        when (profile.status) {
+                            AwarenessStatus.ALERT -> 0
+                            AwarenessStatus.WATCH -> 0
+                            AwarenessStatus.NOTICED -> 1
+                            AwarenessStatus.ONE_OFF -> 2
+                            AwarenessStatus.LEARNING -> 2
+                            AwarenessStatus.NORMAL -> 3
+                        }
+                    }.thenByDescending { profile -> profile.lastSeen })
+                    .take(LIVE_STATE_LIMIT),
                 awarenessSignalCount = result.totalSignals,
                 awarenessSyncConnected = true
             )

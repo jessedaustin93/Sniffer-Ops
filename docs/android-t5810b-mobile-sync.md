@@ -22,9 +22,10 @@ These notes describe the sanitized Android update for Ethrox Detect. They intent
 
 ## Classification Update
 
-- Flock Safety-style detection uses the shared Ethrox Detect Flock signature set and names high-confidence matches as Flock Safety infrastructure.
+- Flock Safety-style detection uses a sanitized Android asset copy of the shared Ethrox Detect Flock signature set and names high-confidence matches as Flock Safety infrastructure.
 - Lower-confidence Flock-related OUIs remain suspicious until corroborated by names, context, or hub-side history.
-- Common wireless assessment and hostile-tool labels were expanded so suspicious SSIDs or Bluetooth names are surfaced as alert-worthy assessment-tool signals.
+- Common wireless assessment and hostile-tool labels are loaded from a sanitized Android asset so suspicious SSIDs, Bluetooth names, or BLE metadata are surfaced as alert-worthy assessment-tool signals.
+- Android does not expose raw 802.11 management frames to normal apps, so phone-side deauth detection means visible deauth-tool classification rather than packet-level deauthentication-frame detection.
 
 ## Phone Workload Guardrails
 

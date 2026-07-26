@@ -4,20 +4,6 @@ import com.ethrox.detect.model.ThreatLevel
 
 object DeviceClassifier {
 
-    // Mirrored from Ethrox Detect shared signatures/flock-signatures.json.
-    private val FLOCK_OUIS = setOf(
-        "70:C9:4E", "3C:91:80", "D8:F3:BC", "80:30:49", "B8:35:32",
-        "14:5A:FC", "74:4C:A1", "08:3A:88", "9C:2F:9D", "C0:35:32",
-        "94:08:53", "F4:6A:DD", "F8:A2:D6", "24:B2:B9", "00:F4:8D",
-        "D0:39:57", "E8:D0:FC", "E0:4F:43", "B8:1E:A4", "70:08:94",
-        "58:8E:81", "EC:1B:BD", "58:00:E3", "90:35:EA", "5C:93:A2",
-        "64:6E:69", "48:27:EA", "B4:1E:52"
-    )
-
-    private val FLOCK_REQUIRES_CORROBORATION_OUIS = setOf(
-        "E4:AA:EA", "3C:71:BF", "A4:CF:12", "82:6B:F2"
-    )
-
     // Known surveillance / ALPR camera manufacturers
     private val SURVEILLANCE_KEYWORDS = setOf(
         "flock", "verkada", "avigilon", "hikvision", "dahua",
@@ -28,18 +14,7 @@ object DeviceClassifier {
 
     private val TRAFFIC_READER_KEYWORDS = setOf(
         "flock", "alpr", "lpr", "license plate", "plate reader",
-        "traffic reader", "traffic camera", "speed camera", "red light",
-        "flck", "flocksafety", "flock safety", "test_flck"
-    )
-
-    // Tooling that can be used for interception, impersonation, or data capture.
-    private val DATA_STEALING_KEYWORDS = setOf(
-        "flipper", "flipper zero", "flipper_", "xremote", "evil_twin",
-        "evil twin", "badusb", "marauder", "deauther", "pwnagotchi",
-        "pineapple", "wifi pineapple", "rogue ap", "credential",
-        "password", "phish", "skimmer", "bettercap", "airgeddon",
-        "wifiphisher", "hostapd-wpe", "eaphammer", "mdk4", "mdk3",
-        "karma", "mana", "wifijammer", "wifi jammer"
+        "traffic reader", "traffic camera", "speed camera", "red light"
     )
 
     private val NOTICED_KEYWORDS = setOf(
@@ -75,18 +50,23 @@ object DeviceClassifier {
 
     fun classifyWifi(ssid: String, bssid: String, capabilities: String): Triple<String, String, ThreatLevel> {
         val manufacturer = lookupOui(bssid)
+        val rules = SignatureEngine.rules
         val ssidLower = ssid.lowercase()
         val mfrLower = manufacturer.lowercase()
-        val isFlockLike = isFlockLike(ssidLower, mfrLower, bssid)
+        val hasFlockKeyword = hasAny(ssidLower, rules.flockKeywords) || hasAny(mfrLower, rules.flockKeywords)
+        val hasHighConfidenceFlock = hasFlockHighConfidence(ssidLower, mfrLower, bssid)
+        val needsFlockCorroboration = needsFlockCorroboration(bssid)
+        val isFlockLike = hasHighConfidenceFlock || (needsFlockCorroboration && hasFlockKeyword)
         val isTrafficReader = hasAny(ssidLower, TRAFFIC_READER_KEYWORDS) ||
-            hasAny(mfrLower, TRAFFIC_READER_KEYWORDS)
+            hasAny(mfrLower, TRAFFIC_READER_KEYWORDS) ||
+            hasFlockKeyword
         val isSurveillance = hasAny(ssidLower, SURVEILLANCE_KEYWORDS) ||
             hasAny(mfrLower, SURVEILLANCE_KEYWORDS)
-        val isDataStealingTool = hasAny(ssidLower, DATA_STEALING_KEYWORDS)
+        val isDataStealingTool = hasAny(ssidLower, rules.hostileToolKeywords)
 
         val deviceClass = when {
             isFlockLike -> "Flock Safety infrastructure"
-            needsFlockCorroboration(bssid) -> "Possible Flock Safety infrastructure"
+            needsFlockCorroboration -> "Possible Flock Safety infrastructure"
             isTrafficReader -> "Traffic reader / ALPR device"
             isSurveillance -> "Camera / surveillance WiFi"
             isDataStealingTool -> "Hostile WiFi / assessment tool"
@@ -108,7 +88,7 @@ object DeviceClassifier {
 
         val threat = when {
             isDataStealingTool -> ThreatLevel.ALERT
-            isFlockLike || needsFlockCorroboration(bssid) || isTrafficReader || isSurveillance -> ThreatLevel.SUSPICIOUS
+            isFlockLike || needsFlockCorroboration || isTrafficReader || isSurveillance -> ThreatLevel.SUSPICIOUS
             hasAny(ssidLower, NOTICED_KEYWORDS) -> ThreatLevel.UNKNOWN
             !capabilities.contains("WPA") && !capabilities.contains("WEP") -> ThreatLevel.UNKNOWN
             else -> ThreatLevel.SAFE
@@ -117,20 +97,33 @@ object DeviceClassifier {
         return Triple(manufacturer, deviceClass, threat)
     }
 
-    fun classifyBluetooth(name: String, address: String): Triple<String, String, ThreatLevel> {
+    fun classifyBluetooth(
+        name: String,
+        address: String,
+        advertisementMetadata: String = ""
+    ): Triple<String, String, ThreatLevel> {
         val manufacturer = lookupOui(address.take(8))
+        val rules = SignatureEngine.rules
         val nameLower = name.lowercase()
         val mfrLower = manufacturer.lowercase()
-        val isFlockLike = isFlockLike(nameLower, mfrLower, address)
+        val metadataLower = advertisementMetadata.lowercase()
+        val hasFlockKeyword = hasAny(nameLower, rules.flockKeywords + rules.flockBleNameKeywords) ||
+            hasAny(mfrLower, rules.flockKeywords) ||
+            hasFlockBleManufacturer(metadataLower)
+        val hasHighConfidenceFlock = hasFlockHighConfidence(nameLower, mfrLower, address)
+        val needsFlockCorroboration = needsFlockCorroboration(address)
+        val isFlockLike = hasHighConfidenceFlock || hasFlockKeyword || (needsFlockCorroboration && hasFlockKeyword)
         val isTrafficReader = hasAny(nameLower, TRAFFIC_READER_KEYWORDS) ||
-            hasAny(mfrLower, TRAFFIC_READER_KEYWORDS)
+            hasAny(mfrLower, TRAFFIC_READER_KEYWORDS) ||
+            hasFlockKeyword
         val isSurveillance = hasAny(nameLower, SURVEILLANCE_KEYWORDS) ||
             hasAny(mfrLower, SURVEILLANCE_KEYWORDS)
-        val isDataStealingTool = hasAny(nameLower, DATA_STEALING_KEYWORDS)
+        val isDataStealingTool = hasAny(nameLower, rules.hostileToolKeywords) ||
+            hasAny(metadataLower, rules.hostileToolKeywords)
 
         val deviceClass = when {
             isFlockLike -> "Flock Safety infrastructure"
-            needsFlockCorroboration(address) -> "Possible Flock Safety infrastructure"
+            needsFlockCorroboration -> "Possible Flock Safety infrastructure"
             isTrafficReader -> "Traffic reader / ALPR device"
             isSurveillance -> "Camera / surveillance device"
             isDataStealingTool -> "Hostile Bluetooth / assessment tool"
@@ -148,7 +141,7 @@ object DeviceClassifier {
 
         val threat = when {
             isDataStealingTool -> ThreatLevel.ALERT
-            isFlockLike || needsFlockCorroboration(address) || isTrafficReader || isSurveillance -> ThreatLevel.SUSPICIOUS
+            isFlockLike || needsFlockCorroboration || isTrafficReader || isSurveillance -> ThreatLevel.SUSPICIOUS
             hasAny(nameLower, NOTICED_KEYWORDS) -> ThreatLevel.UNKNOWN
             else -> ThreatLevel.SAFE
         }
@@ -161,14 +154,20 @@ object DeviceClassifier {
         return KNOWN_OUIS[oui] ?: "Unknown"
     }
 
-    private fun isFlockLike(label: String, manufacturer: String, address: String): Boolean =
-        label.contains("flock") ||
-            label.contains("flck") ||
-        manufacturer.contains("flock") ||
-            FLOCK_OUIS.any { address.uppercase().startsWith(it) }
+    private fun hasFlockHighConfidence(label: String, manufacturer: String, address: String): Boolean {
+        val rules = SignatureEngine.rules
+        return hasAny(label, rules.flockKeywords) ||
+            hasAny(manufacturer, rules.flockKeywords) ||
+            rules.flockHighOuis.any { address.uppercase().startsWith(it) }
+    }
 
     private fun needsFlockCorroboration(address: String): Boolean =
-        FLOCK_REQUIRES_CORROBORATION_OUIS.any { address.uppercase().startsWith(it) }
+        SignatureEngine.rules.flockCorroborationOuis.any { address.uppercase().startsWith(it) }
+
+    private fun hasFlockBleManufacturer(metadata: String): Boolean =
+        SignatureEngine.rules.flockBleManufacturerIds.any { id ->
+            metadata.contains("manufacturerdata=$id:") || metadata.contains("manufacturerdata=0x$id:")
+        }
 
     private fun hasAny(value: String, keywords: Set<String>): Boolean =
         keywords.any { value.contains(it) }

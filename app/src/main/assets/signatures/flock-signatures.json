@@ -1,0 +1,59 @@
+{
+  "schema": 1,
+  "version": "ethrox-flock-2026.07.13",
+  "notes": "Sanitized Android asset copy of the Ethrox Detect Flock signature pack. Private captures, node identifiers, MAC observations, GPS trails, and local rules must stay out of this file.",
+  "wifi": {
+    "oui": [
+      { "prefix": "70:c9:4e", "label": "Flock Safety infrastructure", "confidence": "high" },
+      { "prefix": "3c:91:80", "label": "Flock Safety infrastructure", "confidence": "high" },
+      { "prefix": "d8:f3:bc", "label": "Flock Safety infrastructure", "confidence": "high" },
+      { "prefix": "80:30:49", "label": "Flock Safety infrastructure", "confidence": "high" },
+      { "prefix": "b8:35:32", "label": "Flock Safety infrastructure", "confidence": "high" },
+      { "prefix": "14:5a:fc", "label": "Flock Safety infrastructure", "confidence": "high" },
+      { "prefix": "74:4c:a1", "label": "Flock Safety infrastructure", "confidence": "high" },
+      { "prefix": "08:3a:88", "label": "Flock Safety infrastructure", "confidence": "high" },
+      { "prefix": "9c:2f:9d", "label": "Flock Safety infrastructure", "confidence": "high" },
+      { "prefix": "c0:35:32", "label": "Flock Safety infrastructure", "confidence": "high" },
+      { "prefix": "94:08:53", "label": "Flock Safety infrastructure", "confidence": "high" },
+      { "prefix": "e4:aa:ea", "label": "Flock Safety (Liteon contract mfr)", "confidence": "medium", "requires_corroboration": true },
+      { "prefix": "f4:6a:dd", "label": "Flock Safety infrastructure", "confidence": "high" },
+      { "prefix": "f8:a2:d6", "label": "Flock Safety infrastructure", "confidence": "high" },
+      { "prefix": "24:b2:b9", "label": "Flock Safety infrastructure", "confidence": "high" },
+      { "prefix": "00:f4:8d", "label": "Flock Safety infrastructure", "confidence": "high" },
+      { "prefix": "d0:39:57", "label": "Flock Safety infrastructure", "confidence": "high" },
+      { "prefix": "e8:d0:fc", "label": "Flock Safety infrastructure", "confidence": "high" },
+      { "prefix": "e0:4f:43", "label": "Flock Safety infrastructure", "confidence": "high" },
+      { "prefix": "b8:1e:a4", "label": "Flock Safety infrastructure", "confidence": "high" },
+      { "prefix": "70:08:94", "label": "Flock Safety infrastructure", "confidence": "high" },
+      { "prefix": "58:8e:81", "label": "Flock Safety infrastructure", "confidence": "high" },
+      { "prefix": "ec:1b:bd", "label": "Flock Safety infrastructure", "confidence": "high" },
+      { "prefix": "3c:71:bf", "label": "Flock Safety (Espressif module range)", "confidence": "medium", "requires_corroboration": true },
+      { "prefix": "58:00:e3", "label": "Flock Safety infrastructure", "confidence": "high" },
+      { "prefix": "90:35:ea", "label": "Flock Safety infrastructure", "confidence": "high" },
+      { "prefix": "5c:93:a2", "label": "Flock Safety infrastructure", "confidence": "high" },
+      { "prefix": "64:6e:69", "label": "Flock Safety infrastructure", "confidence": "high" },
+      { "prefix": "48:27:ea", "label": "Flock Safety infrastructure", "confidence": "high" },
+      { "prefix": "a4:cf:12", "label": "Flock Safety (Espressif module range)", "confidence": "medium", "requires_corroboration": true },
+      { "prefix": "b4:1e:52", "label": "Flock Safety, Inc. (direct IEEE registration)", "confidence": "high" },
+      { "prefix": "82:6b:f2", "label": "Flock Safety (observed, locally-administered)", "confidence": "low", "laa": true, "requires_corroboration": true }
+    ],
+    "ssid_keywords": [
+      "flock",
+      "flck",
+      "flocksafety",
+      "flock safety",
+      "test_flck",
+      "alpr",
+      "lpr",
+      "license plate",
+      "plate reader",
+      "penguin"
+    ]
+  },
+  "ble": {
+    "manufacturer_ids": [
+      { "id": "0x09C8", "label": "XUNTONG (Flock / Raven gear)", "confidence": "medium" }
+    ],
+    "name_keywords": ["flock", "raven"]
+  }
+}

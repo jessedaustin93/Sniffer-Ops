@@ -88,7 +88,6 @@ class BluetoothScanner(private val context: Context) {
                     result.scanRecord?.deviceName ?: device.name ?: "Unknown BLE"
                 } catch (_: Exception) { "Unknown BLE" }
                 val address = device.address ?: return
-                val (mfr, cls, threat) = DeviceClassifier.classifyBluetooth(name, address)
                 val record = result.scanRecord
                 val serviceUuids = record?.serviceUuids.orEmpty().joinToString(",") { it.uuid.toString() }
                 val manufacturerData = record?.manufacturerSpecificData?.let { sparse ->
@@ -112,6 +111,7 @@ class BluetoothScanner(private val context: Context) {
                     add("connectable=${result.isConnectable}")
                     if (record?.deviceName != null) add("advertisedName=${record.deviceName}")
                 }.joinToString("; ")
+                val (mfr, cls, threat) = DeviceClassifier.classifyBluetooth(name, address, notes)
 
                 val sd = SignalDevice(
                     id = "ble_$address",
