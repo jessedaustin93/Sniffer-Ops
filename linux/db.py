@@ -483,8 +483,8 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
 _TIMESTAMP_COLUMNS = {
     "first_seen", "last_seen", "captured_at", "synced_at", "observed_at",
     "recalculated_at", "started_at", "ended_at", "last_present_at",
-    "first_confirmed", "last_confirmed", "confirmed_at", "dismissed_at",
-    "updated_at",
+    "last_missing_at", "first_confirmed", "last_confirmed", "confirmed_at",
+    "dismissed_at", "updated_at",
 }
 
 

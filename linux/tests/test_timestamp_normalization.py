@@ -214,6 +214,36 @@ def test_migration_normalizes_preexisting_text_timestamps(tmp_path):
     assert sighting["captured_at"] == 1_783_785_862_000
 
 
+def test_migration_normalizes_last_missing_at(tmp_path):
+    """Every column in _TIMESTAMP_COLUMNS actually present in the schema
+    must be covered — this one (signal_profiles.last_missing_at) was missed
+    in an earlier draft of the column set."""
+    db_path = tmp_path / "awareness.db"
+    db.initialize(str(db_path))
+
+    with _connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO signal_profiles (id, name, type, first_seen, last_seen, "
+            "last_missing_at, seen_count, presence_state, node_ids, timeline) "
+            "VALUES ('legacy-2', 'Legacy Device', 'BLE', 1000, 1000, "
+            "'2026-07-11T16:04:22Z', 1, 'missing', '[]', '[]')"
+        )
+        conn.commit()
+        conn.execute("DELETE FROM schema_migrations WHERE version = 3")
+        conn.commit()
+
+    db.initialize(str(db_path))
+
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT last_missing_at, typeof(last_missing_at) AS t "
+            "FROM signal_profiles WHERE id='legacy-2'"
+        ).fetchone()
+
+    assert row["t"] == "integer"
+    assert row["last_missing_at"] == 1_783_785_862_000
+
+
 def test_recency_query_finds_rows_after_normalization(tmp_path):
     """
     Reproduces the live bug found on t5810b: a naive 'captured_at within the
