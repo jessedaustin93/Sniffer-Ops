@@ -51,6 +51,10 @@ deauth detection on the phone means classifying visible deauth tooling by
 network/device names or metadata. Packet-level deauthentication-frame detection
 belongs on hardware or hub-side paths that expose raw radio frames.
 
+The installed Android build was verified to load the signature assets at
+startup. Hub send/compact was also verified after the compaction path was made
+bounded so the phone does not freeze while deleting confirmed history.
+
 ### Samsung Watch Monitor
 
 - Live Wi-Fi / Bluetooth / cellular counts

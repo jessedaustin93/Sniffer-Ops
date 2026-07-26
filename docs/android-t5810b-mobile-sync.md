@@ -39,6 +39,16 @@ These notes describe the sanitized Android update for Ethrox Detect. They intent
 - Upgrade install over the existing SnifferOps package completed successfully.
 - The launched app showed Ethrox Detect branding and no SDR dashboard controls.
 - Hub sync completed successfully against the configured T5810B endpoint and returned confirmed sighting acknowledgements.
+- The installed app loaded sanitized Android signature assets at startup.
+- A send-and-compact cycle completed without the previous UI freeze after compaction was moved into a quieter, bounded path.
+
+## Deauth Classification Boundary
+
+The Android app can classify visible deauth-related tooling when names or BLE
+metadata match the signature pack. It cannot claim packet-level deauthentication
+frame detection because normal Android app APIs do not expose raw 802.11
+management frames. Packet-level deauth detection belongs on approved raw-radio,
+firmware, or hub-side capture paths that can inspect those frames directly.
 
 ## Sanitization Rules
 
