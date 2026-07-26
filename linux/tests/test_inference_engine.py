@@ -114,6 +114,35 @@ def test_flock_identity_confidence_priority_and_disposition_are_separate(tmp_pat
     assert db.get_classification_evidence(stored[0]["id"])
 
 
+def test_public_safety_profile_rule_is_dispatched_and_persisted(tmp_path):
+    _init(tmp_path)
+    signal = {
+        "name": "mobile ALPR vehicle equipment",
+        "type": "WIFI",
+        "address": "02:00:00:00:00:11",
+        "deviceClass": "vehicle-mounted system",
+        "signalStrength": -55,
+    }
+    profile_id = db.signal_profile_id(signal)
+    db.write_detection(signal, "synthetic-node", now_ms=1_783_785_900_000)
+
+    findings = inference_engine.recalculate_profile(profile_id)
+
+    alpr = next(f for f in findings if f.family == "public_safety.alpr_vehicle_equipment")
+    assert alpr.label == "Vehicle-mounted ALPR equipment clue"
+    assert alpr.priority == "WATCH"
+    assert alpr.confidence == "MEDIUM"
+    assert alpr.policy_disposition == "WATCH"
+    assert any(e.raw.get("rule_id") == "vehicle-alpr" for e in alpr.evidence)
+
+    stored = [f for f in db.get_classifications() if f["family"] == alpr.family]
+    assert len(stored) == 1
+    assert isinstance(stored[0]["first_seen"], int)
+    assert isinstance(stored[0]["last_seen"], int)
+    assert isinstance(stored[0]["recalculated_at"], int)
+    assert db.get_classification_evidence(stored[0]["id"])
+
+
 def test_owned_tracker_is_suppressed_without_deleting_sightings(tmp_path):
     _init(tmp_path)
     signal = {

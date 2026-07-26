@@ -246,7 +246,7 @@ def test_migration_normalizes_last_missing_at(tmp_path):
 
 def test_recency_query_finds_rows_after_normalization(tmp_path):
     """
-    Reproduces the live bug found on t5810b: a naive 'captured_at within the
+    Reproduces the live bug found on a production hub: a naive 'captured_at within the
     last 24h' query returned zero rows because some captured_at values were
     stored as TEXT and compared incorrectly. After migration, comparing
     against an epoch-ms cutoff must work.

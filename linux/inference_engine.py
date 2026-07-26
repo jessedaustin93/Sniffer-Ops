@@ -420,6 +420,48 @@ def classify_profile(profile: dict) -> list[Finding]:
             details={"signature_family": signature.family, "ownership_state": state},
         ))
 
+    # Public-safety rules are profile-level metadata clues.  Keep these
+    # separate from the future entity/vehicle-cluster layer: the latter has
+    # no aggregation contract or writer yet, while these seven rules can be
+    # evaluated directly against an observed profile.
+    public_safety_rule = _best_rule(rules.get("public_safety", {}), text)
+    if public_safety_rule:
+        family = public_safety_rule.get("family", "")
+        if family in {
+            "public_safety.work_vehicle_cluster",
+            "public_safety.fleet_vehicle_cluster",
+            "public_safety.bodycam_vendor_clue",
+            "public_safety.mdt_vendor_clue",
+            "public_safety.dashcam_vendor_clue",
+            "public_safety.alpr_vehicle_equipment",
+            "public_safety.stationary_roadside_observation",
+        }:
+            priority = public_safety_rule.get("priority", "INFO")
+            findings.append(Finding(
+                family=family,
+                label=public_safety_rule.get("label", family),
+                priority=priority,
+                confidence=public_safety_rule.get("confidence", "LOW"),
+                policy_disposition=(
+                    "WATCH" if priority in {"WATCH", "CAUTION", "HIGH", "CRITICAL"} else "INFO"
+                ),
+                policy_reason="Profile metadata matched a public-safety clue rule; this is not an identity determination.",
+                recommended_next_step=_recommendation_for_family(family),
+                related_signal_ids=[profile_id],
+                first_seen=first_seen,
+                last_seen=last_seen,
+                observation_count=seen,
+                source_nodes=source_nodes,
+                evidence=evidence + [Evidence(
+                    "classifier_rule",
+                    public_safety_rule.get("evidence", f"Matched {family} classifier rule."),
+                    observed_at=last_seen,
+                    signal_id=profile_id,
+                    raw={"rule_id": public_safety_rule.get("id", "")},
+                )],
+                details={"rule_id": public_safety_rule.get("id", ""), "ownership_state": state},
+            ))
+
     if (profile.get("type") or "").upper() in {"BLUETOOTH", "BLE"}:
         tracker = tracker_following_risk(profile, rules)
         tracker_rule = _best_rule(rules.get("tracking", {}), text)
