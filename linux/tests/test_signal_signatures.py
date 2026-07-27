@@ -85,6 +85,15 @@ def test_ble_tracker_signature_is_not_surveillance_alert():
     assert alert["level"] == "LOW"
 
 
+def test_listening_device_term_is_surveillance_signature():
+    signal = {"name": "GSM Bug Module", "type": "BLUETOOTH", "notes": "spy microphone"}
+
+    guess = signal_signatures.classify_signal_signature(signal)
+
+    assert guess.family == "surveillance"
+    assert guess.alert_keyword == "listening-device"
+
+
 def test_deauth_signature_is_high_alert_with_explicit_cue():
     signal = {
         "name": "unknown-ap",

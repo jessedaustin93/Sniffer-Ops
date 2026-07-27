@@ -175,6 +175,39 @@
       "policy_disposition": "HOSTILE",
       "score": 76,
       "evidence": "Metadata contains Motorola Solutions surveillance platform clue."
+    },
+    {
+      "id": "hidden-camera-keyword",
+      "family": "surveillance.hidden_camera",
+      "label": "Hidden/covert camera clue",
+      "patterns": ["hidden[-_\\s]*camera", "spy[-_\\s]*cam(era)?", "nanny[-_\\s]*cam", "covert[-_\\s]*camera", "pinhole[-_\\s]*camera", "concealed[-_\\s]*camera"],
+      "priority": "HIGH",
+      "confidence": "MEDIUM",
+      "policy_disposition": "HOSTILE",
+      "score": 95,
+      "evidence": "Metadata contains explicit hidden/covert camera terminology."
+    },
+    {
+      "id": "generic-ip-camera-ap",
+      "family": "surveillance.generic_ip_camera",
+      "label": "Generic low-cost IP camera access point",
+      "patterns": ["ipcam", "ipc[-_\\s]*\\d", "wifi[-_\\s]*cam(era)?", "esp32[-_\\s]*cam", "camhi", "\\bv380\\b", "wireless[-_\\s]*n[-_\\s]*camera"],
+      "priority": "WATCH",
+      "confidence": "LOW",
+      "policy_disposition": "WATCH",
+      "score": 55,
+      "evidence": "Metadata matches a common low-cost IP camera default AP/SSID naming pattern; may be a legitimate owned device."
+    },
+    {
+      "id": "audio-listening-device",
+      "family": "surveillance.audio_bug",
+      "label": "Covert audio listening device clue",
+      "patterns": ["audio[-_\\s]*bug", "spy[-_\\s]*mic(rophone)?", "listening[-_\\s]*device", "hidden[-_\\s]*mic(rophone)?", "covert[-_\\s]*mic(rophone)?", "gsm[-_\\s]*bug"],
+      "priority": "HIGH",
+      "confidence": "MEDIUM",
+      "policy_disposition": "HOSTILE",
+      "score": 90,
+      "evidence": "Metadata contains explicit covert audio-listening-device terminology."
     }
   ]
 }

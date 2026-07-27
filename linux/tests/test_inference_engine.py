@@ -403,6 +403,67 @@ def test_specific_tracker_rules_refine_known_tracker_family(tmp_path):
     assert any(ev.type == "classifier_rule" for ev in smarttag.evidence)
 
 
+def test_hidden_camera_keyword_refines_to_hostile(tmp_path):
+    _init(tmp_path)
+    signal = {
+        "name": "Hidden Camera AP42",
+        "type": "WIFI",
+        "address": "02:00:00:00:00:07",
+        "deviceClass": "unknown",
+        "notes": "spy cam listing found nearby",
+    }
+    profile_id = db.signal_profile_id(signal)
+    db.write_detection(signal, "synthetic-node", now_ms=1_000)
+
+    findings = inference_engine.recalculate_profile(profile_id)
+
+    assert any(f.family == "surveillance.hidden_camera" for f in findings)
+    hidden = next(f for f in findings if f.family == "surveillance.hidden_camera")
+    assert hidden.priority == "HIGH"
+    assert hidden.policy_disposition == "HOSTILE"
+    assert any(ev.type == "classifier_rule" for ev in hidden.evidence)
+
+
+def test_generic_ip_camera_ap_refines_to_watch(tmp_path):
+    _init(tmp_path)
+    signal = {
+        "name": "IPCAM-A1B2",
+        "type": "WIFI",
+        "address": "02:00:00:00:00:08",
+        "deviceClass": "unknown",
+        "notes": "",
+    }
+    profile_id = db.signal_profile_id(signal)
+    db.write_detection(signal, "synthetic-node", now_ms=1_000)
+
+    findings = inference_engine.recalculate_profile(profile_id)
+
+    assert any(f.family == "surveillance.generic_ip_camera" for f in findings)
+    cam = next(f for f in findings if f.family == "surveillance.generic_ip_camera")
+    assert cam.priority == "WATCH"
+    assert cam.policy_disposition == "WATCH"
+
+
+def test_audio_listening_device_keyword_refines_to_hostile(tmp_path):
+    _init(tmp_path)
+    signal = {
+        "name": "unknown BLE device",
+        "type": "BLE",
+        "address": "02:00:00:00:00:09",
+        "deviceClass": "unknown",
+        "notes": "listed as a spy microphone / audio bug",
+    }
+    profile_id = db.signal_profile_id(signal)
+    db.write_detection(signal, "synthetic-node", now_ms=1_000)
+
+    findings = inference_engine.recalculate_profile(profile_id)
+
+    assert any(f.family == "surveillance.audio_bug" for f in findings)
+    bug = next(f for f in findings if f.family == "surveillance.audio_bug")
+    assert bug.priority == "HIGH"
+    assert bug.policy_disposition == "HOSTILE"
+
+
 def test_route_exposure_uses_domain_route_weights():
     findings = [
         {
