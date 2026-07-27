@@ -50,26 +50,61 @@ except ImportError:
 
 DATA_DIR = os.path.expanduser(os.environ.get("ETHROX_DETECT_DATA_DIR", "~/.ethrox-detect"))
 LOG_PATH = os.path.join(DATA_DIR, "awareness.json")
+CFG_PATH = os.path.join(DATA_DIR, "config.json")
 SYNC_PORT = 8766
 NODE_ID = str(uuid.uuid4())[:16]
 NODE_NAME = f"linux-{platform.node()}"
+HOME_FALLBACK_CHECK_INTERVAL = 60  # seconds between home-LAN reachability checks
 
 # ── Globals ───────────────────────────────────────────────────────────────────
 
 _scan_stats = {"wifi": 0, "bt": 0, "sdr": 0, "syncs": 0}
 _console = Console() if RICH else None
 _gps_scanner: "GpsScanner | None" = None
+_config: dict = {}
+_home_lan_peers: list[dict] = []
+_home_fallback_state = {"available": False, "checked_at": 0.0}
 
 
 # ── Scanner callbacks ─────────────────────────────────────────────────────────
 
+def _home_fallback_fix() -> dict | None:
+    """When there's no live GPS fix, fall back to the configured home
+    coordinates - but only while a wifi-lan peer is actually reachable, so
+    this turns itself off automatically once the node leaves the home
+    network (e.g. a field deployment at another property)."""
+    home_lat = _config.get("home_lat")
+    home_lon = _config.get("home_lon")
+    if home_lat is None or home_lon is None or not _home_lan_peers:
+        return None
+
+    now = time.time()
+    if now - _home_fallback_state["checked_at"] > HOME_FALLBACK_CHECK_INTERVAL:
+        _home_fallback_state["available"] = any(
+            check_peer_health(p["host"], p.get("port", 8766))
+            for p in _home_lan_peers
+        )
+        _home_fallback_state["checked_at"] = now
+
+    if not _home_fallback_state["available"]:
+        return None
+
+    return {
+        "latitude": home_lat,
+        "longitude": home_lon,
+        "accuracyMeters": 30,
+        "locationProvider": "home-network-fallback",
+    }
+
+
 def _stamp_gps(signals: list[dict]) -> None:
     """Attach the current GPS fix (if any, and not stale) to each signal in
-    a batch. Uses setdefault so a signal that already carries its own
+    a batch, falling back to the home network location when no fix is
+    available. Uses setdefault so a signal that already carries its own
     position (e.g. relayed from a phone) is left alone."""
-    if _gps_scanner is None:
-        return
-    fix = _gps_scanner.get_fix()
+    fix = _gps_scanner.get_fix() if _gps_scanner else None
+    if not fix:
+        fix = _home_fallback_fix()
     if not fix:
         return
     for s in signals:
@@ -255,6 +290,16 @@ def main() -> None:
     # Init awareness log
     os.makedirs(DATA_DIR, exist_ok=True)
     awareness_log.initialize(LOG_PATH)
+
+    # Load config.json for home-network location fallback (optional; the
+    # file may not exist on every install)
+    global _config, _home_lan_peers
+    try:
+        with open(CFG_PATH) as f:
+            _config = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        _config = {}
+    _home_lan_peers = [p for p in _config.get("peers", []) if p.get("via") == "wifi-lan"]
 
     # Start HTTP sync server (serves Android, Windows, and other Linux nodes)
     awareness_log.start_server(bind=args.bind, port=args.port)
