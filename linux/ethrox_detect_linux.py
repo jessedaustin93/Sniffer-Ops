@@ -134,16 +134,9 @@ def _on_sdr(signals: list[dict]) -> None:
 
 
 def _submit_snapshot(signals: list[dict], signal_type: str) -> None:
-    snapshot = {
-        "schema": 1,
-        "nodeId": NODE_ID,
-        "nodeName": NODE_NAME,
-        "capturedAt": int(time.time() * 1000),
-        "location": {},
-        "completeTypes": [signal_type],
-        "signals": signals,
-    }
-    awareness_log.merge_snapshot(snapshot)
+    for signal in signals:
+        signal["type"] = signal.get("type") or signal_type
+        db.write_detection(signal, NODE_ID)
     _scan_stats["syncs"] += 1
 
 
@@ -245,12 +238,14 @@ def main() -> None:
                         help="Disable Bluetooth scanning")
     parser.add_argument("--no-sdr", action="store_true",
                         help="Disable RTL-SDR scanning")
-    parser.add_argument("--no-gps", action="store_true",
-                        help="Disable GPS tagging via gpsd")
     parser.add_argument("--sdr-remote", metavar="HOST[:PORT]",
                         help="Connect to remote rtl_tcp server instead of local hardware")
     parser.add_argument("--plain", action="store_true",
                         help="Plain text output (no Rich TUI)")
+    parser.add_argument("--no-ui", action="store_true",
+                        help="Run scanners and API without rendering a terminal UI")
+    parser.add_argument("--no-gps", action="store_true",
+                        help="Disable GPS tagging via gpsd")
     args = parser.parse_args()
 
     if args.version:
@@ -308,6 +303,14 @@ def main() -> None:
 
     print(f"[ethrox-detect] Node ID: {NODE_ID}")
     print("[ethrox-detect] Press Ctrl+C to stop\n")
+
+    if args.no_ui:
+        try:
+            while True:
+                time.sleep(60)
+        except KeyboardInterrupt:
+            pass
+        return
 
     if args.plain or not RICH:
         _run_plain(sync_manager)
