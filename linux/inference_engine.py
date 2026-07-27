@@ -52,12 +52,27 @@ CLASSIFIER_FAMILIES = (
     "surveillance.hidden_camera",
     "surveillance.generic_ip_camera",
     "surveillance.audio_bug",
+    "surveillance.rekor",
+    "surveillance.platesmart",
+    "surveillance.neology",
+    "surveillance.leonardo_elsag",
+    "surveillance.jenoptik",
+    "surveillance.soundthinking",
+    "surveillance.acoustic_sensor",
+    "surveillance.smartglasses",
+    "surveillance.body_worn_camera",
+    "surveillance.action_camera",
+    "surveillance.low_cost_ip_camera",
     "tracking.ble",
     "tracking.apple_findmy",
     "tracking.apple_airtag",
     "tracking.samsung_smarttag",
     "tracking.tile",
     "tracking.chipolo",
+    "tracking.pebblebee",
+    "tracking.eufy_tracker",
+    "tracking.moto_tag",
+    "tracking.jiotag",
     "tracking.ble_beacon",
     "tracking.rotating_ble_identity",
     "tracking.stationary_beacon",
@@ -85,6 +100,9 @@ CLASSIFIER_FAMILIES = (
     "network.encryption_downgrade",
     "network.auto_join_risk",
     "network.trusted_router_verified",
+    "network.offensive_wifi_tool",
+    "network.wifi_phishing_tool",
+    "network.wifi_jamming_tool",
     "cellular.anomaly",
     "cellular.unusual_cell",
     "cellular.unseen_cell_at_known_location",
@@ -99,6 +117,9 @@ CLASSIFIER_FAMILIES = (
     "entity.mobile_cluster",
     "entity.fixed_infrastructure",
     "entity.vehicle_equipment_package",
+    "entity.vehicle_telematics",
+    "entity.fleet_router",
+    "entity.mobile_hotspot",
     "entity.possible_rotated_identity",
     "entity.probable_rotated_identity",
     "entity.rejected_member",
@@ -111,6 +132,9 @@ CLASSIFIER_FAMILIES = (
     "public_safety.dashcam_vendor_clue",
     "public_safety.alpr_vehicle_equipment",
     "public_safety.stationary_roadside_observation",
+    "public_safety.telematics_vendor_clue",
+    "public_safety.vehicle_router_vendor_clue",
+    "public_safety.rugged_computer_vendor_clue",
     "public_safety.possible_cruiser",
     "public_safety.probable_cruiser",
     "public_safety.confirmed_cruiser",
@@ -289,6 +313,48 @@ def _best_rule(domain_rules: dict, text: str) -> dict | None:
     return sorted(matches, key=lambda r: (int(r.get("score", 0)), r.get("family", "")), reverse=True)[0]
 
 
+def _rule_finding(
+    rule: dict,
+    *,
+    profile_id: str,
+    first_seen: int | None,
+    last_seen: int | None,
+    seen: int,
+    source_nodes: list,
+    evidence: list[Evidence],
+    state: str,
+    default_priority: str = "INFO",
+    default_confidence: str = "LOW",
+    default_disposition: str = "INFO",
+    default_reason: str = "Profile metadata matched a sanitized classifier rule; this is not an identity determination.",
+) -> Finding:
+    family = rule.get("family", "")
+    priority = rule.get("priority", default_priority)
+    disposition = rule.get("policy_disposition", default_disposition)
+    return Finding(
+        family=family,
+        label=rule.get("label", family),
+        priority=priority,
+        confidence=rule.get("confidence", default_confidence),
+        policy_disposition=disposition,
+        policy_reason=rule.get("policy_reason", default_reason),
+        recommended_next_step=_recommendation_for_family(family),
+        related_signal_ids=[profile_id],
+        first_seen=first_seen,
+        last_seen=last_seen,
+        observation_count=seen,
+        source_nodes=source_nodes,
+        evidence=evidence + [Evidence(
+            "classifier_rule",
+            rule.get("evidence", f"Matched {family} classifier rule."),
+            observed_at=last_seen,
+            signal_id=profile_id,
+            raw={"rule_id": rule.get("id", "")},
+        )],
+        details={"rule_id": rule.get("id", ""), "ownership_state": state},
+    )
+
+
 def _confidence_from_signature(value: str) -> str:
     return {
         "confirmed": "CONFIRMED",
@@ -464,6 +530,32 @@ def classify_profile(profile: dict) -> list[Finding]:
                 )],
                 details={"rule_id": public_safety_rule.get("id", ""), "ownership_state": state},
             ))
+
+    for domain in (
+        "alpr_vendors",
+        "public_safety_sensors",
+        "wearable_cameras",
+        "vehicle_telematics",
+        "drone_remote_id",
+        "low_cost_ip_cameras",
+        "offensive_tools",
+    ):
+        rule = _best_rule(rules.get(domain, {}), text)
+        if not rule:
+            continue
+        family = rule.get("family", "")
+        if not family or any(f.family == family for f in findings):
+            continue
+        findings.append(_rule_finding(
+            rule,
+            profile_id=profile_id,
+            first_seen=first_seen,
+            last_seen=last_seen,
+            seen=seen,
+            source_nodes=source_nodes,
+            evidence=evidence,
+            state=state,
+        ))
 
     if (profile.get("type") or "").upper() in {"BLUETOOTH", "BLE"}:
         tracker = tracker_following_risk(profile, rules)

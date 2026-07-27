@@ -1,0 +1,42 @@
+{
+  "version": "offensive-tool-rules-1.0.0",
+  "notes": "Sanitized defensive classifier pack for explicit Wi-Fi/BLE assessment-tool metadata. Labels are indicators only; legitimate lab devices should be marked trusted/ignored by ownership policy.",
+  "definitions": [
+    {
+      "id": "wifi-phishing-tools",
+      "family": "network.wifi_phishing_tool",
+      "label": "Wi-Fi phishing/evil-twin tool clue",
+      "patterns": ["\\bwifiphisher\\b", "\\beaphammer\\b", "hostapd[-_\\s]*wpe", "\\bairgeddon\\b", "\\bmana\\b", "credential[-_\\s]*harvest", "evil[-_\\s]*twin"],
+      "priority": "HIGH",
+      "confidence": "MEDIUM",
+      "policy_disposition": "HOSTILE",
+      "policy_reason": "Defensive network-integrity policy treats explicit Wi-Fi phishing tool clues as hostile unless trusted by ownership policy.",
+      "score": 88,
+      "evidence": "Metadata contains Wi-Fi phishing or evil-twin tool terminology."
+    },
+    {
+      "id": "wifi-attack-tools",
+      "family": "network.offensive_wifi_tool",
+      "label": "Wi-Fi/BLE assessment tool clue",
+      "patterns": ["\\bbettercap\\b", "\\bpwnagotchi\\b", "\\bflipper\\b", "wifi[-_\\s]*pineapple", "\\bpineapple\\b", "esp32[-_\\s]*marauder", "\\bmarauder\\b", "esp8266[-_\\s]*deauther", "\\bdeauther\\b", "\\bmdk[34]\\b"],
+      "priority": "HIGH",
+      "confidence": "MEDIUM",
+      "policy_disposition": "HOSTILE",
+      "policy_reason": "Defensive network-integrity policy treats explicit attack-tool clues as hostile unless trusted by ownership policy.",
+      "score": 86,
+      "evidence": "Metadata contains Wi-Fi/BLE assessment-tool terminology."
+    },
+    {
+      "id": "wifi-jamming-tools",
+      "family": "network.wifi_jamming_tool",
+      "label": "Wi-Fi jamming/deauthentication tool clue",
+      "patterns": ["\\bmdk[34]\\b", "deauth[-_\\s]*flood", "beacon[-_\\s]*spam", "probe[-_\\s]*flood", "wifi[-_\\s]*jammer", "\\bjamming\\b"],
+      "priority": "HIGH",
+      "confidence": "MEDIUM",
+      "policy_disposition": "HOSTILE",
+      "policy_reason": "Defensive network-integrity policy treats explicit jamming/deauthentication tool clues as hostile unless trusted by ownership policy.",
+      "score": 84,
+      "evidence": "Metadata contains Wi-Fi jamming or deauthentication-tool terminology."
+    }
+  ]
+}

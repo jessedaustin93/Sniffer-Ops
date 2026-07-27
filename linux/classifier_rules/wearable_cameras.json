@@ -1,0 +1,50 @@
+{
+  "version": "wearable-camera-rules-1.0.0",
+  "notes": "Sanitized classifier pack for smartglasses, body-worn cameras, and action-camera metadata clues.",
+  "definitions": [
+    {
+      "id": "meta-rayban-smartglasses",
+      "family": "surveillance.smartglasses",
+      "label": "Meta/Ray-Ban smartglasses clue",
+      "patterns": ["ray[-_\\s]*ban[-_\\s]*meta", "meta[-_\\s]*glasses", "ray[-_\\s]*ban[-_\\s]*stories", "smart[-_\\s]*glasses", "\\bluxottica\\b"],
+      "priority": "WATCH",
+      "confidence": "MEDIUM",
+      "policy_disposition": "WATCH",
+      "score": 76,
+      "evidence": "Metadata contains smartglasses platform terminology."
+    },
+    {
+      "id": "snap-spectacles",
+      "family": "surveillance.smartglasses",
+      "label": "Snap Spectacles smartglasses clue",
+      "patterns": ["snap[-_\\s]*spectacles", "\\bspectacles\\b", "snap[-_\\s]*glasses"],
+      "priority": "WATCH",
+      "confidence": "LOW",
+      "policy_disposition": "WATCH",
+      "score": 66,
+      "evidence": "Metadata contains Snap Spectacles terminology."
+    },
+    {
+      "id": "body-worn-camera-vendors",
+      "family": "surveillance.body_worn_camera",
+      "label": "Body-worn camera vendor clue",
+      "patterns": ["axon[-_\\s]*(body|fleet|signal)", "watchguard[-_\\s]*(body|vista|camera)", "\\bvievu\\b", "body[-_\\s]*worn[-_\\s]*camera", "body[-_\\s]*cam(era)?"],
+      "priority": "WATCH",
+      "confidence": "MEDIUM",
+      "policy_disposition": "WATCH",
+      "score": 72,
+      "evidence": "Metadata contains body-worn camera terminology."
+    },
+    {
+      "id": "action-camera",
+      "family": "surveillance.action_camera",
+      "label": "Action camera clue",
+      "patterns": ["\\bgopro\\b", "insta[-_\\s]*360", "dji[-_\\s]*osmo", "osmo[-_\\s]*action", "action[-_\\s]*cam(era)?"],
+      "priority": "INFO",
+      "confidence": "LOW",
+      "policy_disposition": "INFO",
+      "score": 48,
+      "evidence": "Metadata contains action-camera terminology."
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "version": "vehicle-telematics-rules-1.0.0",
+  "notes": "Sanitized classifier pack for vehicle routers, fleet telematics, rugged computers, and cellular modem/module clues.",
+  "definitions": [
+    {
+      "id": "fleet-router-vendors",
+      "family": "entity.fleet_router",
+      "label": "Fleet/vehicle router vendor clue",
+      "patterns": ["\\bcradlepoint\\b", "sierra[-_\\s]*wireless", "\\bpeplink\\b", "\\bdigi\\b", "\\bteltonika\\b", "vehicle[-_\\s]*router", "fleet[-_\\s]*(router|hotspot|gateway)"],
+      "priority": "INFO",
+      "confidence": "MEDIUM",
+      "policy_disposition": "INFO",
+      "score": 64,
+      "evidence": "Metadata contains vehicle or fleet-router terminology."
+    },
+    {
+      "id": "fleet-telematics-platforms",
+      "family": "entity.vehicle_telematics",
+      "label": "Fleet telematics platform clue",
+      "patterns": ["\\bgeotab\\b", "\\bsamsara\\b", "verizon[-_\\s]*connect", "\\bomnitracs\\b", "\\bcalamp\\b", "fleet[-_\\s]*telematics", "vehicle[-_\\s]*telematics"],
+      "priority": "INFO",
+      "confidence": "MEDIUM",
+      "policy_disposition": "INFO",
+      "score": 62,
+      "evidence": "Metadata contains fleet-telematics platform terminology."
+    },
+    {
+      "id": "cellular-module-vendors",
+      "family": "entity.mobile_hotspot",
+      "label": "Cellular modem/module vendor clue",
+      "patterns": ["\\bquectel\\b", "\\btelit\\b", "thales[-_\\s]*cinterion", "\\bsimcom\\b", "fibocom", "u[-_\\s]*blox", "cellular[-_\\s]*(modem|module|gateway)", "lte[-_\\s]*(modem|gateway)", "5g[-_\\s]*(modem|gateway)"],
+      "priority": "INFO",
+      "confidence": "LOW",
+      "policy_disposition": "INFO",
+      "score": 50,
+      "evidence": "Metadata contains cellular modem/module terminology."
+    },
+    {
+      "id": "rugged-computer-vendors",
+      "family": "public_safety.rugged_computer_vendor_clue",
+      "label": "Rugged mobile computer clue",
+      "patterns": ["panasonic[-_\\s]*toughbook", "\\bgetac\\b", "dell[-_\\s]*rugged", "mobile[-_\\s]*data[-_\\s]*terminal", "\\bmdt\\b"],
+      "priority": "INFO",
+      "confidence": "LOW",
+      "policy_disposition": "INFO",
+      "score": 46,
+      "evidence": "Metadata contains rugged/mobile-data-terminal terminology."
+    }
+  ]
+}

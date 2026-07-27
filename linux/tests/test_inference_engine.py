@@ -143,6 +143,110 @@ def test_public_safety_profile_rule_is_dispatched_and_persisted(tmp_path):
     assert db.get_classification_evidence(stored[0]["id"])
 
 
+def test_new_named_classifier_packs_label_public_vendor_clues(tmp_path):
+    _init(tmp_path)
+    samples = [
+        (
+            {
+                "name": "Rekor OpenALPR roadside node",
+                "type": "WIFI",
+                "address": "02:00:00:00:10:01",
+                "deviceClass": "roadside camera",
+            },
+            "surveillance.rekor",
+            "Rekor/OpenALPR platform clue",
+        ),
+        (
+            {
+                "name": "SoundThinking ShotSpotter acoustic sensor",
+                "type": "WIFI",
+                "address": "02:00:00:00:10:02",
+            },
+            "surveillance.soundthinking",
+            "SoundThinking/ShotSpotter acoustic sensor clue",
+        ),
+        (
+            {
+                "name": "Cradlepoint fleet vehicle router",
+                "type": "WIFI",
+                "address": "02:00:00:00:10:03",
+            },
+            "entity.fleet_router",
+            "Fleet/vehicle router vendor clue",
+        ),
+        (
+            {
+                "name": "Ray-Ban Meta smart glasses",
+                "type": "BLUETOOTH",
+                "address": "02:00:00:00:10:04",
+            },
+            "surveillance.smartglasses",
+            "Meta/Ray-Ban smartglasses clue",
+        ),
+    ]
+
+    for signal, family, label in samples:
+        profile_id = db.signal_profile_id(signal)
+        db.write_detection(signal, "synthetic-node", now_ms=1_783_785_900_000)
+        findings = inference_engine.recalculate_profile(profile_id)
+
+        finding = next(f for f in findings if f.family == family)
+        assert finding.label == label
+        assert finding.policy_disposition in {"INFO", "WATCH"}
+        assert any(e.raw.get("rule_id") for e in finding.evidence)
+
+
+def test_offensive_tool_pack_uses_hostile_disposition_for_explicit_tooling(tmp_path):
+    _init(tmp_path)
+    signal = {
+        "name": "lab eaphammer evil twin",
+        "type": "WIFI",
+        "address": "02:00:00:00:10:05",
+        "notes": "hostapd-wpe credential portal",
+    }
+    profile_id = db.signal_profile_id(signal)
+    db.write_detection(signal, "synthetic-node", now_ms=1_783_785_900_000)
+
+    findings = inference_engine.recalculate_profile(profile_id)
+
+    tool = next(f for f in findings if f.family == "network.wifi_phishing_tool")
+    assert tool.priority == "HIGH"
+    assert tool.confidence == "MEDIUM"
+    assert tool.policy_disposition == "HOSTILE"
+    assert any(e.raw.get("rule_id") == "wifi-phishing-tools" for e in tool.evidence)
+
+
+def test_low_cost_camera_and_drone_packs_label_candidates_cautiously(tmp_path):
+    _init(tmp_path)
+    camera = {
+        "name": "V380 camera setup",
+        "type": "WIFI",
+        "address": "02:00:00:00:10:06",
+        "notes": "onvif rtsp default ipcam",
+    }
+    drone = {
+        "name": "Autel EVO Nano",
+        "type": "WIFI",
+        "address": "02:00:00:00:10:07",
+    }
+
+    camera_id = db.signal_profile_id(camera)
+    drone_id = db.signal_profile_id(drone)
+    db.write_detection(camera, "synthetic-node", now_ms=1_783_785_900_000)
+    db.write_detection(drone, "synthetic-node", now_ms=1_783_785_901_000)
+
+    camera_findings = inference_engine.recalculate_profile(camera_id)
+    drone_findings = inference_engine.recalculate_profile(drone_id)
+
+    camera_match = next(f for f in camera_findings if f.family == "surveillance.low_cost_ip_camera")
+    drone_match = next(f for f in drone_findings if f.family == "surveillance.mobile_camera")
+    assert camera_match.confidence == "LOW"
+    assert camera_match.policy_disposition == "WATCH"
+    assert "camera" in camera_match.label.lower()
+    assert drone_match.confidence == "MEDIUM"
+    assert drone_match.policy_disposition == "WATCH"
+
+
 def test_owned_tracker_is_suppressed_without_deleting_sightings(tmp_path):
     _init(tmp_path)
     signal = {
