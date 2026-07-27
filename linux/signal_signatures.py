@@ -7,6 +7,8 @@ classifier can surface and tune over time.
 """
 
 from dataclasses import dataclass, field
+import json
+from pathlib import Path
 import re
 
 
@@ -67,6 +69,15 @@ _SURVEILLANCE_CAMERA_TERMS = (
     r"\bred[-_\s]*light\b",
     r"\bspeed[-_\s]*camera\b",
     r"\btraffic[-_\s]*camera\b",
+)
+
+_LISTENING_DEVICE_TERMS = (
+    r"\baudio[-_\s]*bug\b",
+    r"\bspy[-_\s]*mic(rophone)?\b",
+    r"\blistening[-_\s]*device\b",
+    r"\bhidden[-_\s]*mic(rophone)?\b",
+    r"\bcovert[-_\s]*mic(rophone)?\b",
+    r"\bgsm[-_\s]*bug\b",
 )
 
 _CAMERA_VENDOR_TERMS = (
@@ -179,6 +190,20 @@ _DRONE_GENERIC_TERMS = (
     r"\brc[-_\s]*2\b",
 )
 
+_SIGNATURE_DB_PATH = Path(__file__).resolve().parent / "signatures" / "flock-signatures.json"
+_SIGNATURE_DB_CACHE: dict | None = None
+
+
+def _signature_db() -> dict:
+    global _SIGNATURE_DB_CACHE
+    if _SIGNATURE_DB_CACHE is not None:
+        return _SIGNATURE_DB_CACHE
+    try:
+        _SIGNATURE_DB_CACHE = json.loads(_SIGNATURE_DB_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        _SIGNATURE_DB_CACHE = {}
+    return _SIGNATURE_DB_CACHE
+
 
 def _text(signal: dict) -> str:
     parts = [
@@ -200,6 +225,66 @@ def _find_any(patterns: tuple[str, ...], text: str) -> str:
         if match:
             return match.group(0)
     return ""
+
+
+def _normalized_mac(value: object) -> str:
+    text = str(value or "").lower()
+    compact = re.sub(r"[^0-9a-f]", "", text)
+    if len(compact) < 12:
+        return ""
+    return ":".join(compact[i : i + 2] for i in range(0, 12, 2))
+
+
+def _is_laa_mac(mac: str) -> bool:
+    try:
+        return bool(int(mac[:2], 16) & 0x02)
+    except ValueError:
+        return False
+
+
+def _flock_oui_guess(signal: dict, text: str) -> SignatureGuess | None:
+    mac = _normalized_mac(
+        signal.get("address")
+        or signal.get("bssid")
+        or signal.get("mac")
+        or signal.get("macAddress")
+        or signal.get("mac_address")
+    )
+    if not mac:
+        return None
+
+    db = _signature_db()
+    oui_entries = db.get("wifi", {}).get("oui", [])
+    prefix = mac[:8]
+    laa = _is_laa_mac(mac)
+    for entry in oui_entries:
+        if str(entry.get("prefix", "")).lower() != prefix:
+            continue
+        if laa != bool(entry.get("laa", False)):
+            continue
+
+        source = str(entry.get("source") or "signature-db")
+        label = str(entry.get("label") or "Flock Safety infrastructure")
+        confidence = str(entry.get("confidence") or "medium").capitalize()
+        needs_corroboration = bool(entry.get("requires_corroboration", False))
+        corroborated = bool(
+            re.search(r"wildcard[-_\s]*probe|probe[-_\s]*ie|flock[-_\s]*probe|ssid", text)
+        )
+        if needs_corroboration and not corroborated:
+            confidence = "Low"
+        elif corroborated and confidence == "Low":
+            confidence = "Medium"
+
+        return SignatureGuess(
+            family="surveillance",
+            label=label,
+            confidence=confidence,
+            evidence=(f"Flock OUI {prefix} from {source}",)
+            + (("corroborated by probe/name clue",) if corroborated else ()),
+            alert_keyword="flock",
+            alert_label="ALERT: Flock hostile signal",
+        )
+    return None
 
 
 def classify_signal_signature(signal: dict) -> SignatureGuess:
@@ -253,6 +338,10 @@ def classify_signal_signature(signal: dict) -> SignatureGuess:
             alert_keyword="jamming",
             alert_label="ALERT: Jamming indicator detected",
         )
+
+    oui_guess = _flock_oui_guess(signal, text)
+    if oui_guess:
+        return oui_guess
 
     drone_vendor = _find_any(_DRONE_VENDOR_TERMS, text)
     drone_term = _find_any(_DRONE_GENERIC_TERMS, text)
@@ -345,6 +434,17 @@ def classify_signal_signature(signal: dict) -> SignatureGuess:
             evidence=(f"Camera/video term: {camera_term}",),
             alert_keyword="camera",
             alert_label="Camera-like device detected",
+        )
+
+    listening_term = _find_any(_LISTENING_DEVICE_TERMS, text)
+    if listening_term:
+        return SignatureGuess(
+            family="surveillance",
+            label="Possible covert audio listening device",
+            confidence="Medium",
+            evidence=(f"Listening-device term: {listening_term}",),
+            alert_keyword="listening-device",
+            alert_label="ALERT: Covert listening device detected",
         )
 
     tracker = _find_any(_TRACKER_TERMS, text)
