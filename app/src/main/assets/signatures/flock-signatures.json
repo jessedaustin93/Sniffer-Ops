@@ -1,59 +1,101 @@
 {
   "schema": 1,
-  "version": "ethrox-flock-2026.07.13",
-  "notes": "Sanitized Android asset copy of the Ethrox Detect Flock signature pack. Private captures, node identifiers, MAC observations, GPS trails, and local rules must stay out of this file.",
+  "version": "ethrox-local-watch-2026.07.23",
+  "notes": "Sanitized Android asset copy of the shared Ethrox Detect Flock signature pack. Provenance and confidence are tracked per entry so the set stays auditable as it is reconciled against new public sources. METHODOLOGY: an OUI match alone on a shared contract-manufacturer range (e.g. Espressif, Liteon) is high false-positive; entries flagged requires_corroboration must be paired with the wildcard-probe IE fingerprint, the Flock probe IE signature, or an SSID/name clue before they are treated as high-confidence. Randomized/locally-administered MACs are ignored for OUI matching unless the entry itself is flagged laa=true. Keyword signatures cover surveillance, ALPR, hostile Wi-Fi, and common assessment-tool names; keyword hits are clues, not proof.",
+  "sources": [
+    "colonelpanichacks/flock-you (NitekryDPaul wifi OUI dataset)",
+    "Jon Gaines Flock probe-request research",
+    "IEEE OUI registry (b4:1e:52 = Flock Safety, Inc.)",
+    "flock-you community forks (82:6b:f2)",
+    "Ethrox Detect local hostile-WiFi, tracker, and surveillance keyword seed",
+    "colonelpanichacks/flock-you promiscious-dev Flock probe IE signature"
+  ],
   "wifi": {
     "oui": [
-      { "prefix": "70:c9:4e", "label": "Flock Safety infrastructure", "confidence": "high" },
-      { "prefix": "3c:91:80", "label": "Flock Safety infrastructure", "confidence": "high" },
-      { "prefix": "d8:f3:bc", "label": "Flock Safety infrastructure", "confidence": "high" },
-      { "prefix": "80:30:49", "label": "Flock Safety infrastructure", "confidence": "high" },
-      { "prefix": "b8:35:32", "label": "Flock Safety infrastructure", "confidence": "high" },
-      { "prefix": "14:5a:fc", "label": "Flock Safety infrastructure", "confidence": "high" },
-      { "prefix": "74:4c:a1", "label": "Flock Safety infrastructure", "confidence": "high" },
-      { "prefix": "08:3a:88", "label": "Flock Safety infrastructure", "confidence": "high" },
-      { "prefix": "9c:2f:9d", "label": "Flock Safety infrastructure", "confidence": "high" },
-      { "prefix": "c0:35:32", "label": "Flock Safety infrastructure", "confidence": "high" },
-      { "prefix": "94:08:53", "label": "Flock Safety infrastructure", "confidence": "high" },
-      { "prefix": "e4:aa:ea", "label": "Flock Safety (Liteon contract mfr)", "confidence": "medium", "requires_corroboration": true },
-      { "prefix": "f4:6a:dd", "label": "Flock Safety infrastructure", "confidence": "high" },
-      { "prefix": "f8:a2:d6", "label": "Flock Safety infrastructure", "confidence": "high" },
-      { "prefix": "24:b2:b9", "label": "Flock Safety infrastructure", "confidence": "high" },
-      { "prefix": "00:f4:8d", "label": "Flock Safety infrastructure", "confidence": "high" },
-      { "prefix": "d0:39:57", "label": "Flock Safety infrastructure", "confidence": "high" },
-      { "prefix": "e8:d0:fc", "label": "Flock Safety infrastructure", "confidence": "high" },
-      { "prefix": "e0:4f:43", "label": "Flock Safety infrastructure", "confidence": "high" },
-      { "prefix": "b8:1e:a4", "label": "Flock Safety infrastructure", "confidence": "high" },
-      { "prefix": "70:08:94", "label": "Flock Safety infrastructure", "confidence": "high" },
-      { "prefix": "58:8e:81", "label": "Flock Safety infrastructure", "confidence": "high" },
-      { "prefix": "ec:1b:bd", "label": "Flock Safety infrastructure", "confidence": "high" },
-      { "prefix": "3c:71:bf", "label": "Flock Safety (Espressif module range)", "confidence": "medium", "requires_corroboration": true },
-      { "prefix": "58:00:e3", "label": "Flock Safety infrastructure", "confidence": "high" },
-      { "prefix": "90:35:ea", "label": "Flock Safety infrastructure", "confidence": "high" },
-      { "prefix": "5c:93:a2", "label": "Flock Safety infrastructure", "confidence": "high" },
-      { "prefix": "64:6e:69", "label": "Flock Safety infrastructure", "confidence": "high" },
-      { "prefix": "48:27:ea", "label": "Flock Safety infrastructure", "confidence": "high" },
-      { "prefix": "a4:cf:12", "label": "Flock Safety (Espressif module range)", "confidence": "medium", "requires_corroboration": true },
-      { "prefix": "b4:1e:52", "label": "Flock Safety, Inc. (direct IEEE registration)", "confidence": "high" },
-      { "prefix": "82:6b:f2", "label": "Flock Safety (observed, locally-administered)", "confidence": "low", "laa": true, "requires_corroboration": true }
+      { "prefix": "70:c9:4e", "label": "Flock Safety infrastructure", "confidence": "high", "source": "flock-you" },
+      { "prefix": "3c:91:80", "label": "Flock Safety infrastructure", "confidence": "high", "source": "flock-you" },
+      { "prefix": "d8:f3:bc", "label": "Flock Safety infrastructure", "confidence": "high", "source": "flock-you" },
+      { "prefix": "80:30:49", "label": "Flock Safety infrastructure", "confidence": "high", "source": "flock-you" },
+      { "prefix": "b8:35:32", "label": "Flock Safety infrastructure", "confidence": "high", "source": "flock-you" },
+      { "prefix": "14:5a:fc", "label": "Flock Safety infrastructure", "confidence": "high", "source": "flock-you" },
+      { "prefix": "74:4c:a1", "label": "Flock Safety infrastructure", "confidence": "high", "source": "flock-you" },
+      { "prefix": "08:3a:88", "label": "Flock Safety infrastructure", "confidence": "high", "source": "flock-you" },
+      { "prefix": "9c:2f:9d", "label": "Flock Safety infrastructure", "confidence": "high", "source": "flock-you" },
+      { "prefix": "c0:35:32", "label": "Flock Safety infrastructure", "confidence": "high", "source": "flock-you" },
+      { "prefix": "94:08:53", "label": "Flock Safety infrastructure", "confidence": "high", "source": "flock-you" },
+      { "prefix": "e4:aa:ea", "label": "Flock Safety (Liteon contract mfr)", "confidence": "medium", "source": "flock-you", "requires_corroboration": true, "note": "Liteon OUI shared with many consumer devices." },
+      { "prefix": "f4:6a:dd", "label": "Flock Safety infrastructure", "confidence": "high", "source": "flock-you" },
+      { "prefix": "f8:a2:d6", "label": "Flock Safety infrastructure", "confidence": "high", "source": "flock-you" },
+      { "prefix": "24:b2:b9", "label": "Flock Safety infrastructure", "confidence": "high", "source": "flock-you" },
+      { "prefix": "00:f4:8d", "label": "Flock Safety infrastructure", "confidence": "high", "source": "flock-you" },
+      { "prefix": "d0:39:57", "label": "Flock Safety infrastructure", "confidence": "high", "source": "flock-you" },
+      { "prefix": "e8:d0:fc", "label": "Flock Safety infrastructure", "confidence": "high", "source": "flock-you" },
+      { "prefix": "e0:4f:43", "label": "Flock Safety infrastructure", "confidence": "high", "source": "flock-you" },
+      { "prefix": "b8:1e:a4", "label": "Flock Safety infrastructure", "confidence": "high", "source": "flock-you" },
+      { "prefix": "70:08:94", "label": "Flock Safety infrastructure", "confidence": "high", "source": "flock-you" },
+      { "prefix": "58:8e:81", "label": "Flock Safety infrastructure", "confidence": "high", "source": "flock-you" },
+      { "prefix": "ec:1b:bd", "label": "Flock Safety infrastructure", "confidence": "high", "source": "flock-you" },
+      { "prefix": "3c:71:bf", "label": "Flock Safety (Espressif module range)", "confidence": "medium", "source": "flock-you", "requires_corroboration": true, "note": "Espressif OUI - matches any ESP32/ESP8266 device; corroborate before trusting." },
+      { "prefix": "58:00:e3", "label": "Flock Safety infrastructure", "confidence": "high", "source": "flock-you" },
+      { "prefix": "90:35:ea", "label": "Flock Safety infrastructure", "confidence": "high", "source": "flock-you" },
+      { "prefix": "5c:93:a2", "label": "Flock Safety infrastructure", "confidence": "high", "source": "flock-you" },
+      { "prefix": "64:6e:69", "label": "Flock Safety infrastructure", "confidence": "high", "source": "flock-you" },
+      { "prefix": "48:27:ea", "label": "Flock Safety infrastructure", "confidence": "high", "source": "flock-you" },
+      { "prefix": "a4:cf:12", "label": "Flock Safety (Espressif module range)", "confidence": "medium", "source": "flock-you", "requires_corroboration": true, "note": "Espressif OUI - matches any ESP32/ESP8266 device; corroborate before trusting." },
+      { "prefix": "b4:1e:52", "label": "Flock Safety, Inc. (direct IEEE registration)", "confidence": "high", "source": "ieee-oui" },
+      { "prefix": "82:6b:f2", "label": "Flock Safety (observed, locally-administered)", "confidence": "low", "source": "flock-you-fork", "laa": true, "requires_corroboration": true, "note": "Locally-administered/observed MAC; only matched because it is explicitly listed." }
     ],
     "ssid_keywords": [
-      "flock",
-      "flck",
-      "flocksafety",
-      "flock safety",
-      "test_flck",
-      "alpr",
-      "lpr",
-      "license plate",
-      "plate reader",
-      "penguin"
+      "flock", "flck", "flocksafety", "flock safety", "test_flck",
+      "alpr", "lpr", "license plate", "plate reader", "penguin",
+      "trafficcam", "traffic cam", "traffic-camera", "traffic camera",
+      "surveillance", "cctv", "nvr", "dvr", "ipcam", "ip cam",
+      "camera", "hikvision", "dahua", "axis", "verkada", "avigilon",
+      "openpath", "eufycam", "arlo", "ring", "reolink",
+      "pineapple", "wifi pineapple", "evil twin", "evil-twin",
+      "captive portal", "portal", "deauth", "pwnagotchi", "marauder",
+      "esp32marauder", "flipper", "wardrive", "wardriving",
+      "rogue", "spoof", "jammer", "jamming", "deauther",
+      "esp8266_deauther", "esp8266-deauther", "wifijammer",
+      "wifi jammer", "karma", "mana", "bettercap", "airgeddon",
+      "wifiphisher", "hostapd-wpe", "eaphammer", "mdk4", "mdk3",
+      "probequest", "packetmonitor", "wardriver",
+      "tracker", "airtag", "tile", "chipolo", "pebblebee",
+      "smarttag", "smart tag", "galaxy smarttag", "find my",
+      "findmy", "tagvault", "eufy security", "unknown tracker"
+    ],
+    "ie_fingerprints": [
+      {
+        "id": "wildcard-probe",
+        "desc": "Probe request carrying an SSID information element (tag 0) with length 0 (empty/wildcard SSID) - the pattern Flock cameras emit while trying to phone home.",
+        "frame": "probe-request",
+        "weight": "corroborating"
+      },
+      {
+        "id": "flock-probe-ie-primary",
+        "desc": "Flock probe request IE sequence 2,12,127,221:506f9a16030103,45,191,221:0050f208000000 observed by the public Flock-You promiscious-dev branch.",
+        "frame": "probe-request",
+        "weight": "high"
+      }
+    ],
+    "management_alerts": [
+      "deauth",
+      "disassoc"
     ]
   },
   "ble": {
     "manufacturer_ids": [
-      { "id": "0x09C8", "label": "XUNTONG (Flock / Raven gear)", "confidence": "medium" }
+      { "id": "0x09C8", "label": "XUNTONG (Flock / Raven gear)", "confidence": "medium", "note": "BLE company identifier seen on Flock/Raven advertisements." }
     ],
-    "name_keywords": ["flock", "raven"]
+    "name_keywords": [
+      "flock", "raven", "flipper", "marauder", "pwnagotchi",
+      "airtag", "tile", "tracker", "beacon", "camera", "cctv",
+      "hikvision", "dahua", "axis", "verkada", "avigilon",
+      "chipolo", "pebblebee", "smarttag", "smart tag",
+      "galaxy smarttag", "find my", "findmy", "eufy security",
+      "unknown tracker", "deauther", "esp32marauder", "wifi marauder",
+      "ble spam", "blespam", "sour apple"
+    ],
+    "service_uuids": []
   }
 }

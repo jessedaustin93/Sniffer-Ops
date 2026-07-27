@@ -1,0 +1,39 @@
+{
+  "version": "low-cost-ip-camera-rules-1.0.0",
+  "notes": "Sanitized classifier pack for common consumer/low-cost IP camera defaults and camera service clues.",
+  "definitions": [
+    {
+      "id": "v380-ycc365-yoosee",
+      "family": "surveillance.low_cost_ip_camera",
+      "label": "Low-cost IP camera app/platform clue",
+      "patterns": ["\\bv380\\b", "ycc[-_\\s]*365", "\\byoosee\\b", "\\bicsee\\b", "camhi", "camhipro", "carecam", "lookcam"],
+      "priority": "WATCH",
+      "confidence": "LOW",
+      "policy_disposition": "WATCH",
+      "score": 58,
+      "evidence": "Metadata contains common low-cost IP camera app/platform terminology."
+    },
+    {
+      "id": "tuya-smartlife-camera",
+      "family": "surveillance.low_cost_ip_camera",
+      "label": "Tuya/Smart Life camera clue",
+      "patterns": ["tuya[-_\\s]*(cam|camera|ipc)", "smart[-_\\s]*life[-_\\s]*(cam|camera|ipc)", "cloud[-_\\s]*edge[-_\\s]*(cam|camera)"],
+      "priority": "INFO",
+      "confidence": "LOW",
+      "policy_disposition": "INFO",
+      "score": 46,
+      "evidence": "Metadata contains consumer smart-camera platform terminology."
+    },
+    {
+      "id": "default-ip-camera-ap",
+      "family": "surveillance.low_cost_ip_camera",
+      "label": "Default IP-camera access point clue",
+      "patterns": ["ipc[-_\\s]*\\d{3,}", "ipcam[-_\\s]*\\d*", "wifi[-_\\s]*cam(era)?", "cam[-_\\s]*ap", "camera[-_\\s]*setup", "onvif", "\\brtsp\\b"],
+      "priority": "INFO",
+      "confidence": "LOW",
+      "policy_disposition": "INFO",
+      "score": 44,
+      "evidence": "Metadata suggests a default IP-camera AP or camera service."
+    }
+  ]
+}

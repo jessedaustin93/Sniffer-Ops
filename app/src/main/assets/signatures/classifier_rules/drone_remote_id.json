@@ -1,0 +1,50 @@
+{
+  "version": "drone-remote-id-rules-1.0.0",
+  "notes": "Sanitized classifier pack for drone, controller, and Remote ID metadata clues. These are candidate labels, not aircraft identity proof.",
+  "definitions": [
+    {
+      "id": "dji-expanded",
+      "family": "surveillance.mobile_camera",
+      "label": "DJI drone/controller clue",
+      "patterns": ["\\bdji\\b", "\\bmavic\\b", "\\bphantom\\b", "\\binspire\\b", "\\bavata\\b", "mini[-_\\s]*[234]?", "dji[-_\\s]*rc", "ocusync", "\\bo[234][-\\s]*(video|transmission)?"],
+      "priority": "WATCH",
+      "confidence": "MEDIUM",
+      "policy_disposition": "WATCH",
+      "score": 72,
+      "evidence": "Metadata contains DJI drone/controller terminology."
+    },
+    {
+      "id": "autel-expanded",
+      "family": "surveillance.mobile_camera",
+      "label": "Autel drone/controller clue",
+      "patterns": ["\\bautel\\b", "evo[-_\\s]*(lite|nano|max|ii|2)?", "autel[-_\\s]*robotics"],
+      "priority": "WATCH",
+      "confidence": "MEDIUM",
+      "policy_disposition": "WATCH",
+      "score": 68,
+      "evidence": "Metadata contains Autel drone terminology."
+    },
+    {
+      "id": "parrot-skydio-yuneec",
+      "family": "surveillance.mobile_camera",
+      "label": "Drone vendor clue",
+      "patterns": ["\\bparrot\\b", "\\banafi\\b", "\\bskydio\\b", "\\byuneec\\b", "\\btyphoon[-_\\s]*h\\b"],
+      "priority": "WATCH",
+      "confidence": "MEDIUM",
+      "policy_disposition": "WATCH",
+      "score": 66,
+      "evidence": "Metadata contains known drone vendor/model terminology."
+    },
+    {
+      "id": "remote-id",
+      "family": "surveillance.mobile_camera",
+      "label": "Drone Remote ID clue",
+      "patterns": ["remote[-_\\s]*id", "\\bopendroneid\\b", "drone[-_\\s]*id", "\\buas[-_\\s]*id\\b"],
+      "priority": "WATCH",
+      "confidence": "MEDIUM",
+      "policy_disposition": "WATCH",
+      "score": 70,
+      "evidence": "Metadata contains drone Remote ID terminology."
+    }
+  ]
+}

@@ -24,7 +24,9 @@ These notes describe the sanitized Android update for Ethrox Detect. They intent
 
 - Flock Safety-style detection uses a sanitized Android asset copy of the shared Ethrox Detect Flock signature set and names high-confidence matches as Flock Safety infrastructure.
 - Lower-confidence Flock-related OUIs remain suspicious until corroborated by names, context, or hub-side history.
-- Common wireless assessment and hostile-tool labels are loaded from a sanitized Android asset so suspicious SSIDs, Bluetooth names, or BLE metadata are surfaced as alert-worthy assessment-tool signals.
+- The Android app now loads the same sanitized named classifier packs used by the Linux/CYD work: ALPR vendors, surveillance platforms, public-safety sensors, drone/Remote ID clues, tracking tags, vehicle telematics, low-cost IP cameras, network-integrity clues, cellular event labels, and offensive wireless tools.
+- Common wireless assessment and hostile-tool labels are loaded from those assets so suspicious SSIDs, Bluetooth names, or BLE metadata are surfaced as alert-worthy assessment-tool signals.
+- Rule packs are parsed once at startup, then matched against visible Wi-Fi/Bluetooth/BLE metadata in memory so the phone gets the shared naming vocabulary without extra radio or packet-capture workload.
 - Android does not expose raw 802.11 management frames to normal apps, so phone-side deauth detection means visible deauth-tool classification rather than packet-level deauthentication-frame detection.
 
 ## Phone Workload Guardrails
@@ -39,7 +41,8 @@ These notes describe the sanitized Android update for Ethrox Detect. They intent
 - Upgrade install over the existing SnifferOps package completed successfully.
 - The launched app showed Ethrox Detect branding and no SDR dashboard controls.
 - Hub sync completed successfully against the configured T5810B endpoint and returned confirmed sighting acknowledgements.
-- The installed app loaded sanitized Android signature assets at startup.
+- The installed app loaded sanitized Android signature assets at startup, including 79 named classifier profiles.
+- Upgrade install retained the private hub endpoint in phone-local app preferences; that endpoint is not stored in the repository.
 - A send-and-compact cycle completed without the previous UI freeze after compaction was moved into a quieter, bounded path.
 
 ## Deauth Classification Boundary

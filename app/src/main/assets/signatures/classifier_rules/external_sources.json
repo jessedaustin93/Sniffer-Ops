@@ -1,0 +1,45 @@
+{
+  "version": "external-sources-1.0.0",
+  "sources": [
+    {
+      "id": "deflock",
+      "name": "DeFlock",
+      "url": "https://deflock.org/",
+      "map_url": "https://maps.deflock.org/",
+      "source_type": "crowdsourced_public_reference",
+      "license_note": "Review upstream licensing and attribution before importing or redistributing bulk data.",
+      "supported_tags": [
+        "surveillance:type=ALPR",
+        "camera:type=ALPR",
+        "manufacturer=Flock Safety",
+        "operator=Flock Safety",
+        "brand=Flock Safety"
+      ],
+      "linux_policy": {
+        "automatic_fetch": false,
+        "default_confidence_cap": "HIGH",
+        "requires_user_import": true,
+        "store_as": "classification evidence and surveillance/watch-zone seed",
+        "do_not_store": "private route history, user identifiers, or unrelated map tiles"
+      }
+    },
+    {
+      "id": "openstreetmap",
+      "name": "OpenStreetMap",
+      "url": "https://www.openstreetmap.org/",
+      "source_type": "open_geodata_reference",
+      "license_note": "OSM data has attribution and share-alike requirements; import/export tooling must preserve attribution.",
+      "supported_tags": [
+        "man_made=surveillance",
+        "surveillance=public",
+        "surveillance:type=ALPR",
+        "camera:type=ALPR"
+      ],
+      "linux_policy": {
+        "automatic_fetch": false,
+        "default_confidence_cap": "HIGH",
+        "requires_user_import": true
+      }
+    }
+  ]
+}

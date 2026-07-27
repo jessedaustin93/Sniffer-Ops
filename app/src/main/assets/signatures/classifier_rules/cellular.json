@@ -1,0 +1,13 @@
+{
+  "version": "cellular-rules-1.0.0",
+  "definitions": [
+    {"id": "unusual-cell", "family": "cellular.unusual_cell", "label": "Unusual cellular event", "patterns": ["unusual[-_\\s]*cell", "cellular[-_\\s]*event"], "priority": "WATCH", "confidence": "LOW"},
+    {"id": "unseen-known-location", "family": "cellular.unseen_cell_at_known_location", "label": "Unseen cell at known location", "patterns": ["unseen[-_\\s]*cell", "known[-_\\s]*location"], "priority": "WATCH", "confidence": "MEDIUM"},
+    {"id": "stationary-change", "family": "cellular.stationary_cell_change", "label": "Serving cell changed while stationary", "patterns": ["stationary[-_\\s]*cell[-_\\s]*change", "serving[-_\\s]*cell[-_\\s]*changed"], "priority": "CAUTION", "confidence": "MEDIUM"},
+    {"id": "technology-downgrade", "family": "cellular.technology_downgrade", "label": "Cellular technology downgrade", "patterns": ["technology[-_\\s]*downgrade", "lte[-_\\s]*to[-_\\s]*gsm", "5g[-_\\s]*to[-_\\s]*gsm"], "priority": "CAUTION", "confidence": "MEDIUM"},
+    {"id": "strong-unknown", "family": "cellular.strong_unknown_cell", "label": "Strong unknown cell", "patterns": ["strong[-_\\s]*unknown[-_\\s]*cell"], "priority": "CAUTION", "confidence": "MEDIUM"},
+    {"id": "mcc-mnc", "family": "cellular.mcc_mnc_change", "label": "MCC/MNC changed", "patterns": ["mcc[-_\\s]*change", "mnc[-_\\s]*change", "mcc/mnc"], "priority": "CAUTION", "confidence": "MEDIUM"},
+    {"id": "registration-failures", "family": "cellular.registration_failure_cluster", "label": "Registration failure cluster", "patterns": ["registration[-_\\s]*failure", "attach[-_\\s]*failure"], "priority": "CAUTION", "confidence": "MEDIUM"},
+    {"id": "neighbor-shift", "family": "cellular.neighbor_environment_shift", "label": "Neighbor-cell environment shift", "patterns": ["neighbor[-_\\s]*cell[-_\\s]*shift", "neighbor[-_\\s]*environment"], "priority": "WATCH", "confidence": "MEDIUM"}
+  ]
+}

@@ -1,0 +1,72 @@
+{
+  "version": "alpr-vendor-rules-1.0.0",
+  "notes": "Sanitized public/vendor-name classifier pack. These rules name probable non-Flock ALPR or roadway camera vendors from explicit metadata; they do not fetch external data and should not be treated as identity proof without corroboration.",
+  "definitions": [
+    {
+      "id": "rekor-openalpr",
+      "family": "surveillance.rekor",
+      "label": "Rekor/OpenALPR platform clue",
+      "patterns": ["\\brekor\\b", "open[-_\\s]*alpr", "watchman[-_\\s]*alpr", "rekor[-_\\s]*discover"],
+      "priority": "WATCH",
+      "confidence": "MEDIUM",
+      "policy_disposition": "WATCH",
+      "score": 86,
+      "evidence": "Metadata contains Rekor/OpenALPR platform terminology."
+    },
+    {
+      "id": "platesmart",
+      "family": "surveillance.platesmart",
+      "label": "PlateSmart ALPR platform clue",
+      "patterns": ["plate[-_\\s]*smart", "\\bplatesmart\\b", "ares[-_\\s]*alpr"],
+      "priority": "WATCH",
+      "confidence": "MEDIUM",
+      "policy_disposition": "WATCH",
+      "score": 84,
+      "evidence": "Metadata contains PlateSmart ALPR terminology."
+    },
+    {
+      "id": "neology",
+      "family": "surveillance.neology",
+      "label": "Neology roadway/ALPR platform clue",
+      "patterns": ["\\bneology\\b", "neo[-_\\s]*plate", "neo[-_\\s]*reader"],
+      "priority": "WATCH",
+      "confidence": "MEDIUM",
+      "policy_disposition": "WATCH",
+      "score": 82,
+      "evidence": "Metadata contains Neology roadway sensing or ALPR terminology."
+    },
+    {
+      "id": "leonardo-elsag",
+      "family": "surveillance.leonardo_elsag",
+      "label": "Leonardo/ELSAG ALPR platform clue",
+      "patterns": ["\\belsag\\b", "leonardo[-_\\s]*elsag", "mph[-_\\s]*900", "eoc[-_\\s]*plus"],
+      "priority": "WATCH",
+      "confidence": "MEDIUM",
+      "policy_disposition": "WATCH",
+      "score": 82,
+      "evidence": "Metadata contains Leonardo/ELSAG ALPR terminology."
+    },
+    {
+      "id": "jenoptik",
+      "family": "surveillance.jenoptik",
+      "label": "Jenoptik traffic-enforcement platform clue",
+      "patterns": ["\\bjenoptik\\b", "trajistar", "vector[-_\\s]*sr", "traffic[-_\\s]*solutions"],
+      "priority": "WATCH",
+      "confidence": "MEDIUM",
+      "policy_disposition": "WATCH",
+      "score": 80,
+      "evidence": "Metadata contains Jenoptik traffic-enforcement terminology."
+    },
+    {
+      "id": "axis-hanwha-lpr",
+      "family": "surveillance.license_plate_reader.generic",
+      "label": "Camera-vendor LPR application clue",
+      "patterns": ["axis[-_\\s]*(license[-_\\s]*plate|lpr)", "hanwha[-_\\s]*(lpr|wisenet)", "wisenet[-_\\s]*road", "dahua[-_\\s]*(lpr|anpr)", "hikvision[-_\\s]*(lpr|anpr)"],
+      "priority": "WATCH",
+      "confidence": "MEDIUM",
+      "policy_disposition": "WATCH",
+      "score": 78,
+      "evidence": "Metadata combines camera-vendor and LPR/ANPR application terminology."
+    }
+  ]
+}

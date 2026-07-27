@@ -2,6 +2,7 @@ package com.ethrox.detect.util
 
 import android.content.Context
 import android.util.Log
+import com.ethrox.detect.model.ThreatLevel
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicReference
@@ -12,7 +13,8 @@ data class SignatureRules(
     val flockKeywords: Set<String>,
     val flockBleManufacturerIds: Set<String>,
     val flockBleNameKeywords: Set<String>,
-    val hostileToolKeywords: Set<String>
+    val hostileToolKeywords: Set<String>,
+    val classifierProfiles: List<ClassifierProfileRule>
 ) {
     companion object {
         fun fallback(): SignatureRules = SignatureRules(
@@ -38,8 +40,29 @@ data class SignatureRules(
                 "credential", "password", "phish", "skimmer", "bettercap",
                 "airgeddon", "wifiphisher", "hostapd-wpe", "eaphammer",
                 "mdk4", "mdk3", "karma", "mana", "wifijammer", "wifi jammer"
-            )
+            ),
+            classifierProfiles = fallbackClassifierProfiles()
         )
+    }
+}
+
+data class ClassifierProfileRule(
+    val id: String,
+    val family: String,
+    val label: String,
+    val priority: String,
+    val confidence: String,
+    val disposition: String,
+    val patterns: List<Regex>,
+    val requiredPatterns: List<Regex>,
+    val excludePatterns: List<Regex>,
+    val threatLevel: ThreatLevel,
+    val score: Int
+) {
+    fun matches(text: String): Boolean {
+        if (patterns.none { it.containsMatchIn(text) }) return false
+        if (requiredPatterns.isNotEmpty() && requiredPatterns.none { it.containsMatchIn(text) }) return false
+        return excludePatterns.none { it.containsMatchIn(text) }
     }
 }
 
@@ -47,6 +70,7 @@ object SignatureEngine {
     private const val TAG = "SignatureEngine"
     private const val FLOCK_ASSET = "signatures/flock-signatures.json"
     private const val TOOL_ASSET = "signatures/threat-tool-signatures.json"
+    private const val CLASSIFIER_RULE_DIR = "signatures/classifier_rules"
 
     private val rulesRef = AtomicReference(SignatureRules.fallback())
 
@@ -57,14 +81,19 @@ object SignatureEngine {
         runCatching {
             val flock = JSONObject(context.assets.open(FLOCK_ASSET).bufferedReader().use { it.readText() })
             val tools = JSONObject(context.assets.open(TOOL_ASSET).bufferedReader().use { it.readText() })
-            rulesRef.set(parseRules(flock, tools))
-            Log.i(TAG, "Loaded Ethrox Detect signature assets")
+            val classifierProfiles = loadClassifierProfiles(context)
+            rulesRef.set(parseRules(flock, tools, classifierProfiles))
+            Log.i(TAG, "Loaded Ethrox Detect signature assets (${classifierProfiles.size} classifier profiles)")
         }.onFailure { error ->
             Log.w(TAG, "Using fallback signatures", error)
         }
     }
 
-    private fun parseRules(flock: JSONObject, tools: JSONObject): SignatureRules {
+    private fun parseRules(
+        flock: JSONObject,
+        tools: JSONObject,
+        classifierProfiles: List<ClassifierProfileRule>
+    ): SignatureRules {
         val fallback = SignatureRules.fallback()
         val wifi = flock.optJSONObject("wifi") ?: JSONObject()
         val ble = flock.optJSONObject("ble") ?: JSONObject()
@@ -100,8 +129,130 @@ object SignatureEngine {
                 .ifEmpty { fallback.flockBleNameKeywords },
             hostileToolKeywords = tools.optJSONArray("keywords")
                 .mapStrings()
-                .ifEmpty { fallback.hostileToolKeywords }
+                .ifEmpty { fallback.hostileToolKeywords },
+            classifierProfiles = classifierProfiles.ifEmpty { fallback.classifierProfiles }
         )
+    }
+
+    private fun loadClassifierProfiles(context: Context): List<ClassifierProfileRule> {
+        val profiles = mutableListOf<ClassifierProfileRule>()
+        val assets = context.assets.list(CLASSIFIER_RULE_DIR).orEmpty()
+            .filter { it.endsWith(".json") }
+            .sorted()
+
+        assets.forEach { assetName ->
+            val path = "$CLASSIFIER_RULE_DIR/$assetName"
+            runCatching {
+                val pack = JSONObject(context.assets.open(path).bufferedReader().use { it.readText() })
+                pack.optJSONArray("definitions").forEachObject { definition ->
+                    parseClassifierProfile(definition)?.let(profiles::add)
+                }
+            }.onFailure { error ->
+                Log.w(TAG, "Skipped classifier pack $path", error)
+            }
+        }
+
+        return profiles.sortedWith(
+            compareByDescending<ClassifierProfileRule> { it.score }
+                .thenBy { it.prioritySort }
+                .thenBy { it.label }
+        )
+    }
+
+    private fun parseClassifierProfile(definition: JSONObject): ClassifierProfileRule? {
+        val patterns = definition.optJSONArray("patterns").mapRegexes()
+        if (patterns.isEmpty()) return null
+        val id = definition.optString("id").ifBlank { definition.optString("label") }
+        val family = definition.optString("family")
+        val priority = definition.optString("priority", "INFO").uppercase()
+        val confidence = definition.optString("confidence", "").uppercase()
+        val disposition = definition.optString("policy_disposition", "").uppercase()
+        return ClassifierProfileRule(
+            id = id,
+            family = family,
+            label = definition.optString("label", id),
+            priority = priority,
+            confidence = confidence,
+            disposition = disposition,
+            patterns = patterns,
+            requiredPatterns = definition.optJSONArray("required_patterns").mapRegexes(),
+            excludePatterns = definition.optJSONArray("exclude_patterns").mapRegexes(),
+            threatLevel = threatLevelFor(family, priority, disposition),
+            score = definition.optInt("score", scoreFor(priority, disposition))
+        )
+    }
+}
+
+private val ClassifierProfileRule.prioritySort: Int
+    get() = when (priority) {
+        "HIGH" -> 0
+        "CAUTION" -> 1
+        "WATCH" -> 2
+        "INFO" -> 3
+        else -> 4
+    }
+
+private fun fallbackClassifierProfiles(): List<ClassifierProfileRule> =
+    listOf(
+        rawClassifierProfile(
+            id = "fallback-flock",
+            family = "surveillance.flock",
+            label = "Flock Safety infrastructure",
+            priority = "HIGH",
+            disposition = "HOSTILE",
+            patterns = listOf("flock", "flocksafety", "flock safety")
+        ),
+        rawClassifierProfile(
+            id = "fallback-wifi-tool",
+            family = "network.offensive_wifi_tool",
+            label = "Wi-Fi/BLE assessment tool clue",
+            priority = "HIGH",
+            disposition = "HOSTILE",
+            patterns = listOf("deauth", "marauder", "pwnagotchi", "wifi pineapple", "evil[-_\\s]*twin")
+        )
+    )
+
+private fun rawClassifierProfile(
+    id: String,
+    family: String,
+    label: String,
+    priority: String,
+    disposition: String,
+    patterns: List<String>
+): ClassifierProfileRule {
+    val compiled = patterns.mapNotNull { it.toClassifierRegexOrNull() }
+    return ClassifierProfileRule(
+        id = id,
+        family = family,
+        label = label,
+        priority = priority,
+        confidence = "MEDIUM",
+        disposition = disposition,
+        patterns = compiled,
+        requiredPatterns = emptyList(),
+        excludePatterns = emptyList(),
+        threatLevel = threatLevelFor(family, priority, disposition),
+        score = scoreFor(priority, disposition)
+    )
+}
+
+private fun threatLevelFor(family: String, priority: String, disposition: String): ThreatLevel {
+    if (disposition == "HOSTILE") return ThreatLevel.ALERT
+    if (family.startsWith("network.") && priority == "HIGH") return ThreatLevel.ALERT
+    return when (priority) {
+        "HIGH", "CAUTION", "WATCH" -> ThreatLevel.SUSPICIOUS
+        else -> ThreatLevel.UNKNOWN
+    }
+}
+
+private fun scoreFor(priority: String, disposition: String): Int {
+    if (disposition == "HOSTILE") return 100
+    return when (priority) {
+        "HIGH" -> 90
+        "CAUTION" -> 70
+        "WATCH" -> 55
+        "INFO" -> 25
+        else -> 10
     }
 }
 
@@ -128,6 +279,21 @@ private fun JSONArray?.mapStrings(): Set<String> {
         optString(i).trim().lowercase().takeIf { it.isNotBlank() }?.let(values::add)
     }
     return values
+}
+
+private fun JSONArray?.mapRegexes(): List<Regex> {
+    if (this == null) return emptyList()
+    val values = ArrayList<Regex>(length())
+    for (i in 0 until length()) {
+        optString(i).toClassifierRegexOrNull()?.let(values::add)
+    }
+    return values
+}
+
+private fun String.toClassifierRegexOrNull(): Regex? {
+    val pattern = trim()
+    if (pattern.isBlank()) return null
+    return runCatching { Regex(pattern, RegexOption.IGNORE_CASE) }.getOrNull()
 }
 
 private fun String.normalizedOuiPrefix(): String =

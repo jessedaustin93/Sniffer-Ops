@@ -53,6 +53,7 @@ object DeviceClassifier {
         val rules = SignatureEngine.rules
         val ssidLower = ssid.lowercase()
         val mfrLower = manufacturer.lowercase()
+        val profileHit = bestProfileMatch(ssid, bssid, manufacturer, capabilities)
         val hasFlockKeyword = hasAny(ssidLower, rules.flockKeywords) || hasAny(mfrLower, rules.flockKeywords)
         val hasHighConfidenceFlock = hasFlockHighConfidence(ssidLower, mfrLower, bssid)
         val needsFlockCorroboration = needsFlockCorroboration(bssid)
@@ -67,9 +68,10 @@ object DeviceClassifier {
         val deviceClass = when {
             isFlockLike -> "Flock Safety infrastructure"
             needsFlockCorroboration -> "Possible Flock Safety infrastructure"
+            isDataStealingTool -> "Hostile WiFi / assessment tool"
+            profileHit != null -> profileHit.label
             isTrafficReader -> "Traffic reader / ALPR device"
             isSurveillance -> "Camera / surveillance WiFi"
-            isDataStealingTool -> "Hostile WiFi / assessment tool"
             ssidLower.contains("cam") || ssidLower.contains("ipcam") -> "Camera WiFi"
             ssidLower.contains("ring") || ssidLower.contains("nest") -> "Doorbell / camera WiFi"
             ssidLower.contains("arlo") || ssidLower.contains("wyze") -> "Camera WiFi"
@@ -88,7 +90,9 @@ object DeviceClassifier {
 
         val threat = when {
             isDataStealingTool -> ThreatLevel.ALERT
+            profileHit?.threatLevel == ThreatLevel.ALERT -> ThreatLevel.ALERT
             isFlockLike || needsFlockCorroboration || isTrafficReader || isSurveillance -> ThreatLevel.SUSPICIOUS
+            profileHit != null -> profileHit.threatLevel
             hasAny(ssidLower, NOTICED_KEYWORDS) -> ThreatLevel.UNKNOWN
             !capabilities.contains("WPA") && !capabilities.contains("WEP") -> ThreatLevel.UNKNOWN
             else -> ThreatLevel.SAFE
@@ -107,6 +111,7 @@ object DeviceClassifier {
         val nameLower = name.lowercase()
         val mfrLower = manufacturer.lowercase()
         val metadataLower = advertisementMetadata.lowercase()
+        val profileHit = bestProfileMatch(name, address, manufacturer, advertisementMetadata)
         val hasFlockKeyword = hasAny(nameLower, rules.flockKeywords + rules.flockBleNameKeywords) ||
             hasAny(mfrLower, rules.flockKeywords) ||
             hasFlockBleManufacturer(metadataLower)
@@ -124,9 +129,10 @@ object DeviceClassifier {
         val deviceClass = when {
             isFlockLike -> "Flock Safety infrastructure"
             needsFlockCorroboration -> "Possible Flock Safety infrastructure"
+            isDataStealingTool -> "Hostile Bluetooth / assessment tool"
+            profileHit != null -> profileHit.label
             isTrafficReader -> "Traffic reader / ALPR device"
             isSurveillance -> "Camera / surveillance device"
-            isDataStealingTool -> "Hostile Bluetooth / assessment tool"
             nameLower.contains("headphone") || nameLower.contains("earbuds") || nameLower.contains("buds") -> "Audio device"
             nameLower.contains("watch") || nameLower.contains("band") -> "Wearable"
             nameLower.contains("keyboard") -> "Keyboard"
@@ -141,7 +147,9 @@ object DeviceClassifier {
 
         val threat = when {
             isDataStealingTool -> ThreatLevel.ALERT
+            profileHit?.threatLevel == ThreatLevel.ALERT -> ThreatLevel.ALERT
             isFlockLike || needsFlockCorroboration || isTrafficReader || isSurveillance -> ThreatLevel.SUSPICIOUS
+            profileHit != null -> profileHit.threatLevel
             hasAny(nameLower, NOTICED_KEYWORDS) -> ThreatLevel.UNKNOWN
             else -> ThreatLevel.SAFE
         }
@@ -168,6 +176,18 @@ object DeviceClassifier {
         SignatureEngine.rules.flockBleManufacturerIds.any { id ->
             metadata.contains("manufacturerdata=$id:") || metadata.contains("manufacturerdata=0x$id:")
         }
+
+    private fun bestProfileMatch(
+        name: String,
+        address: String,
+        manufacturer: String,
+        metadata: String
+    ): ClassifierProfileRule? {
+        val haystack = listOf(name, address, manufacturer, metadata)
+            .filter { it.isNotBlank() }
+            .joinToString(" ")
+        return SignatureEngine.rules.classifierProfiles.firstOrNull { it.matches(haystack) }
+    }
 
     private fun hasAny(value: String, keywords: Set<String>): Boolean =
         keywords.any { value.contains(it) }

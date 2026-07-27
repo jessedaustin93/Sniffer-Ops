@@ -1,0 +1,28 @@
+{
+  "version": "public-safety-sensor-rules-1.0.0",
+  "notes": "Sanitized classifier pack for acoustic and fixed public-safety sensor clues from explicit metadata.",
+  "definitions": [
+    {
+      "id": "soundthinking-shotspotter",
+      "family": "surveillance.soundthinking",
+      "label": "SoundThinking/ShotSpotter acoustic sensor clue",
+      "patterns": ["sound[-_\\s]*thinking", "shot[-_\\s]*spotter", "\\bshotspotter\\b", "gunshot[-_\\s]*(sensor|detection|detector)"],
+      "priority": "WATCH",
+      "confidence": "MEDIUM",
+      "policy_disposition": "WATCH",
+      "score": 78,
+      "evidence": "Metadata contains acoustic gunshot-detection platform terminology."
+    },
+    {
+      "id": "acoustic-array",
+      "family": "surveillance.acoustic_sensor",
+      "label": "Fixed acoustic sensor clue",
+      "patterns": ["acoustic[-_\\s]*(sensor|array|detector)", "microphone[-_\\s]*array", "audio[-_\\s]*analytics", "noise[-_\\s]*monitor"],
+      "priority": "WATCH",
+      "confidence": "LOW",
+      "policy_disposition": "WATCH",
+      "score": 62,
+      "evidence": "Metadata suggests fixed acoustic sensing equipment."
+    }
+  ]
+}

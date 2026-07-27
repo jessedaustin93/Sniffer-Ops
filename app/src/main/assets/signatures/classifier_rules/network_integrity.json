@@ -1,0 +1,15 @@
+{
+  "version": "network-integrity-rules-1.0.0",
+  "definitions": [
+    {"id": "ssid-clone", "family": "network.ssid_clone", "label": "Trusted SSID clone", "patterns": ["ssid[-_\\s]*clone", "duplicate[-_\\s]*ssid"], "priority": "HIGH", "confidence": "MEDIUM"},
+    {"id": "bssid-spoof", "family": "network.bssid_spoof", "label": "Possible BSSID spoof", "patterns": ["bssid[-_\\s]*spoof", "unexpected[-_\\s]*bssid"], "priority": "HIGH", "confidence": "HIGH"},
+    {"id": "gateway-mac", "family": "network.gateway_mac_change", "label": "Gateway MAC changed", "patterns": ["gateway[-_\\s]*mac[-_\\s]*change"], "priority": "HIGH", "confidence": "HIGH"},
+    {"id": "gateway-ip", "family": "network.gateway_ip_change", "label": "Gateway IP changed", "patterns": ["gateway[-_\\s]*ip[-_\\s]*change"], "priority": "CAUTION", "confidence": "MEDIUM"},
+    {"id": "dns-change", "family": "network.dns_server_change", "label": "DNS server changed", "patterns": ["dns[-_\\s]*server[-_\\s]*change", "unexpected[-_\\s]*dns"], "priority": "CAUTION", "confidence": "MEDIUM"},
+    {"id": "dhcp-change", "family": "network.dhcp_server_change", "label": "DHCP server changed", "patterns": ["dhcp[-_\\s]*server[-_\\s]*change", "unexpected[-_\\s]*dhcp"], "priority": "CAUTION", "confidence": "MEDIUM"},
+    {"id": "arp-conflict", "family": "network.arp_gateway_conflict", "label": "Conflicting ARP gateway claim", "patterns": ["arp[-_\\s]*conflict", "gateway[-_\\s]*arp"], "priority": "HIGH", "confidence": "HIGH"},
+    {"id": "suspicious-captive", "family": "network.suspicious_captive_portal", "label": "Suspicious captive portal", "patterns": ["suspicious[-_\\s]*captive", "unexpected[-_\\s]*portal"], "priority": "CAUTION", "confidence": "MEDIUM"},
+    {"id": "auto-join", "family": "network.auto_join_risk", "label": "Auto-join risk", "patterns": ["auto[-_\\s]*join[-_\\s]*risk", "known[-_\\s]*ssid[-_\\s]*nearby"], "priority": "WATCH", "confidence": "MEDIUM"},
+    {"id": "trusted-router", "family": "network.trusted_router_verified", "label": "Trusted router verified", "patterns": ["trusted[-_\\s]*router[-_\\s]*verified", "gateway[-_\\s]*verified"], "priority": "INFO", "confidence": "CONFIRMED"}
+  ]
+}
