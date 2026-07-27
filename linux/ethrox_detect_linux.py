@@ -31,6 +31,7 @@ import version_info
 from lenses.all_lenses import ALL_LENSES, route
 from scanners.wifi_scanner import WifiScanner
 from scanners.bluetooth_scanner import BluetoothScanner
+from scanners.gps_scanner import GpsScanner
 from sync.node_sync import NodeSyncManager, check_peer_health
 
 try:
@@ -57,11 +58,34 @@ NODE_NAME = f"linux-{platform.node()}"
 
 _scan_stats = {"wifi": 0, "bt": 0, "sdr": 0, "syncs": 0}
 _console = Console() if RICH else None
+_gps_scanner: "GpsScanner | None" = None
 
 
 # ── Scanner callbacks ─────────────────────────────────────────────────────────
 
+def _stamp_gps(signals: list[dict]) -> None:
+    """Attach the current GPS fix (if any, and not stale) to each signal in
+    a batch. Uses setdefault so a signal that already carries its own
+    position (e.g. relayed from a phone) is left alone."""
+    if _gps_scanner is None:
+        return
+    fix = _gps_scanner.get_fix()
+    if not fix:
+        return
+    for s in signals:
+        s.setdefault("latitude", fix["latitude"])
+        s.setdefault("longitude", fix["longitude"])
+        if fix.get("accuracyMeters") is not None:
+            s.setdefault("accuracyMeters", fix["accuracyMeters"])
+        if fix.get("speedMetersPerSecond") is not None:
+            s.setdefault("speedMetersPerSecond", fix["speedMetersPerSecond"])
+        if fix.get("bearingDegrees") is not None:
+            s.setdefault("bearingDegrees", fix["bearingDegrees"])
+        s.setdefault("locationProvider", fix.get("locationProvider"))
+
+
 def _on_wifi(signals: list[dict]) -> None:
+    _stamp_gps(signals)
     for s in signals:
         previous = db.get_profile(db.signal_profile_id(s))
         expl = signal_classifier.classify_wifi(s)
@@ -79,6 +103,7 @@ def _on_wifi(signals: list[dict]) -> None:
 
 
 def _on_bluetooth(devices: list[dict]) -> None:
+    _stamp_gps(devices)
     for d in devices:
         previous = db.get_profile(db.signal_profile_id(d))
         expl = signal_classifier.classify_bluetooth(d)
@@ -96,6 +121,7 @@ def _on_bluetooth(devices: list[dict]) -> None:
 
 
 def _on_sdr(signals: list[dict]) -> None:
+    _stamp_gps(signals)
     for s in signals:
         freq = s.get("frequencyHz") or 0
         expl = signal_classifier.classify_sdr(freq)
@@ -219,6 +245,8 @@ def main() -> None:
                         help="Disable Bluetooth scanning")
     parser.add_argument("--no-sdr", action="store_true",
                         help="Disable RTL-SDR scanning")
+    parser.add_argument("--no-gps", action="store_true",
+                        help="Disable GPS tagging via gpsd")
     parser.add_argument("--sdr-remote", metavar="HOST[:PORT]",
                         help="Connect to remote rtl_tcp server instead of local hardware")
     parser.add_argument("--plain", action="store_true",
@@ -251,6 +279,12 @@ def main() -> None:
     sync_manager.start()
 
     # Start scanners
+    if not args.no_gps:
+        global _gps_scanner
+        _gps_scanner = GpsScanner()
+        _gps_scanner.start()
+        print("[ethrox-detect] GPS scanner started (gpsd @ 127.0.0.1:2947)")
+
     if not args.no_wifi:
         WifiScanner(_on_wifi).start()
         print("[ethrox-detect] WiFi scanner started")
