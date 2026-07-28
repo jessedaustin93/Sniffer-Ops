@@ -29,6 +29,25 @@ class WifiScanner:
         self._running = False
 
     def scan_once(self) -> list[dict]:
+        interfaces = _wifi_interfaces()
+        if interfaces:
+            merged: dict[str, dict] = {}
+            saw_any = False
+            for ifname in interfaces:
+                results = self._nmcli_scan(ifname)
+                if results is None:
+                    continue
+                saw_any = True
+                for r in results:
+                    key = r.get("address") or r.get("name")
+                    existing = merged.get(key)
+                    # Keep whichever interface saw the stronger signal - the
+                    # WNDA4100's extra antennas/5GHz support should usually win.
+                    if existing is None or (r.get("signalStrength") or -999) > (existing.get("signalStrength") or -999):
+                        merged[key] = r
+            if saw_any:
+                return list(merged.values())
+
         results = self._nmcli_scan()
         if results is None:
             results = self._iwlist_scan()
@@ -44,11 +63,13 @@ class WifiScanner:
                 pass
             time.sleep(self.SCAN_INTERVAL)
 
-    def _nmcli_scan(self) -> list[dict] | None:
+    def _nmcli_scan(self, ifname: str | None = None) -> list[dict] | None:
+        cmd = ["nmcli", "-t", "-f", "SSID,BSSID,SIGNAL,CHAN,FREQ,SECURITY", "dev", "wifi", "list"]
+        if ifname:
+            cmd += ["ifname", ifname]
         try:
             out = subprocess.check_output(
-                ["nmcli", "-t", "-f", "SSID,BSSID,SIGNAL,CHAN,FREQ,SECURITY", "dev", "wifi", "list"],
-                stderr=subprocess.DEVNULL, timeout=10,
+                cmd, stderr=subprocess.DEVNULL, timeout=10,
             ).decode("utf-8", errors="replace")
         except (FileNotFoundError, subprocess.SubprocessError):
             return None
@@ -163,6 +184,25 @@ class WifiScanner:
         if current.get("name") or current.get("address"):
             results.append(current)
         return results if results else None
+
+
+def _wifi_interfaces() -> list[str]:
+    """Return every NetworkManager-managed wifi interface (e.g. the Pi's
+    onboard chip plus a USB adapter like the WNDA4100), so scan_once() can
+    sweep all of them instead of whichever one NM would pick by default."""
+    try:
+        out = subprocess.check_output(
+            ["nmcli", "-t", "-f", "DEVICE,TYPE", "device", "status"],
+            stderr=subprocess.DEVNULL, timeout=5,
+        ).decode("utf-8", errors="replace")
+    except (FileNotFoundError, subprocess.SubprocessError):
+        return []
+    interfaces = []
+    for line in out.splitlines():
+        parts = line.split(":")
+        if len(parts) >= 2 and parts[1] == "wifi":
+            interfaces.append(parts[0])
+    return interfaces
 
 
 def scan_once() -> list[dict]:
