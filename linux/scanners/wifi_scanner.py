@@ -3,6 +3,8 @@ WiFi scanner for Linux using nmcli or iwlist fallback.
 Produces signal dicts compatible with the awareness log schema.
 """
 
+import json
+import os
 import re
 import subprocess
 import threading
@@ -30,11 +32,36 @@ class WifiScanner:
 
     def scan_once(self) -> list[dict]:
         interfaces = _wifi_interfaces()
+        t0 = time.time()
         if interfaces:
+            # Scan every interface concurrently rather than one after another -
+            # sequential scanning was measured taking 70-115s end to end during
+            # an actual drive (vs. ~15s SCAN_INTERVAL), almost certainly because
+            # each interface's own active scan runs slower while constantly
+            # passing new APs, and that cost was being paid twice in a row.
+            # Threads only wait on the nmcli subprocess call, so this is cheap
+            # even on the Pi Zero 2 W - see _log_scan_timing for measurements.
+            results_by_if: dict[str, list[dict] | None] = {}
+            per_interface_ms: dict[str, int] = {}
+
+            def _run(ifname: str) -> None:
+                t_if = time.time()
+                results_by_if[ifname] = self._nmcli_scan(ifname)
+                per_interface_ms[ifname] = round((time.time() - t_if) * 1000)
+
+            threads = [threading.Thread(target=_run, args=(ifn,), daemon=True) for ifn in interfaces]
+            for t in threads:
+                t.start()
+            for t in threads:
+                # Each _nmcli_scan already bounds itself via subprocess timeout=10;
+                # this join timeout is just a backstop so one wedged interface
+                # can't hold up the whole cycle.
+                t.join(timeout=15)
+
             merged: dict[str, dict] = {}
             saw_any = False
             for ifname in interfaces:
-                results = self._nmcli_scan(ifname)
+                results = results_by_if.get(ifname)
                 if results is None:
                     continue
                 saw_any = True
@@ -46,12 +73,44 @@ class WifiScanner:
                     if existing is None or (r.get("signalStrength") or -999) > (existing.get("signalStrength") or -999):
                         merged[key] = r
             if saw_any:
-                return list(merged.values())
+                merged_list = list(merged.values())
+                self._log_scan_timing(interfaces, per_interface_ms, time.time() - t0, len(merged_list))
+                return merged_list
 
         results = self._nmcli_scan()
         if results is None:
             results = self._iwlist_scan()
+        self._log_scan_timing(interfaces or ["default"], {}, time.time() - t0, len(results or []))
         return results or []
+
+    def _log_scan_timing(
+        self,
+        interfaces: list[str],
+        per_interface_ms: dict[str, int],
+        total_s: float,
+        result_count: int,
+    ) -> None:
+        """
+        Append one JSONL record per scan cycle to the data dir (not journald,
+        which doesn't persist across reboots on this appliance) so cadence can
+        be checked after the fact instead of guessed at from a stationary test.
+        """
+        try:
+            import paths
+            out_dir = os.path.join(paths.ensure_data_dir(), "scan-timing")
+            os.makedirs(out_dir, exist_ok=True)
+            day = time.strftime("%Y%m%d", time.gmtime())
+            record = {
+                "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "interfaces": interfaces,
+                "per_interface_ms": per_interface_ms,
+                "total_ms": round(total_s * 1000),
+                "result_count": result_count,
+            }
+            with open(os.path.join(out_dir, f"wifi-{day}.jsonl"), "a") as f:
+                f.write(json.dumps(record, separators=(",", ":")) + "\n")
+        except Exception:
+            pass
 
     def _loop(self) -> None:
         while self._running:
