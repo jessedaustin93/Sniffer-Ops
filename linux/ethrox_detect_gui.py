@@ -1859,6 +1859,8 @@ class EthroxDetectApp(Adw.Application):
         global _sync_manager
         cfg = win._cfg
         awareness_log.start_server("0.0.0.0", cfg.get("port", 8766))
+        if cfg.get("bounded_sync", False):
+            awareness_log.set_bounded_sync_mode(True)
 
         def _on_peers_discovered(new_peers: list[dict]) -> None:
             """Called from sync thread when Tailscale auto-discovers new nodes."""
