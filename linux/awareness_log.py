@@ -235,6 +235,31 @@ def get_sync_payload() -> dict:
     return db.build_sync_payload(_node_id, _node_name)
 
 
+# A consolidator hub's compiled map can be far larger than a field device can
+# safely receive -- when this is set, POST /sync and GET /awareness (the
+# paths the periodic NodeSyncManager loop actually calls) return status/ack
+# fields only, never the signals list. The map itself never leaves the hub
+# except through the separate, always-full /awareness/export endpoint, which
+# is not on NodeSyncManager's automated path at all -- see AWARENESS_PATHS in
+# sync/node_sync.py -- so a full transfer only happens from a deliberate,
+# explicit request, never an automatic periodic sync.
+_bounded_sync_mode = False
+
+
+def set_bounded_sync_mode(enabled: bool) -> None:
+    global _bounded_sync_mode
+    _bounded_sync_mode = enabled
+
+
+def _bounded_payload(payload: dict) -> dict:
+    """Same payload with signals stripped -- status/ack fields (totalSignals,
+    merged, acknowledgedSightingIds, completeTypes) are preserved so callers
+    can still see counts and confirmations without receiving map content."""
+    bounded = dict(payload)
+    bounded["signals"] = []
+    return bounded
+
+
 def get_version_payload() -> dict:
     """Return structured product version metadata for API clients."""
     info = version_info.get_version_info()
@@ -1071,6 +1096,7 @@ class _SyncHandler(BaseHTTPRequestHandler):
             "/ethrox-detect/web/status",
             "/ethrox-detect/health",
             "/ethrox-detect/awareness",
+            "/ethrox-detect/awareness/export",
             "/ethrox-detect/sdr/deep-scan/status",
         ):
             self.send_response(200)
@@ -1093,6 +1119,16 @@ class _SyncHandler(BaseHTTPRequestHandler):
         elif path == "/ethrox-detect/health":
             self._send_json({"ok": True, **get_version_payload()})
         elif path == "/ethrox-detect/awareness":
+            payload = get_sync_payload()
+            if _bounded_sync_mode:
+                payload = _bounded_payload(payload)
+            self._send_json(payload)
+        elif path == "/ethrox-detect/awareness/export":
+            # Deliberate, explicit full-map pull. Never called by
+            # NodeSyncManager's periodic loop -- always returns the complete
+            # payload regardless of bounded mode. Intended for an approved
+            # non-field client requesting the map on purpose, not automated
+            # sync traffic.
             self._send_json(get_sync_payload())
         elif path == "/ethrox-detect/sdr/deep-scan/status":
             self._send_json({"status": "idle", **get_version_payload()})
@@ -1110,6 +1146,8 @@ class _SyncHandler(BaseHTTPRequestHandler):
                 snapshot = json.loads(body)
                 result = merge_snapshot(snapshot)
                 payload = get_sync_payload()
+                if _bounded_sync_mode:
+                    payload = _bounded_payload(payload)
                 payload["merged"] = result.get("merged", 0)
                 # Return the UUIDs of every sighting we successfully assimilated
                 # so the sending node (Windows/Android/Linux) can compact its journal

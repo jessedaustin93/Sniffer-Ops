@@ -50,13 +50,19 @@ class NodeSyncManager:
     def __init__(self, awareness_log_module, node_id: str, node_name: str,
                  peers: list[dict] | None = None,
                  on_peer_update: "callable | None" = None,
-                 on_sync_complete: "callable | None" = None):
+                 on_sync_complete: "callable | None" = None,
+                 outbound_only: bool = False):
         self._log        = awareness_log_module
         self._node_id    = node_id
         self._node_name  = node_name
         self._peers: list[dict] = list(peers or [])
         self._on_update  = on_peer_update    # called with updated peer list on discovery
         self._on_sync_complete = on_sync_complete  # called after each successful sync
+        # A field node syncing to a consolidator that holds a much larger
+        # log than this node can safely receive -- see the Pi crash this
+        # was added to prevent. Push and acknowledgement-processing still
+        # happen normally; only pulling/merging a peer's data is disabled.
+        self._outbound_only = outbound_only
         self._running    = False
         self._lock       = threading.Lock()
         self._thread: threading.Thread | None = None
@@ -313,6 +319,18 @@ class NodeSyncManager:
                 except Exception as exc:
                     log.warning("_sync_peer: mark_synced failed: %s", exc)
 
+            if self._outbound_only:
+                # Never pull or merge a peer's data -- push and acknowledgement
+                # handling above already happened; stop here.
+                if self._on_sync_complete:
+                    try:
+                        self._on_sync_complete()
+                    except Exception:
+                        pass
+                if ack_count:
+                    return f"ok (outbound only) — {ack_count} sightings acked"
+                return "ok (outbound only) — pushed"
+
             # If the POST response has no signals (Windows/Android return signals:[] in
             # the ack response), follow up with a GET to pull their full compiled
             # awareness — this is how GPS-tagged sightings from Android reach Linux.
@@ -349,7 +367,12 @@ class NodeSyncManager:
                 return f"ok — {n} signals from peer, {ack_count} sightings acked"
             return f"ok — {n} signals from peer"
 
-        # POST failed entirely; try a plain GET pull
+        # POST failed entirely.
+        if self._outbound_only:
+            # Do not fall back to a GET pull -- an unreachable/erroring
+            # consolidator must not turn into an inbound full-log merge.
+            raise ConnectionError(f"no response from {host}:{port}")
+
         pulled = _http_get_any(host, port, AWARENESS_PATHS,
                                timeout=self.SYNC_TIMEOUT)
         if pulled and (pulled.get("signals") or pulled.get("Signals")):

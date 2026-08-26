@@ -281,6 +281,20 @@ def main() -> None:
                         help="Run scanners and API without rendering a terminal UI")
     parser.add_argument("--no-gps", action="store_true",
                         help="Disable GPS tagging via gpsd")
+    parser.add_argument("--outbound-only", action="store_true",
+                        help="Never pull or merge a peer's data on sync -- "
+                             "only push our own payload and process its "
+                             "acknowledgement. For field nodes syncing to a "
+                             "consolidator that holds a much larger log than "
+                             "this node can safely receive.")
+    parser.add_argument("--bounded-sync", action="store_true",
+                        help="Never send this node's full compiled map over "
+                             "POST /sync or GET /awareness -- only status/ack "
+                             "fields. For a consolidator hub whose map is too "
+                             "large for periodic sync peers to receive. The "
+                             "full map stays available at GET "
+                             "/ethrox-detect/awareness/export for an explicit, "
+                             "deliberate pull by an approved non-field client.")
     args = parser.parse_args()
 
     if args.version:
@@ -290,6 +304,8 @@ def main() -> None:
     # Init awareness log
     os.makedirs(DATA_DIR, exist_ok=True)
     awareness_log.initialize(LOG_PATH)
+    if args.bounded_sync:
+        awareness_log.set_bounded_sync_mode(True)
 
     # Load config.json for home-network location fallback (optional; the
     # file may not exist on every install)
@@ -315,7 +331,8 @@ def main() -> None:
         peers.append({"host": host, "port": port, "name": name})
 
     # Node sync manager (push/pull with Windows + other Linux nodes)
-    sync_manager = NodeSyncManager(awareness_log, NODE_ID, NODE_NAME, peers)
+    sync_manager = NodeSyncManager(awareness_log, NODE_ID, NODE_NAME, peers,
+                                    outbound_only=args.outbound_only)
     sync_manager.start()
 
     # Start scanners
