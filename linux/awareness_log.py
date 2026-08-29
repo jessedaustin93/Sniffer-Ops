@@ -14,7 +14,7 @@ import re
 import threading
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 from typing import Any
 
 import db
@@ -273,6 +273,53 @@ def get_version_payload() -> dict:
         "commit": "",
         "platform": "linux",
         "service": "ethrox-detect-awareness",
+    }
+
+
+def get_alert_feed(since_ms: int = 0, min_class: str = "Watch") -> dict:
+    """Compact, bounded feed of Alert/Watch-classified profiles for field
+    devices (phone, CYD, Pi client). Each entry carries a stable id so a
+    consumer can deduplicate/acknowledge without re-deriving one, plus a
+    short evidence string instead of the full timeline/sightings. This is
+    intentionally NOT the full awareness map -- see /awareness/export for
+    that deliberate, explicit pull.
+    """
+    floor = _class_rank(min_class)
+    profiles = db.get_all_profiles()
+    items: list[dict] = []
+    for p in profiles:
+        cls = _profile_class(p)
+        if _class_rank(cls) < floor:
+            continue
+        last_seen_ms = int(p.get("last_seen") or 0)
+        if last_seen_ms < since_ms:
+            continue
+
+        raw_timeline = p.get("timeline") or "[]"
+        if isinstance(raw_timeline, str):
+            try:
+                timeline = json.loads(raw_timeline)
+            except (json.JSONDecodeError, TypeError):
+                timeline = []
+        else:
+            timeline = raw_timeline
+        evidence = timeline[-1]["Summary"] if timeline else (p.get("notes") or "")
+
+        items.append({
+            "id":            p.get("id") or "",
+            "name":          _display_name(p),
+            "type":          p.get("type") or "",
+            "severity":      cls.upper(),          # ALERT / WATCH
+            "threatLevel":   p.get("threat_level") or "",
+            "lastSeen":      _ms_to_iso(last_seen_ms),
+            "lastSeenMs":    last_seen_ms,
+            "evidence":      evidence[:200],
+        })
+    items.sort(key=lambda i: (_class_rank(i["severity"].capitalize()), i["lastSeenMs"]), reverse=True)
+    return {
+        "generatedAtMs": int(datetime.now(timezone.utc).timestamp() * 1000),
+        "count": len(items),
+        "alerts": items,
     }
 
 
@@ -1097,6 +1144,7 @@ class _SyncHandler(BaseHTTPRequestHandler):
             "/ethrox-detect/health",
             "/ethrox-detect/awareness",
             "/ethrox-detect/awareness/export",
+            "/ethrox-detect/alerts/feed",
             "/ethrox-detect/sdr/deep-scan/status",
         ):
             self.send_response(200)
@@ -1111,13 +1159,22 @@ class _SyncHandler(BaseHTTPRequestHandler):
         self._send_head()
 
     def do_GET(self):
-        path = urlparse(self.path).path.lower()
+        parsed = urlparse(self.path)
+        path = parsed.path.lower()
         if path in ("/", "/ethrox-detect", "/ethrox-detect/", "/ethrox-detect/web"):
             self._send_html(_WEB_APP_HTML)
         elif path == "/ethrox-detect/version":
             self._send_json(get_version_payload())
         elif path == "/ethrox-detect/health":
             self._send_json({"ok": True, **get_version_payload()})
+        elif path == "/ethrox-detect/alerts/feed":
+            qs = parse_qs(parsed.query)
+            try:
+                since_ms = int(qs.get("since", ["0"])[0])
+            except ValueError:
+                since_ms = 0
+            min_class = qs.get("minClass", ["Watch"])[0]
+            self._send_json(get_alert_feed(since_ms, min_class))
         elif path == "/ethrox-detect/awareness":
             payload = get_sync_payload()
             if _bounded_sync_mode:
