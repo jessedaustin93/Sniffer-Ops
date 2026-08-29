@@ -12,6 +12,7 @@ import com.ethrox.detect.data.SignalDetectionStore
 import com.ethrox.detect.model.*
 import com.ethrox.detect.scanner.*
 import com.ethrox.detect.sync.AwarenessSyncClient
+import com.ethrox.detect.util.AlertNotifier
 import com.ethrox.detect.util.groupSignalDevices
 import com.ethrox.detect.util.sortedForLocalDisplay
 import kotlinx.coroutines.*
@@ -102,6 +103,8 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private val liveDevicesById = LinkedHashMap<String, SignalDevice>()
     private val pendingPersistById = LinkedHashMap<String, SignalDevice>()
 
+    private val alertNotifier = AlertNotifier(application)
+
     init {
         restoreEndpointSettings()
         loadPersistedSignals()
@@ -109,6 +112,18 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         loadCompactionState()
         startWearSync()
         autoConnectLinuxHub()
+        startAlertNotifications()
+    }
+
+    /** Classification already runs every state update (see [AppState.alertDevices]);
+     * this just watches for newly-appearing ALERT/SUSPICIOUS devices and posts
+     * the actual Android notification, which nothing previously did. */
+    private fun startAlertNotifications() {
+        viewModelScope.launch {
+            state.map { it.alertDevices }
+                .distinctUntilChanged()
+                .collect { alertNotifier.onAlertDevicesChanged(it) }
+        }
     }
 
     fun startAllScans() {
