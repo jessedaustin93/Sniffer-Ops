@@ -11,6 +11,7 @@ import com.ethrox.detect.model.SignalDevice
 import com.ethrox.detect.model.SignalType
 import com.ethrox.detect.model.ThreatLevel
 import com.ethrox.detect.util.DeviceClassifier
+import com.ethrox.detect.util.WifiSecurityConflictDetector
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -103,7 +104,7 @@ class WifiScanner(private val context: Context) {
         }
 
         return if (scanDevices.isNotEmpty()) {
-            scanDevices
+            WifiSecurityConflictDetector.annotate(scanDevices)
         } else {
             currentConnectionDevice()?.let { listOf(it) }.orEmpty()
         }

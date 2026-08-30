@@ -120,8 +120,20 @@ object DeviceClassifier {
             hasAny(mfrLower, SURVEILLANCE_KEYWORDS)
         val isDataStealingTool = hasAny(nameLower, rules.hostileToolKeywords) ||
             hasAny(metadataLower, rules.hostileToolKeywords)
+        // Android's manufacturerSpecificData value excludes the company ID.  The
+        // scanner records Apple as decimal 76 (0x004c), followed by the payload.
+        // 0x12 identifies Find My network advertisements, which are not unique to
+        // AirTags, so present this as a tracker *candidate* rather than a certainty.
+        val isFindMyCandidate = metadataLower.contains("manufacturerdata=76:12") ||
+            metadataLower.contains("manufacturerdata=0x004c:12") ||
+            metadataLower.contains("manufacturerdata=004c:12")
+        val isTileService = metadataLower.contains("0000feed-0000-1000-8000-00805f9b34fb") ||
+            metadataLower.contains("serviceuuid=feed") ||
+            metadataLower.contains("serviceuuid=0xfeed")
 
         val deviceClass = when {
+            isFindMyCandidate -> "Find My network accessory / tracker candidate"
+            isTileService -> "Tile tracker service"
             isFlockLike -> "Flock Safety infrastructure"
             needsFlockCorroboration -> "Possible Flock Safety infrastructure"
             isTrafficReader -> "Traffic reader / ALPR device"
@@ -141,12 +153,21 @@ object DeviceClassifier {
 
         val threat = when {
             isDataStealingTool -> ThreatLevel.ALERT
+            // These signatures identify a tracker-capable ecosystem, not malicious
+            // intent.  Keep them visible as suspicious with the raw advertisement
+            // evidence retained in notes.
+            isFindMyCandidate || isTileService -> ThreatLevel.SUSPICIOUS
             isFlockLike || needsFlockCorroboration || isTrafficReader || isSurveillance -> ThreatLevel.SUSPICIOUS
             hasAny(nameLower, NOTICED_KEYWORDS) -> ThreatLevel.UNKNOWN
             else -> ThreatLevel.SAFE
         }
 
-        return Triple(manufacturer, deviceClass, threat)
+        val classifiedManufacturer = when {
+            isFindMyCandidate -> "Apple / Find My"
+            isTileService -> "Tile"
+            else -> manufacturer
+        }
+        return Triple(classifiedManufacturer, deviceClass, threat)
     }
 
     private fun lookupOui(address: String): String {
