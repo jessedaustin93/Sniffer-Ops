@@ -4,7 +4,7 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 
 enum class SignalType {
-    WIFI, BLUETOOTH, BLE, NFC, CELLULAR, RTL_SDR, UNKNOWN
+    WIFI, BLUETOOTH, BLE, NFC, CELLULAR, RTL_SDR, MMWAVE, UNKNOWN
 }
 
 enum class ThreatLevel {
