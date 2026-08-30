@@ -10,6 +10,7 @@ API consumed by the GUI.
 
 import json
 import math
+import os
 import re
 import threading
 from datetime import datetime, timezone
@@ -19,6 +20,7 @@ from typing import Any
 
 import db
 import inference_engine
+from mmwave_presence import PresenceIngressError, presence_ingress
 import ownership
 import signal_classifier as _sc
 import signal_signatures as _sig
@@ -63,6 +65,10 @@ def initialize(path: str) -> None:
     db_path = path.replace(".json", ".db")
     db.initialize(db_path)
     db.migrate_json(path, _node_id)
+    presence_ingress.configure(os.environ.get(
+        "ETHROX_MMWAVE_NODE_REGISTRY",
+        os.path.join(os.path.dirname(db_path), "mmwave_nodes.json"),
+    ))
 
 
 # ── Numeric / geo helpers ─────────────────────────────────────────────────────
@@ -1196,7 +1202,35 @@ class _SyncHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = self.path.lower().split("?")[0]
-        if path == "/ethrox-detect/sync":
+        if path == "/ethrox-detect/events/presence":
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                if length <= 0:
+                    raise PresenceIngressError("missing request body")
+                body = self.rfile.read(length)
+                validated = presence_ingress.verify_and_normalize(self.headers, body)
+                if validated["duplicate"]:
+                    self._send_json({"accepted": True, "duplicate": True})
+                    return
+                event = validated["event"]
+                signal = presence_ingress.event_signal(event)
+                profile_id = db.signal_profile_id(signal)
+                db.write_detection(signal, event["nodeId"], now_ms=event["occurredAtMs"])
+                # Use the normal asynchronous inference refresh so HTTP ingest
+                # remains bounded even as the awareness database grows.
+                merge_snapshot({"schema": 1, "nodeId": event["nodeId"], "signals": []})
+                self._send_json({
+                    "accepted": True,
+                    "duplicate": False,
+                    "eventId": event["eventId"],
+                    "profileId": profile_id,
+                    "alertClass": "Alert" if signal["threatLevel"] == "ALERT" else "Watch",
+                }, 202)
+            except PresenceIngressError as exc:
+                self._send_json({"error": str(exc)}, exc.status)
+            except Exception:
+                self._send_json({"error": "presence ingest failed"}, 500)
+        elif path == "/ethrox-detect/sync":
             try:
                 length = int(self.headers.get("Content-Length", 0))
                 body = self.rfile.read(length).decode("utf-8")
