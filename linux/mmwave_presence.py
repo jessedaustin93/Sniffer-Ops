@@ -165,6 +165,11 @@ def _normalize_target(target: Any) -> dict[str, int | str]:
             raise PresenceIngressError(f"target.{field} must be an integer")
         out[field] = value
     motion = str(target.get("motion", "UNKNOWN")).upper()
+    # The sensor core uses NONE before it has enough samples to classify
+    # movement. It carries no distinct wire meaning, so retain the event as
+    # UNKNOWN rather than rejecting an otherwise valid presence alert.
+    if motion == "NONE":
+        motion = "UNKNOWN"
     if motion not in {"STANDING", "WALKING", "RUNNING", "UNKNOWN"}:
         raise PresenceIngressError("invalid target.motion")
     out["motion"] = motion
